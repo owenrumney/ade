@@ -1,0 +1,29 @@
+# squealer (github.com/owenrumney/squealer) runs over this repository in CI, on
+# full git history rather than the working tree: the tree being clean says
+# nothing about what is behind it.
+#
+# The built-in rule set already covers GitHub tokens, AWS keys, Slack tokens,
+# OpenAI keys and private keys, so this file is about what not to report.
+
+ignore_paths:
+  - node_modules
+  - web/src/assets
+  - internal/web/dist
+  - bin
+
+ignore_extensions:
+  - .png
+  - .svg
+  - .ico
+  - .db
+  - .sum
+
+# An exception is path:secret-hash, not a path allowlist: it covers that one
+# string in that one file, so a real secret appearing later in the same fixture
+# file is still caught. squealer prints the hash as `Exclude rule:`.
+#
+# Empty on purpose. The fixture credentials in internal/web/linear_test.go and
+# internal/sandbox/workspace_test.go are named so obviously fake
+# (ghp_EXAMPLE_NOT_A_REAL_TOKEN_9012) that no rule fires on them. Keep it that
+# way rather than growing this list.
+exceptions: []

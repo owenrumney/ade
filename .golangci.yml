@@ -1,0 +1,35 @@
+# Checked in so a contributor's `make lint` and CI agree. Without it golangci-lint
+# runs whatever defaults the locally installed version happens to ship, and a
+# green run locally says nothing about the build.
+#
+# The standard set, plus the exclusion presets. Anything beyond that is a
+# deliberate addition, not an upgrade side effect.
+version: "2"
+
+linters:
+  default: standard
+
+  disable:
+    # Seven parked symbols in internal/web (pictureBlocks, prettyInput,
+    # ticketIDRE, callSubagent, startSide, rowMu, rowPath). Turn this back on
+    # once they are used or deleted; see docs/RELEASING.md.
+    - unused
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # ST1005 wants a lowercase error string. "Linear" and "Home Assistant"
+        # are product names, and lowercasing them is wrong.
+        - -ST1005
+
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

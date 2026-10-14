@@ -1,0 +1,50 @@
+diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
+index 979711d7..c74adcf9 100644
+--- a/src/vs/code/electron-main/app.ts
++++ b/src/vs/code/electron-main/app.ts
+@@ -258,6 +258,8 @@ export class CodeApplication extends Disposable {
+ 			// TODO(deepak1556): Should be removed once migration is complete
+ 			// https://github.com/microsoft/vscode/issues/239228
+ 			'deprecated-sync-clipboard-read',
++			// ADE: only a frame whose allow attribute names microphone can ask.
++			'media',
+ 		]);
+ 
+ 		const allowedPermissionsInCore = new Set([
+diff --git a/src/vs/workbench/contrib/webview/browser/pre/index.html b/src/vs/workbench/contrib/webview/browser/pre/index.html
+index 42c7c01a..da416354 100644
+--- a/src/vs/workbench/contrib/webview/browser/pre/index.html
++++ b/src/vs/workbench/contrib/webview/browser/pre/index.html
+@@ -5,7 +5,7 @@
+ 	<meta charset="UTF-8">
+ 
+ 	<meta http-equiv="Content-Security-Policy"
+-		content="default-src 'none'; script-src 'sha256-FFQoOVVa2tOE3uqUvirwaMNT20TZmrHcL2aaOjJ8BUo=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
++		content="default-src 'none'; script-src 'sha256-r74NKSEyVUaLD7RJAwITyjz0keL4EViKoXf9UdEGgeg=' 'self'; frame-src 'self'; style-src 'unsafe-inline';">
+ 
+ 	<!-- Disable pinch zooming -->
+ 	<meta name="viewport"
+@@ -1035,6 +1035,8 @@
+ 				if (!isFirefox && options.allowScripts) {
+ 					allowRules.push('clipboard-read;', 'clipboard-write;');
+ 				}
++				// ADE: the outer frame decides who may delegate it.
++				allowRules.push('microphone;');
+ 				newFrame.setAttribute('allow', allowRules.join(' '));
+ 				// We should just be able to use srcdoc, but I wasn't
+ 				// seeing the service worker applying properly.
+diff --git a/src/vs/workbench/contrib/webview/browser/webviewElement.ts b/src/vs/workbench/contrib/webview/browser/webviewElement.ts
+index 6f913921..4dddc467 100644
+--- a/src/vs/workbench/contrib/webview/browser/webviewElement.ts
++++ b/src/vs/workbench/contrib/webview/browser/webviewElement.ts
+@@ -424,6 +424,10 @@ export class WebviewElement extends Disposable implements IWebviewElement, Webvi
+ 		if (!isFirefox) {
+ 			allowRules.push('clipboard-read', 'clipboard-write');
+ 		}
++		// ADE: dictation in ade's chat. No other extension's webview gets the microphone.
++		if (this.extension?.id.value.toLowerCase() === 'owenrumney.ade') {
++			allowRules.push('microphone');
++		}
+ 		element.setAttribute('allow', allowRules.join('; '));
+ 
+ 		element.style.border = 'none';

@@ -1,0 +1,36 @@
+bin/
+/dist/
+# `go build ./tools/seedchat` with no -o drops the binary here. shots.sh uses
+# `go run`, so nothing reads it.
+/seedchat
+*.log
+*.pid
+.scratch/
+.ade/terraform/
+
+# Terraform working files. State names the account, the operator's IP and any
+# secret a resource carries; the provider cache is hundreds of MB of binaries.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+node_modules/
+internal/web/dist/
+extension/web-ext-artifacts/
+*.test
+
+# Local environment. Never committed.
+.env
+.DS_Store
+tmp/
+shell/
+# The editor fork build tree: a VSCodium checkout plus a vscode checkout and
+# its node_modules, several GB. tools/editor/fetch.sh recreates it.
+editor/vscodium
+editor/node24/
+
+# Role and agent prompts: they name people and employers, so they live in
+# ade-private. Copy them in with `make private`.
+internal/roles/defaults/*.md
+internal/agents/defaults/*.md

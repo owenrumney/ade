@@ -1,0 +1,43 @@
+diff --git a/src/vs/platform/extensions/common/extensionsApiProposals.ts b/src/vs/platform/extensions/common/extensionsApiProposals.ts
+index d2114197..89c3b94b 100644
+--- a/src/vs/platform/extensions/common/extensionsApiProposals.ts
++++ b/src/vs/platform/extensions/common/extensionsApiProposals.ts
+@@ -198,6 +198,9 @@ const _allApiProposals = {
+ 	contribStatusBarItems: {
+ 		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.contribStatusBarItems.d.ts',
+ 	},
++	contribTitleBarMenu: {
++		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.contribTitleBarMenu.d.ts',
++	},
+ 	contribViewContainerTitle: {
+ 		proposal: 'https://raw.githubusercontent.com/microsoft/vscode/main/src/vscode-dts/vscode.proposed.contribViewContainerTitle.d.ts',
+ 	},
+diff --git a/src/vs/workbench/services/actions/common/menusExtensionPoint.ts b/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
+index 4e2a78f0..159c9bb0 100644
+--- a/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
++++ b/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
+@@ -131,6 +131,12 @@ const apiMenus: IAPIMenu[] = [
+ 		id: MenuId.NotebookVariablesContext,
+ 		description: localize('menus.notebookVariablesContext', "The notebook variables view context menu")
+ 	},
++	{
++		key: 'titleBar',
++		id: MenuId.TitleBar,
++		description: localize('menus.titleBar', "The toolbar at the right of the window title bar"),
++		proposed: 'contribTitleBarMenu'
++	},
+ 	{
+ 		key: 'menuBar/home',
+ 		id: MenuId.MenubarHomeMenu,
+diff --git a/src/vscode-dts/vscode.proposed.contribTitleBarMenu.d.ts b/src/vscode-dts/vscode.proposed.contribTitleBarMenu.d.ts
+new file mode 100644
+index 00000000..ef14aa3f
+--- /dev/null
++++ b/src/vscode-dts/vscode.proposed.contribTitleBarMenu.d.ts
+@@ -0,0 +1,6 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++// empty placeholder declaration for the `titleBar` menu contribution point

@@ -1,0 +1,265 @@
+/* The editor's own tokens throughout: this is a pane of VS Code. */
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font: var(--vscode-font-size) var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+h1 {
+  font-size: 1.2em;
+  margin: 0;
+}
+.said {
+  margin: 0;
+  flex: 1;
+  color: var(--vscode-descriptionForeground);
+}
+.base,
+.none,
+.note {
+  color: var(--vscode-descriptionForeground);
+  margin: 10px 0 14px;
+}
+.note {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+button {
+  font: inherit;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+button:disabled {
+  opacity: 0.5;
+}
+
+/* The arc column and the rows are two children of one row-aligned box: the
+   SVG is one drawing so an arc can cross a lane, and the lanes are real DOM
+   so a row is a button. */
+.board {
+  display: flex;
+  align-items: flex-start;
+}
+.stripe {
+  flex: none;
+  position: relative;
+}
+.rails {
+  display: block;
+  overflow: visible;
+}
+
+/* A rail is a line you follow, so it is as solid as the trunk and only the
+   tie — which is not a line anything travelled — is dashed. */
+.trunk,
+.rail {
+  fill: none;
+  stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.trunk {
+  stroke: var(--vscode-foreground);
+}
+.tie {
+  fill: none;
+  stroke: var(--vscode-editorWarning-foreground);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+}
+
+.dot {
+  fill: var(--vscode-editor-background);
+  stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  stroke-width: 2;
+}
+.dot.base {
+  fill: var(--vscode-foreground);
+  stroke: var(--vscode-foreground);
+}
+.dot.spare {
+  stroke: var(--vscode-descriptionForeground);
+}
+.dot.commit {
+  fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  stroke: none;
+}
+
+.lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+}
+.lane {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  box-sizing: border-box;
+}
+.lane:last-child {
+  border-bottom: none;
+}
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 10px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border-radius: 0;
+}
+.lane-head:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+.lane-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lane-state {
+  color: var(--vscode-descriptionForeground);
+}
+.verdict {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.verdict.spare {
+  color: var(--vscode-charts-green, var(--vscode-descriptionForeground));
+  font-style: normal;
+}
+
+.tag {
+  font-size: 0.85em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+.tag.duplicates {
+  color: var(--vscode-editorWarning-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-editorWarning-foreground);
+}
+.tag.absorbed,
+.tag.elsewhere {
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.commits {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0 10px 0 22px;
+}
+.commit {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+}
+.commit.empty {
+  color: var(--vscode-descriptionForeground);
+}
+.sha {
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-descriptionForeground);
+}
+.subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.key {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 18px 0 0;
+}
+
+.tick {
+  flex: none;
+  margin: 0 2px 0 0;
+  accent-color: var(--vscode-button-background);
+}
+.tick:disabled {
+  opacity: 0.35;
+}
+
+/* Below the drawing: you read the graph, then choose. */
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.bar .said {
+  flex: none;
+}
+.note.stuck {
+  flex-basis: 100%;
+  margin: 0;
+}
+.tick-gap {
+  flex: none;
+  width: 13px;
+}
+
+/* The row holds the buttons; it is no longer one itself. */
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 10px;
+}
+.lane-head:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.fold {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border-radius: 0;
+}
+.merge {
+  flex: none;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+.merge:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}

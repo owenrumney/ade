@@ -1,0 +1,50 @@
+# Publishes the agent's container image from sandbox/Dockerfile, for both
+# the machines it runs on: amd64 (the Linux box) and arm64 (the Mac, under
+# Apple's container or Docker). The binary pulls this name on first use;
+# `make sandbox-image` builds the same Dockerfile under it locally.
+name: sandbox image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - sandbox/**
+      - .github/workflows/sandbox-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: sandbox
+          load: true
+          tags: ade-agent:smoke
+      - name: Verify Docker access from the sandbox
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ade-agent:smoke docker ps
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ade-agent:smoke docker compose version
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ade-agent:smoke docker run --rm hello-world
+      - uses: docker/build-push-action@v6
+        with:
+          context: sandbox
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ade-agent:latest
+            ghcr.io/${{ github.repository_owner }}/ade-agent:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

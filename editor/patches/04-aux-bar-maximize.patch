@@ -1,0 +1,16 @@
+diff --git a/src/vs/workbench/browser/layout.ts b/src/vs/workbench/browser/layout.ts
+index 575291cb..74aebafc 100644
+--- a/src/vs/workbench/browser/layout.ts
++++ b/src/vs/workbench/browser/layout.ts
+@@ -2195,9 +2195,8 @@ export abstract class Layout extends Disposable implements IWorkbenchLayoutServi
+ 				const size = this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).width;
+ 				this.stateModel.setRuntimeValue(LayoutStateKeys.AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE, size);
+ 
+-				if (state.sideBarVisible) {
+-					this.setSideBarHidden(true);
+-				}
++				// ADE: a maximized auxiliary bar takes the editor, not the side bar,
++				// so the tree is still there to pick the next thing from.
+ 				if (state.panelVisible) {
+ 					this.setPanelHidden(true);
+ 				}

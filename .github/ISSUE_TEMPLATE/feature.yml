@@ -1,0 +1,26 @@
+name: Feature request
+description: Something ade should do and does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to do when ade got in the way. Not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: want
+    attributes:
+      label: What you'd like
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including whatever you are doing instead today.
+    validations:
+      required: false

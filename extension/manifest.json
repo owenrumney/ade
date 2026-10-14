@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Open in ADE",
+  "version": "0.2.1",
+  "description": "Open the pull request you are looking at in ADE, and start ADE again when a session closes.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sow@owenrumney.github.io",
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*/*/pull/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "ade.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "icons": {
+    "48": "icons/ade.svg",
+    "96": "icons/ade.svg"
+  }
+}

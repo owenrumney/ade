@@ -1,0 +1,8 @@
+The roles ade ships with are not in this repository. They name people, employers
+and internal conventions, so they live in the private ade-private repository.
+
+Copy them in with: make private
+
+Without them ade still runs: 'ade roles install' installs nothing and the
+machine's own roles directory is used as it always was. Only .md files here are
+read, so this note is ignored.

@@ -1,0 +1,16 @@
+:root { color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); }
+body { margin: 0; background: var(--vscode-editor-background); }
+main { max-width: 760px; margin: 0 auto; padding: 24px; }
+h1 { margin: 0; font-size: 1.5em; }
+h2 { font-size: 1.1em; }
+#path, #instruction-limit { color: var(--vscode-descriptionForeground); font-size: .9em; }
+section { border-top: 1px solid var(--vscode-panel-border); margin-top: 24px; padding-top: 12px; }
+label { display: block; margin: 12px 0; }
+input, textarea { box-sizing: border-box; display: block; width: 100%; margin-top: 5px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; padding: 7px; }
+textarea { resize: vertical; }
+button { margin: 4px 8px 4px 0; border: 0; background: var(--vscode-button-background); color: var(--vscode-button-foreground); font: inherit; padding: 7px 12px; cursor: pointer; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+.secret { margin: 12px 0; }
+.secret label span { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.check input { display: inline; width: auto; margin-right: 8px; }
+#status { min-height: 1.4em; color: var(--vscode-errorForeground); margin: 18px 0 6px; }

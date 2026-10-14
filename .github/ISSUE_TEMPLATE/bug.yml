@@ -1,0 +1,85 @@
+name: Bug report
+description: Something ade does that it should not.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report a security vulnerability here — see
+        [SECURITY.md](https://github.com/owenrumney/ade/security/policy).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what ade did back.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ade in a checkout of …
+        2. Open the Diff tab
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ade version
+      description: The output of `ade version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude
+        - Codex
+        - Pi
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sandboxed
+    attributes:
+      label: Sandboxed
+      description: ade sandboxes by default. `--sandbox=false` turns it off.
+      options:
+        - "yes"
+        - "no"
+        - don't know
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Anything ade printed, and anything in the browser console.
+      render: shell
+    validations:
+      required: false

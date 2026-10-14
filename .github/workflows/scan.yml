@@ -1,0 +1,80 @@
+# Secrets, vulnerable dependencies, and gosec.
+#
+# squealer runs over full git history, not the working tree: the tree being
+# clean says nothing about what is behind it, and publication makes every
+# reachable commit readable.
+name: scan
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned to a release, not the action's `version: latest`. A scanner that
+  # changes its rule set under you turns a green build into a meaningless one.
+  SQUEALER_VERSION: v1.2.12
+  # Same reason, for the tools installed with `go install`.
+  GOVULNCHECK_VERSION: v1.1.4
+  GOSEC_VERSION: v2.22.0
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: install squealer
+        run: |
+          curl -sSfL -o /usr/local/bin/squealer \
+            "https://github.com/owenrumney/squealer/releases/download/${SQUEALER_VERSION}/squealer.linux.amd64"
+          chmod +x /usr/local/bin/squealer
+      - name: scan every commit
+        run: squealer --everything --config-file .squealer.yaml .
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+      - run: govulncheck ./...
+
+  gosec:
+    runs-on: ubuntu-latest
+    permissions:
+      # upload-sarif reads the run it belongs to, which is actions: read.
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+      # Not a gate yet. 29 findings predate this workflow — mostly G702/G703/G704
+      # taint analysis over a tool whose job is to run commands and walk paths.
+      # They need triage before a new finding can be made to fail the build.
+      - run: gosec -no-fail -fmt sarif -out gosec.sarif ./...
+      # -no-fail means the upload is the only thing that reports a finding, and
+      # a private repo has no upload: print them where the log will carry them.
+      - if: github.event.repository.private
+        run: gosec -no-fail -fmt text ./...
+      # Code scanning is off on a private repo, and the upload fails without it.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !github.event.repository.private }}
+        with:
+          sarif_file: gosec.sarif
+      # Nowhere to upload it to, so it is kept where someone can still read it.
+      - uses: actions/upload-artifact@v4
+        if: github.event.repository.private
+        with:
+          name: gosec-sarif
+          path: gosec.sarif

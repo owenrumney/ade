@@ -1,0 +1,10 @@
+{
+  "name": "ade-shots",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Drives the built ade against a fixture home and captures named views.",
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

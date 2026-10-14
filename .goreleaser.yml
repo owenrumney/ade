@@ -1,0 +1,41 @@
+# The Go binary only. docs/RELEASING.md has what is decided and what is not.
+version: 2
+
+builds:
+  - id: ade
+    main: ./cmd/ade
+    binary: ade
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: ade
+    formats: [tar.gz]
+    name_template: "ade_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore\\(deps\\):"
+
+release:
+  draft: true
+  prerelease: auto

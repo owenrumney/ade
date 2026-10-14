@@ -1,0 +1,27 @@
+diff --git a/src/vs/workbench/contrib/search/browser/searchQuickAccess.contribution.ts b/src/vs/workbench/contrib/search/browser/searchQuickAccess.contribution.ts
+index 7bee3d41..a80e186e 100644
+--- a/src/vs/workbench/contrib/search/browser/searchQuickAccess.contribution.ts
++++ b/src/vs/workbench/contrib/search/browser/searchQuickAccess.contribution.ts
+@@ -12,6 +12,8 @@ import { GotoSymbolQuickAccessProvider } from '../../codeEditor/browser/quickacc
+ import { AnythingQuickAccessProvider } from './anythingQuickAccess.js';
+ import { SymbolsQuickAccessProvider } from './symbolsQuickAccess.js';
+ import './searchActionsSymbol.js';
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
++import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+ 
+ const quickAccessRegistry = Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess);
+ 
+@@ -34,3 +36,13 @@ quickAccessRegistry.registerQuickAccessProvider({
+ 	contextKey: 'inWorkspaceSymbolsPicker',
+ 	helpEntries: [{ description: nls.localize('symbolsQuickAccess', "Go to Symbol in Workspace"), commandId: 'workbench.action.showAllSymbols' }]
+ });
++
++//#region ade
++
++// The ade extension asks for the big box before each quick input it shows;
++// the controller clears it when that one hides.
++CommandsRegistry.registerCommand('ade.omnibox.large', accessor => {
++	accessor.get(IQuickInputService).setLarge?.(true);
++});
++
++//#endregion

@@ -1,0 +1,16 @@
+{
+  "name": "ade-firefox",
+  "version": "0.2.1",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Open in ADE: the Firefox add-on",
+  "scripts": {
+    "lint": "web-ext lint --source-dir .",
+    "build": "web-ext build --source-dir . --overwrite-dest",
+    "sign": "web-ext sign --source-dir . --channel unlisted",
+    "start": "web-ext run --source-dir ."
+  },
+  "devDependencies": {
+    "web-ext": "^10.7.0"
+  }
+}

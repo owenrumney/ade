@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ade · Permissions</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #1e222a;
+        --panel: #272b33;
+        --text: #d8dee9;
+        --muted: #8a93a5;
+        --line: #3b4252;
+        --red: #bf616a;
+        --green: #a3be8c;
+      }
+      body {
+        margin: 0;
+        padding: 1.2rem 1.4rem 3rem;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      h1 {
+        font-size: 1.1rem;
+        margin: 0 0 0.2rem;
+      }
+      h2 {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 1.6rem 0 0.4rem;
+      }
+      p.note {
+        color: var(--muted);
+        margin: 0 0 1rem;
+      }
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.3rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        margin-bottom: 0.3rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        flex: 1;
+        overflow-wrap: anywhere;
+      }
+      button {
+        font: inherit;
+        font-size: 0.85em;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      button:hover {
+        color: var(--text);
+        border-color: var(--red);
+      }
+      form {
+        display: flex;
+        gap: 0.4rem;
+        margin-top: 0.5rem;
+      }
+      input {
+        flex: 1;
+        font: inherit;
+        font-family: ui-monospace, Menlo, monospace;
+        padding: 0.3rem 0.5rem;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+      }
+      #find {
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 1rem;
+      }
+      .free {
+        border: 1px solid var(--red);
+        border-radius: 5px;
+        padding: 0.4rem 0.6rem;
+        margin-bottom: 1rem;
+      }
+      .empty {
+        color: var(--muted);
+      }
+      .deny code {
+        color: var(--red);
+      }
+      .allow code {
+        color: var(--green);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Permissions</h1>
+    <p class="note" id="where"></p>
+    <div id="free"></div>
+    <input id="find" type="search" placeholder="filter rules" aria-label="filter rules" />
+    <div id="lists"></div>
+
+    <script>
+      const token = new URLSearchParams(location.search).get("t") || "";
+      const api = (body) =>
+        fetch("/api/permissions", {
+          method: body ? "POST" : "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Ade-Token": token,
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        }).then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)));
+
+      const el = (html) => {
+        const t = document.createElement("template");
+        t.innerHTML = html.trim();
+        return t.content.firstElementChild;
+      };
+
+      function list(title, rules, kind, forgettable) {
+        const box = el(`<section><h2>${title}</h2><ul></ul></section>`);
+        const ul = box.querySelector("ul");
+        if (!rules.length) {
+          const why = query() ? "no match" : "nothing";
+          ul.append(el(`<li class="empty"><code>${why}</code></li>`));
+        }
+        for (const rule of rules) {
+          const li = el(
+            `<li class="${kind}"><code></code>${forgettable ? "<button>forget</button>" : ""}</li>`,
+          );
+          li.querySelector("code").textContent = rule;
+          li.querySelector("button")?.addEventListener("click", () =>
+            api({ rule, forget: true }).then(draw),
+          );
+          ul.append(li);
+        }
+        return box;
+      }
+
+      function adder(label, deny) {
+        const form = el(
+          `<form><input placeholder="${label}" /><button>add</button></form>`,
+        );
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const input = form.querySelector("input");
+          if (!input.value.trim()) return;
+          api({ rule: input.value.trim(), deny }).then((state) => {
+            input.value = "";
+            draw(state);
+          });
+        });
+        return form;
+      }
+
+      // shown is the rule set as the server last gave it, so filtering redraws
+      // without asking again.
+      let shown = { session: [], allow: [], deny: [], free: false, file: "" };
+
+      const query = () =>
+        document.getElementById("find").value.trim().toLowerCase();
+
+      // Sorted, not in the order they were granted: a rule you added last week
+      // is where you look for it rather than wherever it happened to land.
+      function matching(rules) {
+        const q = query();
+        const found = q
+          ? rules.filter((r) => r.toLowerCase().includes(q))
+          : rules;
+        return [...found].sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: "base" }),
+        );
+      }
+
+      function draw(state) {
+        if (state) shown = state;
+        document.getElementById("where").textContent = shown.file
+          ? "Written to " + shown.file + ". Session rules are never written."
+          : "";
+        const free = document.getElementById("free");
+        free.innerHTML = "";
+        if (shown.free)
+          free.append(
+            el(
+              '<div class="free">Running free — calls are not checked, apart from the deny rules.</div>',
+            ),
+          );
+        const lists = document.getElementById("lists");
+        lists.innerHTML = "";
+        lists.append(list("This session", matching(shown.session), "allow", true));
+        lists.append(list("Always allow", matching(shown.allow), "allow", true));
+        lists.append(adder("Bash(go test:*)", false));
+        lists.append(list("Always deny", matching(shown.deny), "deny", true));
+        lists.append(adder("Bash(git push --force:*)", true));
+      }
+
+      document.getElementById("find").addEventListener("input", () => draw());
+
+      api().then(draw, (err) => {
+        document.getElementById("where").textContent = "Could not read the rules: " + err;
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+/* The concierge wearing another coat. Loaded after chat.css, and only for the
+   desk: everything here exists so the two are never mistaken at a glance. */
+
+#desk {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 2px solid var(--vscode-charts-yellow, var(--vscode-focusBorder));
+}
+
+#deskbell {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+#deskbell svg {
+  width: 17px;
+  height: 17px;
+  color: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+}
+
+#deskwhat {
+  font-weight: 400;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The warm edge runs the height of the pane, so the desk is recognisable from
+   the corner of the eye with nothing of its header in view. */
+#ade.desk {
+  border-left: 2px solid var(--vscode-charts-yellow, var(--vscode-focusBorder));
+}
+
+/* The desk answers in lines, not in turns of work: tighter than the session's
+   chat, and no agent bubble pretending to be a colleague. */
+#ade.desk #list {
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+#ade.desk .msg {
+  border-radius: 4px;
+}
+
+#ade.desk #composer {
+  border-top: 1px solid var(--vscode-editorWidget-border, transparent);
+}

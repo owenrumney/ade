@@ -1,0 +1,613 @@
+/* The editor's own tokens throughout: this is a pane of VS Code, not a page
+   embedded in one, so there is no palette of its own to reconcile. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font: var(--vscode-font-size) var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+#ade {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The bubble takes the pane; the measure is capped on the prose inside it, so a
+   table and a code block get the width a wide editor actually has. */
+.msg {
+  max-width: 100%;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border, transparent);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.msg.you {
+  align-self: flex-end;
+  max-width: min(100%, 46rem);
+  background: var(--vscode-textBlockQuote-background);
+}
+
+/* The avatar keeps its width while the prose takes the rest; min-width on the
+   column is what stops a long unbroken token pushing the circle off. */
+.said { flex: 1 1 auto; min-width: 0; }
+.face { flex: 0 0 auto; }
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+.avatar.you {
+  background: var(--vscode-textLink-foreground);
+  color: var(--vscode-editor-background);
+}
+
+.avatar.named {
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  border: 1px solid currentColor;
+  font-size: 0.75em;
+  font-weight: 700;
+}
+
+.head {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 4px;
+}
+
+/* Your own message is escaped text in one paragraph, so its newlines are the
+   ones you typed. The agent's is rendered html and keeps html's own folding. */
+.msg.you .body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.body :first-child { margin-top: 0; }
+.body :last-child { margin-bottom: 0; }
+
+.body pre {
+  background: var(--vscode-textCodeBlock-background);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.body code {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.95em;
+}
+
+/* On the wrapper: a pre scrolls and would carry the button off with it. */
+.body .block { position: relative; }
+.body .block .copycode {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 80ms linear;
+}
+.body .block:hover .copycode,
+.body .block .copycode:focus-visible { opacity: 1; }
+.body .block .copycode:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.body a { color: var(--vscode-textLink-foreground); }
+
+/* Prose reads badly across a wide pane, so paragraphs and lists keep a measure
+   of their own. Tables, code and pictures are laid out, not read, and take the
+   rest — which is what the bubble's old 46rem cap was denying them. */
+.body > p,
+.body > ul,
+.body > ol,
+.body > blockquote,
+.body > h1,
+.body > h2,
+.body > h3,
+.body > h4 {
+  max-width: 62rem;
+}
+
+/* A markdown table arrives as bare html, which browsers draw with no rules and
+   no padding at all: columns ran together and a cell wrapped mid-phrase. */
+.body table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.body th,
+.body td {
+  padding: 5px 10px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+
+.body thead th {
+  font-weight: 600;
+  background: var(--vscode-keybindingTable-headerBackground,
+    var(--vscode-editorWidget-background));
+}
+
+.body tbody tr:nth-child(even) {
+  background: var(--vscode-keybindingTable-rowsBackground,
+    var(--vscode-textBlockQuote-background));
+}
+
+/* A file:line or a command is one token to the reader; wrapping it mid-path is
+   what made the table hard to scan. The column widens instead. */
+.body td code,
+.body th code {
+  white-space: nowrap;
+}
+
+.tool,
+.note-row,
+.spinner {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  padding-left: 4px;
+}
+
+.tool.failed { color: var(--vscode-errorForeground); }
+.note-row.failed > summary,
+.note-row.failed { color: var(--vscode-errorForeground); }
+
+/* A failing check's output, folded under the note that names it. */
+.note-row > summary { cursor: pointer; }
+
+.note-row pre {
+  margin: 4px 0 0 12px;
+  white-space: pre-wrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.note-row a {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+
+.spinner { font-style: italic; }
+
+#composer {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#box {
+  resize: vertical;
+  min-height: 60px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+#box:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+#tray {
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+#tray.on { display: flex; }
+
+.chip,
+#send {
+  font: inherit;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.chip {
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+#send:hover { background: var(--vscode-button-hoverBackground); }
+#send:disabled { opacity: 0.6; cursor: default; }
+
+#stop {
+  font: inherit;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+#stop:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#stop:disabled { opacity: 0.6; cursor: default; }
+#stop[hidden] { display: none; }
+
+#mic {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: calc(1lh + 8px);
+  height: calc(1lh + 8px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  touch-action: none;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+#mic svg { width: 14px; height: 14px; }
+
+#mic:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#mic.live {
+  color: var(--vscode-editor-background);
+  background: var(--vscode-errorForeground);
+}
+
+#sharpen {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#sharpen.on { display: flex; }
+
+.sharpen-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.pick {
+  font: inherit;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.pick:hover { background: var(--vscode-button-secondaryHoverBackground); }
+
+#row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#note {
+  display: none;
+  font-size: 0.9em;
+  color: var(--vscode-errorForeground);
+}
+
+#note.on { display: block; }
+
+#hint {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tools {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  padding-left: 4px;
+}
+
+.tools > summary {
+  cursor: pointer;
+  list-style: revert;
+  user-select: none;
+}
+
+.tools > summary.failed { color: var(--vscode-errorForeground); }
+.tools > .tool { padding-left: 14px; }
+
+/* The turn stops here until one of these is clicked, so it is a panel rather
+   than a line in a collapsed run. */
+.question {
+  border: 1px solid var(--vscode-widget-border);
+  border-left: 2px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  background: var(--vscode-editorWidget-background);
+}
+
+.question.open {
+  border-left-color: var(--vscode-focusBorder);
+}
+
+.question-one + .question-one { margin-top: 10px; }
+
+.question-header {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.question-text { margin: 2px 0 6px; }
+
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.question-option {
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.question-option.on {
+  border-color: var(--vscode-focusBorder);
+  color: var(--vscode-textLink-foreground);
+}
+
+.question-option:disabled { cursor: default; opacity: 0.6; }
+
+.question-reason,
+.question-rule {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0;
+  padding: 3px 6px;
+  font: inherit;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+}
+
+.question-answer {
+  margin-top: 6px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.question-answer-btn {
+  margin-top: 8px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.question-answer-btn:disabled { opacity: 0.5; cursor: default; }
+
+.question-options { align-items: center; }
+.question-options .question-answer-btn { margin-top: 0; }
+
+/* A selection an editor put on the next message, as against a file dropped
+   on it: it reads rather than downloads, so it is outlined not filled. */
+.chip.context {
+  background: transparent;
+  border: 1px solid var(--vscode-textLink-foreground);
+  color: var(--vscode-textLink-foreground);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What a message carries besides its words: an outbox picture on a reply, or a
+   file dropped on a prompt. Without these the editor showed neither. */
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.shotbtn {
+  padding: 0;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+  overflow: hidden;
+}
+
+.shotbtn:hover { border-color: var(--vscode-focusBorder); }
+.shot { display: block; max-width: 320px; max-height: 240px; }
+
+/* The lightbox, as the app's own gallery is: one picture over the thread, the
+   arrows walking every other one in it. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  color: var(--vscode-foreground);
+}
+
+.lightbox-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightbox-count { color: var(--vscode-descriptionForeground); }
+.lightbox-shot {
+  max-width: 100%;
+  max-height: calc(100% - 50px);
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.lightbox-step {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 4px;
+  font-size: 1.6em;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.lightbox-step.prev { left: 12px; }
+.lightbox-step.next { right: 12px; }
+.lightbox-step:hover { background: var(--vscode-button-hoverBackground); }
+
+/* The verbs on a message that carries something to act on: a named agent's
+   reply, with a document open to fold it into. */
+.acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msg.hid { opacity: 0.7; }
+
+.undo {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.undo ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A url in a bubble. The editor opens it; this only makes it look like what it
+   is, since a webview gives an anchor no styling of its own. */
+.body a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.body a:hover { text-decoration: underline; }
+
+/* A verb that is always there reads as a link, not a button: Update doc is an
+   offer worth a chip, and Copy beside it would make every bubble a toolbar. */
+.linkact {
+  font: inherit;
+  font-size: 0.9em;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+}
+
+.linkact:hover {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+}
+
+.linkact:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
+/* A prompt welded to the one above sits under it the way a chip does. */
+.folded {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.folded-msg {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.folded-msg + .folded-msg { margin-top: 6px; }
+
+.fold-note {
+  margin-top: 6px;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.side-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.9em;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
