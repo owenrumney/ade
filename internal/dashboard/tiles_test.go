@@ -104,7 +104,7 @@ func stats() transcripts.Stats {
 		Sessions: 40,
 		Tools:    318,
 		Usage: transcripts.Usage{
-			Input: 1_000, Output: 200, CacheRead: 8_000, CacheWrite: 800,
+			Input: 1_000, Output: 200, CacheRead: 8_000, CacheWrite: 800, Reasoning: 50,
 		},
 		ByDay: []transcripts.Group{
 			{Key: "2026-10-01", Cost: 1.5},
@@ -118,6 +118,18 @@ func stats() transcripts.Stats {
 		},
 		ByDayModelTurns: map[string][]transcripts.Group{
 			"2026-10-04": {{Key: "claude-opus-5", Sessions: 2}, {Key: "gpt-5.6-terra", Sessions: 1}},
+		},
+		ByDayRepo: map[string][]transcripts.Group{
+			"2026-10-04": {{Key: "owenrumney/ade", Cost: 4}, {Key: "owenrumney/dashboard", Cost: 0.25}},
+		},
+		ByDayRepoTurns: map[string][]transcripts.Group{
+			"2026-10-04": {{Key: "owenrumney/ade", Sessions: 3}},
+		},
+		ByDayAgentTurns: map[string][]transcripts.Group{
+			"2026-10-04": {{Key: "claude", Sessions: 2}, {Key: "codex", Sessions: 1}},
+		},
+		TopSessions: map[string][]transcripts.SessionCost{
+			"2026-10-04": {{ID: "s-1", Repo: "owenrumney/ade", Cost: 3}, {ID: "s-2", Repo: "owenrumney/dashboard", Cost: 0.25}},
 		},
 		ByToolFailure: []transcripts.Group{{Key: "Bash", Sessions: 2}},
 		Failed:        2, Retries: 1, Compactions: 3, Interventions: 4,
@@ -138,7 +150,7 @@ func stats() transcripts.Stats {
 
 func TestTheUsageTilesAreSummedAcrossMachines(t *testing.T) {
 	tiles := Usage(stats(), "mbp", now, SparkDays)
-	require.Len(t, tiles, 20)
+	require.Len(t, tiles, 23)
 
 	by := map[string]Tile{}
 	for _, tile := range tiles {
@@ -151,8 +163,9 @@ func TestTheUsageTilesAreSummedAcrossMachines(t *testing.T) {
 	assert.Equal(t, Sum, by["value.today"].Reduce)
 	assert.Equal(t, Sum, by["value.by_model"].Reduce)
 	assert.Equal(t, Sum, by["value.by_machine"].Reduce)
-	assert.Equal(t, Sum, by["tokens.cacheread"].Reduce)
-	assert.Equal(t, Sum, by["tokens.total"].Reduce)
+	assert.Equal(t, Sum, by["tokens.by_kind"].Reduce)
+	assert.Equal(t, Sum, by["value.by_repo"].Reduce)
+	assert.Equal(t, Sum, by["sessions.top"].Reduce)
 	assert.Equal(t, Sum, by["turn.duration"].Reduce)
 	assert.Equal(t, Sum, by["turns.completed"].Reduce)
 	assert.Equal(t, Sum, by["tools.today"].Reduce)
@@ -178,8 +191,17 @@ func TestTheUsageTilesAreSummedAcrossMachines(t *testing.T) {
 	// The machine is the label, not the host field: a dashboard that sums the
 	// hosts keeps a list item's label and drops the host.
 	assert.Equal(t, []map[string]any{{"label": "mbp", "value": 318}}, by["tools.by_machine"].Data["items"])
-	assert.Equal(t, 8_000, by["tokens.cacheread"].Data["value"])
-	assert.Equal(t, 10_000, by["tokens.total"].Data["value"])
+	assert.Equal(t, []map[string]any{
+		{"label": "input", "value": 1_000},
+		{"label": "output", "value": 200},
+		{"label": "cacheread", "value": 8_000},
+		{"label": "cachewrite", "value": 800},
+		{"label": "reasoning", "value": 50},
+	}, by["tokens.by_kind"].Data["items"])
+	assert.Equal(t, []map[string]any{
+		{"label": "owenrumney/ade · s-1", "value": 3.0},
+		{"label": "owenrumney/dashboard · s-2", "value": 0.25},
+	}, by["sessions.top"].Data["items"], "the repo leads, so the label reads on its own")
 	assert.Equal(t, 3, by["turns.completed"].Data["value"])
 	assert.Equal(t, []map[string]any{{"label": "mbp/session-1", "value": float64(25)}}, by["context.headroom"].Data["items"])
 
@@ -277,7 +299,8 @@ func TestTheWireShapeOfEveryTileType(t *testing.T) {
 			"order":10,"reduce":"latest","host":"mbp","observed_at":"2026-10-04T15:44:42Z",
 			"data":{"provider":"claude","windows":[
 				{"name":"5h","percent":68.2,"resets_at":"2026-10-04T17:46:12Z"},
-				{"name":"7d","percent":24,"resets_at":"2026-10-07T15:46:12Z"}]}}`,
+				{"name":"7d","percent":24,"resets_at":"2026-10-07T15:46:12Z"}]},
+			"labels":{"provider":"claude","account":"personal"}}`,
 		"value.today": `{
 			"type":"money","title":"API value today","group":"today",
 			"order":10,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
@@ -296,14 +319,26 @@ func TestTheWireShapeOfEveryTileType(t *testing.T) {
 			"type":"list","title":"Tool calls, by machine","group":"breakdown",
 			"order":25,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
 			"data":{"items":[{"label":"mbp","value":318}]}}`,
-		"tokens.cacheread": `{
-			"type":"counter","title":"Cached input tokens","group":"breakdown",
+		"value.by_repo": `{
+			"type":"list","title":"API value today, by repo","group":"breakdown",
+			"order":15,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
+			"data":{"items":[{"label":"owenrumney/ade","value":4},{"label":"owenrumney/dashboard","value":0.25}]}}`,
+		"activity.by_repo": `{
+			"type":"list","title":"Completed turns today, by repo","group":"breakdown",
+			"order":16,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
+			"data":{"items":[{"label":"owenrumney/ade","value":3}]}}`,
+		"tokens.by_kind": `{
+			"type":"list","title":"Tokens, all time, by kind","group":"breakdown",
 			"order":30,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
-			"data":{"value":8000}}`,
-		"tokens.total": `{
-			"type":"counter","title":"Total tokens","group":"breakdown",
-			"order":40,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
-			"data":{"value":10000}}`,
+			"data":{"items":[{"label":"input","value":1000},{"label":"output","value":200},{"label":"cacheread","value":8000},{"label":"cachewrite","value":800},{"label":"reasoning","value":50}]}}`,
+		"sessions.top": `{
+			"type":"list","title":"Most expensive sessions today","group":"breakdown",
+			"order":60,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
+			"data":{"items":[{"label":"owenrumney/ade · s-1","value":3},{"label":"owenrumney/dashboard · s-2","value":0.25}]}}`,
+		"turns.by_agent": `{
+			"type":"list","title":"Completed turns today, by agent","group":"performance",
+			"order":55,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
+			"data":{"items":[{"label":"claude","value":2},{"label":"codex","value":1}]}}`,
 		"turn.duration": `{
 			"type":"list","title":"Turn duration buckets","group":"performance",
 			"order":10,"reduce":"sum","host":"mbp","observed_at":"2026-10-04T15:46:12Z",
@@ -394,4 +429,32 @@ func TestOperationalTilesCarryFreshMachineState(t *testing.T) {
 	assert.Equal(t, []map[string]any{{"label": "mbp", "value": float64(45)}}, by["queue.wait"].Data["items"])
 	assert.Equal(t, 120, by["lines.added"].Data["value"])
 	assert.Equal(t, 40, by["lines.removed"].Data["value"])
+}
+
+func TestUsageByAgentLabelsEachProvidersTilesWithItsAccount(t *testing.T) {
+	byAgent := map[transcripts.Agent]transcripts.Stats{
+		transcripts.AgentCodex:  stats(),
+		transcripts.AgentClaude: stats(),
+		transcripts.AgentPi:     stats(),
+	}
+	tiles := UsageByAgent(byAgent, Accounts{Claude: "Claude - Work", Codex: "personal"}, "mbp", now, SparkDays)
+	require.Len(t, tiles, 3*23)
+
+	seen := map[string]int{}
+	for _, tile := range tiles {
+		seen[tile.Labels["provider"]+"/"+tile.Labels["account"]]++
+	}
+	assert.Equal(t, map[string]int{
+		"claude/Claude - Work": 23,
+		"codex/personal":       23,
+		// No setting names an account for pi, so it reports none.
+		"pi/": 23,
+	}, seen)
+	assert.Equal(t, "claude", tiles[0].Labels["provider"], "agents in name order, for a stable push")
+}
+
+func TestATileWithNoLabelsSendsNone(t *testing.T) {
+	sent, err := json.Marshal(LiveSessions(1, "mbp", now))
+	require.NoError(t, err)
+	assert.NotContains(t, string(sent), "labels")
 }

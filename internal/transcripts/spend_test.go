@@ -1,6 +1,7 @@
 package transcripts
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,4 +123,52 @@ func mustParseMonth(t *testing.T, month string) time.Time {
 	at, err := time.Parse("2006-01", month)
 	require.NoError(t, err)
 	return at
+}
+
+func TestStatisticsGroupsByRepoAndKeepsTheDaysTopSessions(t *testing.T) {
+	home := fakeHome(t)
+	repo := filepath.Join(home, "src", "ade")
+	writeConfig(t, filepath.Join(repo, ".git"), "git@github.com:owenrumney/ade.git")
+
+	write := func(id, cwd, model string, input int) *Session {
+		path := filepath.Join(home, ".claude", "projects", "-p", id+".jsonl")
+		writeFixture(t, path, `{"type":"user","timestamp":"2026-10-04T10:00:00Z","cwd":"`+cwd+`","message":{"role":"user","content":"go"}}
+{"type":"assistant","timestamp":"2026-10-04T10:01:00Z","requestId":"`+id+`","message":{"id":"`+id+`","role":"assistant","model":"`+model+`","content":[],"usage":{"input_tokens":`+fmt.Sprint(input)+`,"output_tokens":10}}}
+{"type":"result","timestamp":"2026-10-04T10:02:00Z","duration_ms":1000}
+`)
+		session := ClaudeSession(path)
+		require.NotNil(t, session)
+		return session
+	}
+	stats := Statistics([]*Session{
+		write("cheap", repo, "claude-sonnet-5", 100),
+		write("dear", filepath.Join(repo, "internal"), "claude-opus-5", 100_000),
+		write("elsewhere", filepath.Join(home, "notes"), "claude-sonnet-5", 1_000),
+	})
+
+	day := "2026-10-04"
+	require.Len(t, stats.ByDayRepo[day], 2)
+	assert.Equal(t, "owenrumney/ade", stats.ByDayRepo[day][0].Key, "both sessions in the repo are one row")
+	assert.Equal(t, 2, stats.ByDayRepo[day][0].Requests)
+	assert.Equal(t, "unknown", stats.ByDayRepo[day][1].Key)
+	assert.Equal(t, []Group{{Key: "owenrumney/ade", Sessions: 2}, {Key: "unknown", Sessions: 1}}, stats.ByDayRepoTurns[day])
+	assert.Equal(t, []Group{{Key: "claude", Sessions: 3}}, stats.ByDayAgentTurns[day])
+
+	top := stats.TopSessions[day]
+	require.Len(t, top, 3)
+	assert.Equal(t, "dear", top[0].ID, "most expensive first")
+	assert.Equal(t, "owenrumney/ade", top[0].Repo)
+	assert.Positive(t, top[0].Cost)
+}
+
+func TestStatisticsByAgentSplitsTheSessions(t *testing.T) {
+	fakeHome(t)
+	sessions := Scan()
+	byAgent := StatisticsByAgent(append(sessions, nil))
+	assert.Len(t, byAgent, len(Agents))
+	total := 0
+	for _, stats := range byAgent {
+		total += stats.Sessions
+	}
+	assert.Equal(t, Statistics(sessions).Sessions, total)
 }

@@ -31,30 +31,42 @@ type Spend struct {
 
 // Stats is the machine-wide, read-only summary the launcher shows.
 type Stats struct {
-	Sessions         int                `json:"sessions"`
-	Requests         int                `json:"requests"`
-	Tools            int                `json:"tools"`
-	Usage            Usage              `json:"usage"`
-	Cost             float64            `json:"cost"`
-	ByDay            []Group            `json:"byDay"`
-	ByAgent          []Group            `json:"byAgent"`
-	ByModel          []Group            `json:"byModel"`
-	ByDayModel       map[string][]Group `json:"byDayModel"`
-	ByDayModelTurns  map[string][]Group `json:"byDayModelTurns"`
-	ByTool           []Group            `json:"byTool"`
-	ByToolFailure    []Group            `json:"byToolFailure"`
-	Completed        int                `json:"completed"`
-	Failed           int                `json:"failed"`
-	Retries          int                `json:"retries"`
-	Compactions      int                `json:"compactions"`
-	Interventions    int                `json:"interventions"`
-	TurnDurations    []float64          `json:"turnDurations"`
-	SessionDurations []float64          `json:"sessionDurations"`
-	Contexts         []ContextStat      `json:"contexts"`
+	Sessions        int                `json:"sessions"`
+	Requests        int                `json:"requests"`
+	Tools           int                `json:"tools"`
+	Usage           Usage              `json:"usage"`
+	Cost            float64            `json:"cost"`
+	ByDay           []Group            `json:"byDay"`
+	ByAgent         []Group            `json:"byAgent"`
+	ByModel         []Group            `json:"byModel"`
+	ByDayModel      map[string][]Group `json:"byDayModel"`
+	ByDayModelTurns map[string][]Group `json:"byDayModelTurns"`
+	// ByDayRepo and ByDayRepoTurns key a repository by its origin, owner/name.
+	ByDayRepo        map[string][]Group       `json:"byDayRepo"`
+	ByDayRepoTurns   map[string][]Group       `json:"byDayRepoTurns"`
+	ByDayAgentTurns  map[string][]Group       `json:"byDayAgentTurns"`
+	TopSessions      map[string][]SessionCost `json:"topSessions"`
+	ByTool           []Group                  `json:"byTool"`
+	ByToolFailure    []Group                  `json:"byToolFailure"`
+	Completed        int                      `json:"completed"`
+	Failed           int                      `json:"failed"`
+	Retries          int                      `json:"retries"`
+	Compactions      int                      `json:"compactions"`
+	Interventions    int                      `json:"interventions"`
+	TurnDurations    []float64                `json:"turnDurations"`
+	SessionDurations []float64                `json:"sessionDurations"`
+	Contexts         []ContextStat            `json:"contexts"`
 	// ByHour has 24 entries and ByWeekday 7, always, in clock order: a chart
 	// drawn round a dial needs the quiet slots as much as the busy ones.
 	ByHour    []Group `json:"byHour"`
 	ByWeekday []Group `json:"byWeekday"`
+}
+
+// SessionCost is one session's value on one day.
+type SessionCost struct {
+	ID   string  `json:"id"`
+	Repo string  `json:"repo"`
+	Cost float64 `json:"cost"`
 }
 
 // ContextStat is one session's remaining context share.
@@ -90,6 +102,10 @@ type summaryRow struct {
 // weekdayNames is the pie's labels, indexed by time.Weekday.
 var weekdayNames = [7]string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 
+// topSessions is how many sessions a day keeps in TopSessions. Each is a
+// Prometheus series for good, so this stays small.
+const topSessions = 10
+
 // Statistics loads the discovered sessions and groups the details useful at a
 // glance. Failed transcripts are omitted rather than making the page unusable.
 func Statistics(sessions []*Session) Stats {
@@ -99,6 +115,12 @@ func Statistics(sessions []*Session) Stats {
 	models := map[string]*Group{}
 	dayModels := map[string]map[string]*Group{}
 	dayModelTurns := map[string]map[string]*Group{}
+	dayRepos := map[string]map[string]*Group{}
+	dayRepoTurns := map[string]map[string]*Group{}
+	dayAgentTurns := map[string]map[string]*Group{}
+	daySessions := map[string][]SessionCost{}
+	// Hundreds of sessions share a handful of directories.
+	repos := map[string]string{}
 	tools := map[string]*Group{}
 	toolFailures := map[string]*Group{}
 	hours := make([]Group, 24)
@@ -109,9 +131,17 @@ func Statistics(sessions []*Session) Stats {
 	for day, name := range weekdayNames {
 		weekdays[day] = Group{Key: name}
 	}
-	for _, row := range summaries(sessions) {
+	for i, row := range summaries(sessions) {
 		if row == nil {
 			continue
+		}
+		repo, known := repos[sessions[i].CWD]
+		if !known {
+			repo = repoName(sessions[i].CWD)
+			repos[sessions[i].CWD] = repo
+		}
+		if repo == "" {
+			repo = "unknown"
 		}
 		out.Sessions++
 		out.Requests += row.Requests
@@ -119,7 +149,29 @@ func Statistics(sessions []*Session) Stats {
 		out.Usage.Output += row.Usage.Output
 		out.Usage.CacheRead += row.Usage.CacheRead
 		out.Usage.CacheWrite += row.Usage.CacheWrite
+		out.Usage.Reasoning += row.Usage.Reasoning
 		out.Cost += row.Usage.CostUSD
+		for day, models := range row.ByDayModel {
+			var usage Usage
+			usage.CostKnown = true
+			for _, each := range models {
+				usage.Input += each.Input
+				usage.Output += each.Output
+				usage.CacheRead += each.CacheRead
+				usage.CacheWrite += each.CacheWrite
+				usage.Reasoning += each.Reasoning
+				usage.CostUSD += each.CostUSD
+				usage.CostKnown = usage.CostKnown && each.CostKnown
+			}
+			addUsage(groupsFor(dayRepos, day), repo, usage)
+			daySessions[day] = append(daySessions[day], SessionCost{ID: sessions[i].ID, Repo: repo, Cost: usage.CostUSD})
+		}
+		for day, models := range row.ByDayModelTurns {
+			for _, count := range models {
+				addCount(groupsFor(dayRepoTurns, day), repo, count)
+				addCount(groupsFor(dayAgentTurns, day), string(row.Agent), count)
+			}
+		}
 		addStats(days, row.Day, row)
 		addStats(agents, string(row.Agent), row)
 		addStats(models, row.Model, row)
@@ -185,9 +237,54 @@ func Statistics(sessions []*Session) Stats {
 	for day, models := range dayModelTurns {
 		out.ByDayModelTurns[day] = byCost(models)
 	}
+	out.ByDayRepo = make(map[string][]Group, len(dayRepos))
+	for day, repos := range dayRepos {
+		out.ByDayRepo[day] = byCost(repos)
+	}
+	out.ByDayRepoTurns = make(map[string][]Group, len(dayRepoTurns))
+	for day, repos := range dayRepoTurns {
+		out.ByDayRepoTurns[day] = byCount(repos)
+	}
+	out.ByDayAgentTurns = make(map[string][]Group, len(dayAgentTurns))
+	for day, agents := range dayAgentTurns {
+		out.ByDayAgentTurns[day] = byCount(agents)
+	}
+	out.TopSessions = make(map[string][]SessionCost, len(daySessions))
+	for day, costs := range daySessions {
+		sort.SliceStable(costs, func(i, j int) bool {
+			if costs[i].Cost != costs[j].Cost {
+				return costs[i].Cost > costs[j].Cost
+			}
+			return costs[i].ID < costs[j].ID
+		})
+		out.TopSessions[day] = costs[:min(topSessions, len(costs))]
+	}
 	out.ByToolFailure = byCount(toolFailures)
 	out.ByHour, out.ByWeekday = hours, weekdays
 	return out
+}
+
+// StatisticsByAgent is Statistics for each agent's sessions on their own, so a
+// figure can be labelled with the account that produced it.
+func StatisticsByAgent(sessions []*Session) map[Agent]Stats {
+	split := map[Agent][]*Session{}
+	for _, s := range sessions {
+		if s != nil {
+			split[s.Agent] = append(split[s.Agent], s)
+		}
+	}
+	out := make(map[Agent]Stats, len(split))
+	for agent, mine := range split {
+		out[agent] = Statistics(mine)
+	}
+	return out
+}
+
+func groupsFor(byDay map[string]map[string]*Group, day string) map[string]*Group {
+	if byDay[day] == nil {
+		byDay[day] = map[string]*Group{}
+	}
+	return byDay[day]
 }
 
 // summaries is one row per session, parsing only the transcripts that have
