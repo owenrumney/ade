@@ -10,9 +10,7 @@ import (
 // installs one brings its own. See internal/agents/defaults/README.
 func stands(t *testing.T, files fstest.MapFS) {
 	t.Helper()
-	was := defaults
-	defaults = fs.FS(files)
-	t.Cleanup(func() { defaults = was })
+	t.Cleanup(UseDefaults(fs.FS(files)))
 }
 
 func shippedTester() fstest.MapFS {
