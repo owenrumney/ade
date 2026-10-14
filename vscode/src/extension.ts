@@ -4182,14 +4182,14 @@ async function newScratch(): Promise<void> {
 
 // repoNow is this window's folder, read by the launcher: what the repository
 // is, and what ade has done in it.
-async function repoNow(): Promise<RepoStats> {
+async function repoNow(fresh: boolean): Promise<RepoStats> {
   const folder = (vscode.workspace.workspaceFolders ?? [])[0];
   if (!folder) throw new Error("this window has no folder open");
   launcher = await findLauncher();
   if (!launcher) throw new Error("the launcher is not running");
   return askLauncher<RepoStats>(
     launcher,
-    `/api/repo?dir=${encodeURIComponent(folder.uri.fsPath)}`,
+    `/api/repo?dir=${encodeURIComponent(folder.uri.fsPath)}${fresh ? "&fresh=1" : ""}`,
   );
 }
 

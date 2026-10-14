@@ -48,7 +48,7 @@ func write(t *testing.T, path, body string) {
 
 func TestCollectReadsWhatTheRepositoryIs(t *testing.T) {
 	dir := repo(t)
-	got, err := Collect(context.Background(), dir, nil, now)
+	got, err := Collect(context.Background(), dir, "", nil, now)
 	require.NoError(t, err)
 
 	assert.Equal(t, "owenrumney/ade", got.Repo, "keyed on the remote, as the stats are")
@@ -89,19 +89,19 @@ func TestCollectReadsWhatTheRepositoryIs(t *testing.T) {
 func TestCollectCountsUncommittedFiles(t *testing.T) {
 	dir := repo(t)
 	write(t, filepath.Join(dir, "new.go"), "package main\n")
-	got, err := Collect(context.Background(), dir, nil, now)
+	got, err := Collect(context.Background(), dir, "", nil, now)
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Dirty)
 }
 
 func TestCollectWithoutARepositoryIsAnError(t *testing.T) {
-	_, err := Collect(context.Background(), t.TempDir(), nil, now)
+	_, err := Collect(context.Background(), t.TempDir(), "", nil, now)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 }
 
 func TestABranchWithNoUpstreamIsOrdinary(t *testing.T) {
-	got, err := Collect(context.Background(), repo(t), nil, now)
+	got, err := Collect(context.Background(), repo(t), "", nil, now)
 	require.NoError(t, err)
 	assert.Empty(t, got.Upstream, "a worktree spends its life this way")
 	assert.Zero(t, got.Ahead)
@@ -120,4 +120,28 @@ func TestLanguageOf(t *testing.T) {
 			assert.Equal(t, want, languageOf(path))
 		})
 	}
+}
+
+func TestLanguagesAreCountedOncePerCommit(t *testing.T) {
+	dir, cache := repo(t), t.TempDir()
+	first, err := Collect(context.Background(), dir, cache, nil, now)
+	require.NoError(t, err)
+
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=Owen", "-c", "user.email=owen@example.com"}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	write(t, filepath.Join(dir, "two.go"), "package main\n")
+	git("add", "two.go")
+	same, err := Collect(context.Background(), dir, cache, nil, now)
+	require.NoError(t, err)
+	assert.Equal(t, first.Files, same.Files, "HEAD has not moved, so the count stands")
+
+	git("commit", "-qm", "two")
+	moved, err := Collect(context.Background(), dir, cache, nil, now)
+	require.NoError(t, err)
+	assert.Equal(t, first.Files+1, moved.Files, "a new commit recounts")
 }

@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,25 +24,27 @@ type repoCache struct {
 
 // handleRepo answers what one checkout is and what ade has done in it. dir is
 // the folder the editor has open; nothing else names a repository here.
+// fresh=1 is the page's Refresh: it skips the reading cache, not the counts.
 func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	dir := r.URL.Query().Get("dir")
 	if dir == "" {
 		writeError(w, http.StatusBadRequest, "dir is required")
 		return
 	}
-	if out, ok := s.repoPages.warm(dir); ok {
+	fresh := r.URL.Query().Get("fresh") == "1"
+	if out, ok := s.repoPages.warm(dir); ok && !fresh {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
 
 	s.repoPages.busy.Lock()
 	defer s.repoPages.busy.Unlock()
-	if out, ok := s.repoPages.warm(dir); ok {
+	if out, ok := s.repoPages.warm(dir); ok && !fresh {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
 
-	out, err := repostats.Collect(r.Context(), dir, transcripts.Scan(), time.Now())
+	out, err := repostats.Collect(r.Context(), dir, filepath.Join(s.home, "cache", "repostats"), transcripts.Scan(), time.Now())
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return

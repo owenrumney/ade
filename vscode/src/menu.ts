@@ -154,6 +154,7 @@ export const GROUPS: { title: string; commands: string[] }[] = [
       "ade.sandboxFile",
       "ade.previewURL",
       "ade.showStats",
+      "ade.showRepo",
       "ade.showUsage",
       "ade.showGraph",
       "ade.syncWorktrees",

@@ -101,7 +101,7 @@ h3 {
   grid-column: span 8;
 }
 
- (max-width: 900px) {
+@media (max-width: 900px) {
   .card,
   .card.wide {
     grid-column: span 12;

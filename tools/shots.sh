@@ -90,6 +90,8 @@ flowchart LR
 | First message | instant | eight seconds |
 | Slots held | one per checkout | none |
 
+![the mark a warm box wears](cold-sandbox.svg)
+
 - A slot is a container, not a process.
 - Four is the ceiling, and it is not configurable.
 
@@ -99,6 +101,7 @@ for _, r in ipairs(results) do
 end
 ```
 MD
+cp vscode/media/ade.svg "$docs/cold-sandbox.svg"
 
 # A subfolder, so the Design tree is photographed nesting one rather than
 # listing one level and hiding what is under it.
