@@ -19,6 +19,14 @@ var shipped embed.FS
 // defaults is what shipped, or what a test put there instead.
 var defaults fs.FS = shipped
 
+// UseDefaults stands prompts in for the shipped ones, which live in
+// ade-private, and hands back the way to put them back.
+func UseDefaults(files fs.FS) func() {
+	was := defaults
+	defaults = files
+	return func() { defaults = was }
+}
+
 // Installed is what Install did with one file.
 type Installed struct {
 	Name string

@@ -68,7 +68,7 @@ func backfill(ctx context.Context, out io.Writer, days int) error {
 	}
 
 	_, _ = fmt.Fprintln(out, "reading every transcript on this machine…")
-	stats := transcripts.Statistics(transcripts.Scan())
+	byAgent := transcripts.StatisticsByAgent(transcripts.Scan())
 
 	ctx, cancel := context.WithTimeout(ctx, backfillWait)
 	defer cancel()
@@ -77,7 +77,8 @@ func backfill(ctx context.Context, out io.Writer, days int) error {
 		return errors.New("no dashboard is configured; set its url and token under Settings")
 	}
 	host := to.Host()
-	tiles := dashboard.Usage(stats, host, time.Now(), days)
+	who := dashboard.Accounts{Claude: config.Dashboard.Claude, Codex: config.Dashboard.Codex}
+	tiles := dashboard.UsageByAgent(byAgent, who, host, time.Now(), days)
 	to.Send(tiles...)
 
 	// The reporter is fire and forget, so the push is in flight rather than
@@ -85,8 +86,12 @@ func backfill(ctx context.Context, out io.Writer, days int) error {
 	if err := to.Drain(ctx); err != nil {
 		return fmt.Errorf("push to the dashboard: %w", err)
 	}
+	sessions := 0
+	for _, stats := range byAgent {
+		sessions += stats.Sessions
+	}
 	_, _ = fmt.Fprintf(out, "sent %d tiles as %s, %d sessions over %d days\n",
-		len(tiles), host, stats.Sessions, days)
+		len(tiles), host, sessions, days)
 	return nil
 }
 

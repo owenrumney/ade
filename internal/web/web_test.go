@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +65,16 @@ func newTestServer(t *testing.T) *Server {
 	}, store)
 	require.NoError(t, err)
 	require.NoError(t, s.refresh(context.Background()))
+	// TempDir's own removal fails the test when anything lands under .git/ade
+	// between its listing and the rmdir, which CI has seen. This runs first.
+	t.Cleanup(func() {
+		for range 10 {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 	// Registered after TempDir's own cleanup, so it runs first: a turn's
 	// goroutines are still writing under .git as the directory goes.
 	t.Cleanup(s.Close)

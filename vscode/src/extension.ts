@@ -350,6 +350,8 @@ import { offstage } from "./loading";
 import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
+import { RepoPage } from "./repoview";
+import type { Repo as RepoStats } from "./repo/view";
 import type { Board, Do } from "./dashboard/view";
 import { openCount } from "./comments";
 import {
@@ -763,6 +765,7 @@ let concierge: Chat;
 let settingsPage: Settings;
 let commitView: CommitView;
 let dashboard: Dashboard;
+let repoPage: RepoPage;
 let sessions: Sessions;
 let design: Design;
 let machines: Machines;
@@ -848,8 +851,10 @@ export async function activate(
   concierge.onShown = () => void startDesk();
   boxContext = context;
   dashboard = new Dashboard(context, boardNow, boardAct);
+  repoPage = new RepoPage(context, repoNow);
   context.subscriptions.push(
     dashboard,
+    repoPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
       deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
     }),
@@ -1141,6 +1146,7 @@ export async function activate(
     vscode.commands.registerCommand("ade.jobs", () => void pickJob()),
     vscode.commands.registerCommand("ade.memory", () => void pickMemory()),
     vscode.commands.registerCommand("ade.showStats", () => void showStats()),
+    vscode.commands.registerCommand("ade.showRepo", () => void repoPage.show()),
     vscode.commands.registerCommand("ade.showGraph", () => void showGraph()),
     vscode.commands.registerCommand("ade.showUsage", () => void showUsage()),
     vscode.commands.registerCommand("ade.showPR", () => void showPR()),
@@ -4172,6 +4178,19 @@ async function newScratch(): Promise<void> {
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
   }
+}
+
+// repoNow is this window's folder, read by the launcher: what the repository
+// is, and what ade has done in it.
+async function repoNow(): Promise<RepoStats> {
+  const folder = (vscode.workspace.workspaceFolders ?? [])[0];
+  if (!folder) throw new Error("this window has no folder open");
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<RepoStats>(
+    launcher,
+    `/api/repo?dir=${encodeURIComponent(folder.uri.fsPath)}`,
+  );
 }
 
 // showStats opens what the transcripts say was spent, as a page. Generated

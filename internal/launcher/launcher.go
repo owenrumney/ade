@@ -88,7 +88,8 @@ type Server struct {
 	spend *spendCache
 
 	// stats is the last machine-wide transcript summary.
-	stats *statsCache
+	stats     *statsCache
+	repoPages *repoCache
 
 	// disk is the last reading of what ade has left on disk.
 	disk *diskCache
@@ -203,6 +204,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 		limits:    limits.NewCache(),
 		spend:     &spendCache{},
 		stats:     &statsCache{},
+		repoPages: &repoCache{},
 		disk:      &diskCache{},
 		load:      &loadCache{},
 		jobs:      &jobsClock{},
@@ -367,6 +369,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/limits", s.guard(s.handleLimits))
 	mux.HandleFunc("GET /api/limits/window", s.guard(s.handleWindowSpend))
 	mux.HandleFunc("GET /api/stats", s.guard(s.handleStats))
+	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
 	mux.HandleFunc("GET /api/disk", s.guard(s.handleDisk))
 	mux.HandleFunc("GET /api/disk/detail", s.guard(s.handleDiskDetail))
 	mux.HandleFunc("POST /api/disk/purge", s.guard(s.handleDiskPurge))

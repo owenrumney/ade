@@ -461,6 +461,10 @@
         "title": "ade: Show what has been spent"
       },
       {
+        "command": "ade.showRepo",
+        "title": "ade: Show this repository"
+      },
+      {
         "command": "ade.rememberRepo",
         "title": "Keep a project memory for this",
         "icon": "$(bookmark)"
@@ -1077,6 +1081,10 @@
         },
         {
           "command": "ade.showStats",
+          "when": "false"
+        },
+        {
+          "command": "ade.showRepo",
           "when": "false"
         },
         {
@@ -2068,7 +2076,7 @@
     ]
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/dashboard/main.ts --bundle --outfile=dist/dashboard.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/dashboard/main.ts --bundle --outfile=dist/dashboard.js --format=iife --platform=browser && esbuild src/repo/main.ts --bundle --outfile=dist/repo.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
     "watch": "npm run build -- --sourcemap --watch",
     "check": "tsc --noEmit",
     "test": "vitest run"

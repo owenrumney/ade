@@ -26,6 +26,8 @@ type Tile struct {
 	Host   string         `json:"host"`
 	At     time.Time      `json:"observed_at"`
 	Data   map[string]any `json:"data"`
+	// Labels is provider and account only; every other breakdown is an item.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 const (
