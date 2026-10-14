@@ -137,7 +137,7 @@ func Statistics(sessions []*Session) Stats {
 		}
 		repo, known := repos[sessions[i].CWD]
 		if !known {
-			repo = repoName(sessions[i].CWD)
+			repo = RepoKey(sessions[i].CWD)
 			repos[sessions[i].CWD] = repo
 		}
 		if repo == "" {

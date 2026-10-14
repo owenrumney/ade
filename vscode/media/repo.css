@@ -1,0 +1,328 @@
+/* The repository page. Colours come from the theme, never named here. */
+
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+h3 {
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.repo {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.dir,
+.sub,
+.meta,
+.unit,
+.month {
+  color: var(--vscode-descriptionForeground);
+}
+
+.branch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-charts-green);
+}
+
+.pip.off {
+  background: var(--vscode-charts-yellow);
+}
+
+.dirty {
+  color: var(--vscode-charts-orange);
+}
+
+.refresh {
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.card {
+  grid-column: span 4;
+}
+
+/* The year of commits and the spend want the room; the lists do not. */
+.card.wide {
+  grid-column: span 8;
+}
+
+ (max-width: 900px) {
+  .card,
+  .card.wide {
+    grid-column: span 12;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.num {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  display: flex;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.slice {
+  height: 100%;
+}
+
+.legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 200px));
+  justify-content: start;
+  gap: 2px 22px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-row .share {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.c0,
+.dot.c0 {
+  background: var(--vscode-charts-blue);
+}
+.c1,
+.dot.c1 {
+  background: var(--vscode-charts-purple);
+}
+.c2,
+.dot.c2 {
+  background: var(--vscode-charts-green);
+}
+.c3,
+.dot.c3 {
+  background: var(--vscode-charts-orange);
+}
+.c4,
+.dot.c4 {
+  background: var(--vscode-charts-yellow);
+}
+.c5,
+.dot.c5 {
+  background: var(--vscode-charts-foreground);
+}
+
+.scroller {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.heat {
+  display: flex;
+  gap: 3px;
+}
+
+.week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
+}
+
+.cell.gap {
+  background: transparent;
+}
+
+/* The heat steps are one colour at four strengths: a day is busier, not
+   different. */
+.cell.h1 {
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 30%, transparent);
+}
+.cell.h2 {
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 55%, transparent);
+}
+.cell.h3 {
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 78%, transparent);
+}
+.cell.h4 {
+  background: var(--vscode-charts-yellow);
+}
+
+.months {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 10px;
+}
+
+.month {
+  width: 10px;
+  flex: 0 0 10px;
+  white-space: nowrap;
+}
+
+.last {
+  margin-top: 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--vscode-panel-border);
+  font-size: 12px;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.who {
+  flex: 0 0 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--vscode-editor-background);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--vscode-charts-yellow);
+}
+
+.person .num {
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 2.5em;
+  text-align: right;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+}
+
+.figure .unit {
+  font-size: 11px;
+}
+
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+}
+
+.sparkbar {
+  flex: 1;
+  min-height: 1px;
+  border-radius: 1px 1px 0 0;
+  background: var(--vscode-charts-blue);
+}
+
+.note {
+  margin: 0 0 12px;
+  color: var(--vscode-errorForeground);
+}

@@ -86,7 +86,7 @@ func TestGitRemote(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+admin+"\n"), 0o600))
 
 		assert.Equal(t, "owenrumney/ade", GitRemote(tree))
-		assert.Equal(t, "owenrumney/ade", repoName(tree))
+		assert.Equal(t, "owenrumney/ade", RepoKey(tree))
 	})
 
 	t.Run("with no origin the repository's directory names it", func(t *testing.T) {
@@ -101,13 +101,13 @@ func TestGitRemote(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+admin+"\n"), 0o600))
 
 		assert.Empty(t, GitRemote(tree))
-		assert.Equal(t, "scratch", repoName(tree), "the worktree belongs to scratch")
-		assert.Equal(t, "scratch", repoName(filepath.Join(root, "scratch")))
+		assert.Equal(t, "scratch", RepoKey(tree), "the worktree belongs to scratch")
+		assert.Equal(t, "scratch", RepoKey(filepath.Join(root, "scratch")))
 	})
 
 	t.Run("outside a repo there is nothing", func(t *testing.T) {
 		assert.Empty(t, GitRemote(t.TempDir()))
-		assert.Empty(t, repoName(""))
+		assert.Empty(t, RepoKey(""))
 	})
 }
 

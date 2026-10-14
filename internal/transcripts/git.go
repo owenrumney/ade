@@ -75,9 +75,9 @@ func GitRemote(dir string) string {
 	return ownerName(originURL(string(data)))
 }
 
-// repoName is GitRemote, or the repository's directory name when there is no
+// RepoKey is GitRemote, or the repository's directory name when there is no
 // origin. A worktree is named for the repository it belongs to, not itself.
-func repoName(dir string) string {
+func RepoKey(dir string) string {
 	if remote := GitRemote(dir); remote != "" {
 		return remote
 	}
