@@ -14,9 +14,11 @@ export class DesignEditor implements vscode.CustomTextEditorProvider {
     document: vscode.TextDocument,
     panel: vscode.WebviewPanel,
   ): void {
+    // The document's folder, so a picture beside it can be drawn.
+    const folder = vscode.Uri.joinPath(document.uri, "..");
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist")],
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist"), folder],
     };
     // own marks the edit this frame made, so the change it causes is not sent
     // back to it as news.
@@ -25,6 +27,7 @@ export class DesignEditor implements vscode.CustomTextEditorProvider {
       void panel.webview.postMessage({
         kind: "doc",
         text: document.getText(),
+        base: panel.webview.asWebviewUri(folder).toString(),
       });
 
     const changed = vscode.workspace.onDidChangeTextDocument((e) => {

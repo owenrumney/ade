@@ -96,8 +96,9 @@ const gitWait = 20 * time.Second
 
 // Collect reads dir. Git facts and the agent numbers are independent, so a
 // repository with no transcripts still draws, and a directory that is not a
-// repository is an error rather than an empty page.
-func Collect(ctx context.Context, dir string, sessions []*transcripts.Session, now time.Time) (*Stats, error) {
+// repository is an error rather than an empty page. cache holds the language
+// counts by HEAD; empty skips it.
+func Collect(ctx context.Context, dir, cache string, sessions []*transcripts.Session, now time.Time) (*Stats, error) {
 	top, err := gitLine(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, fmt.Errorf("%s is not a git repository: %w", dir, err)
@@ -109,7 +110,7 @@ func Collect(ctx context.Context, dir string, sessions []*transcripts.Session, n
 
 	out.upstream(ctx, top)
 	out.history(ctx, top, now)
-	out.languages(ctx, top)
+	out.countedLanguages(ctx, top, cache)
 	if status, err := gitOut(ctx, top, "status", "--porcelain"); err == nil {
 		out.Dirty = len(nonEmpty(status))
 	}

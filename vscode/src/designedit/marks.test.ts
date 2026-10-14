@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { body, bullet, cells, hides, isMermaid, lang, level, reveals, touched, gap } from "./marks";
+import { body, bullet, cells, hides, isMermaid, lang, level, picture, reveals, touched, gap } from "./marks";
 
 describe("what the frame hides", () => {
   it("takes out the markers and leaves the words", () => {
@@ -101,5 +101,26 @@ describe("the space after a heading's hashes", () => {
     expect(gap("\tTitle")).toBe(1);
     expect(gap("Title")).toBe(0);
     expect(gap("")).toBe(0);
+  });
+});
+
+describe("pictures beside the document", () => {
+  const base = "https://file+.vscode-resource.vscode-cdn.net/Users/owen/docs";
+
+  it("resolves a plain name against the document's folder", () => {
+    expect(picture("![The page](repo-page.png)", base)).toEqual({
+      alt: "The page",
+      url: `${base}/repo-page.png`,
+    });
+  });
+
+  it("keeps a title out of the path", () => {
+    expect(picture('![a](shots/one.png "One")', base)?.url).toBe(`${base}/shots/one.png`);
+  });
+
+  it("leaves anything that is not beside the document as source", () => {
+    expect(picture("![a](https://example.com/x.png)", base)).toBeUndefined();
+    expect(picture("![a](/etc/x.png)", base)).toBeUndefined();
+    expect(picture("![a](x.png)", "")).toBeUndefined();
   });
 });

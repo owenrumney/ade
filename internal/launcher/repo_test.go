@@ -39,6 +39,7 @@ func repoCheckout(t *testing.T) string {
 }
 
 func TestTheRepoEndpointAnswersWhatTheCheckoutIs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	s := newTestLauncher(t)
 	dir := repoCheckout(t)
 
@@ -65,6 +66,7 @@ func TestTheRepoEndpointNeedsADirectoryThatIsOne(t *testing.T) {
 }
 
 func TestARepoReadingIsCachedPerDirectory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	s := newTestLauncher(t)
 	dir := repoCheckout(t)
 
@@ -77,4 +79,24 @@ func TestARepoReadingIsCachedPerDirectory(t *testing.T) {
 	var got repostats.Stats
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, 1, got.Files, "the reading inside the TTL is the one already taken")
+}
+
+func TestRefreshTakesANewReading(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	s := newTestLauncher(t)
+	dir := repoCheckout(t)
+
+	require.Equal(t, http.StatusOK, do(t, s, http.MethodGet, "/api/repo?dir="+dir, "").Code)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "two.go"), []byte("package main\n"), 0o600))
+	for _, args := range [][]string{{"add", "."}, {"commit", "-qm", "two"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+
+	rec := do(t, s, http.MethodGet, "/api/repo?dir="+dir+"&fresh=1", "")
+	var got repostats.Stats
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, 2, got.Files)
 }

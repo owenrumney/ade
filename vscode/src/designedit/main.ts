@@ -9,7 +9,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, level, reveals, type Span } from "./marks";
+import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, level, picture, reveals, type Span } from "./marks";
 
 // A GFM table, drawn. Replaced wholesale and revealed as source when the
 // cursor enters, which is the same bargain the diagrams make.
@@ -70,6 +70,33 @@ class Bullet extends WidgetType {
     return el;
   }
 }
+
+// An image beside the document, drawn. Its alt text stands in when it will not load.
+class Picture extends WidgetType {
+  constructor(
+    readonly alt: string,
+    readonly url: string,
+  ) {
+    super();
+  }
+  eq(other: Picture): boolean {
+    return other.url === this.url && other.alt === this.alt;
+  }
+  toDOM(): HTMLElement {
+    const img = document.createElement("img");
+    img.className = "cm-image";
+    img.alt = this.alt;
+    img.src = this.url;
+    img.addEventListener("error", () => img.classList.add("failed"));
+    return img;
+  }
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+// base is the document's folder as the webview may load it; the host sends it.
+let base = "";
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 const host = acquireVsCodeApi();
@@ -223,6 +250,17 @@ function marks(state: EditorState): DecorationSet {
           });
           return false;
         }
+        if (node.name === "Image") {
+          if (reveals(node.name, node, node, head)) return;
+          const pic = picture(state.doc.sliceString(node.from, node.to), base);
+          if (!pic) return;
+          builder.push({
+            from: node.from,
+            to: node.to,
+            value: Decoration.replace({ widget: new Picture(pic.alt, pic.url) }),
+          });
+          return false;
+        }
         if (!hides(node.name)) return;
         if (reveals(node.name, node, parent, head)) return;
         const text = state.doc.sliceString(node.from, node.to);
@@ -322,6 +360,8 @@ const theme = EditorView.theme({
     color: "var(--vscode-textLink-foreground)",
     textDecoration: "underline",
   },
+  ".cm-image": { display: "block", maxWidth: "100%", margin: "0.5rem 0" },
+  ".cm-image.failed": { color: "var(--vscode-errorForeground)" },
   ".cm-diagram": {
     display: "flex",
     justifyContent: "safe center",
@@ -379,12 +419,16 @@ const view = new EditorView({
 });
 
 window.addEventListener("message", (event: MessageEvent) => {
-  const msg = event.data as { kind?: string; text?: string };
+  const msg = event.data as { kind?: string; text?: string; base?: string };
   if (msg.kind === "style") {
     restyle(event.data as Style);
     return;
   }
   if (msg.kind !== "doc" || typeof msg.text !== "string") return;
+  if (typeof msg.base === "string" && msg.base !== base) {
+    base = msg.base;
+    view.dispatch({ effects: look.of(view.state.field(focused)) });
+  }
   if (msg.text === view.state.doc.toString()) return;
   own = true;
   view.dispatch({

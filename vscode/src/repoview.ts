@@ -11,7 +11,7 @@ export class RepoPage implements vscode.Disposable {
 
   constructor(
     private context: vscode.ExtensionContext,
-    private feed: () => Promise<Repo>,
+    private feed: (fresh: boolean) => Promise<Repo>,
   ) {}
 
   dispose(): void {
@@ -41,15 +41,15 @@ export class RepoPage implements vscode.Disposable {
   private wire(webview: vscode.Webview): void {
     webview.onDidReceiveMessage((said: { kind?: string; what?: string }) => {
       if (said.kind === "ready") this.hand();
-      if (said.kind === "do" && said.what === "refresh") void this.read();
+      if (said.kind === "do" && said.what === "refresh") void this.read(true);
     });
   }
 
-  private async read(): Promise<void> {
+  private async read(fresh = false): Promise<void> {
     this.busy = true;
     this.hand();
     try {
-      this.repo = await this.feed();
+      this.repo = await this.feed(fresh);
       this.note = "";
     } catch (err) {
       this.note = String(err);
