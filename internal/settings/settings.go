@@ -74,6 +74,9 @@ type Settings struct {
 	// before it is sent.
 	SharpenOff bool `json:"sharpen_off,omitempty"`
 
+	// CleanseOff stops a cheap model rewriting the agent's replies short.
+	CleanseOff bool `json:"cleanse_off,omitempty"`
+
 	// MergeQueuedOff stops prompts queued during one run going as one turn.
 	MergeQueuedOff bool `json:"merge_queued_off,omitempty"`
 

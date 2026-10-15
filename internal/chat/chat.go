@@ -55,6 +55,11 @@ type Message struct {
 	Body string `json:"body,omitempty"`
 	HTML string `json:"html,omitempty"`
 
+	// Short is Body rewritten by a cheap model, and ShortHTML its rendered
+	// form. Empty when the cleanse was declined, failed or is still running.
+	Short     string `json:"short,omitempty"`
+	ShortHTML string `json:"shortHtml,omitempty"`
+
 	// Context is what you attached to a message: text highlighted in a design
 	// document or a source file, and where it came from.
 	Context *Context `json:"context,omitempty"`

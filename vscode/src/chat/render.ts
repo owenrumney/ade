@@ -7,6 +7,9 @@ export interface Message {
   model?: string;
   body?: string;
   html?: string;
+  // short is body rewritten by a cheap model and shortHtml its rendering; drawn first.
+  short?: string;
+  shortHtml?: string;
   run?: string;
   files?: Attached[];
   images?: Pasted[];
@@ -92,8 +95,16 @@ export function shotsOf(
 // Act is a verb a message carries. Copy is for prose worth taking away, replay
 // for your own words, fold for a named agent's reply into an open document,
 // hide for a reply you have read and want out of the way, fixture to save your
-// prompt and the tree it ran on as a prompt fixture.
-export type Act = "copy" | "hide" | "replay" | "fold" | "undo" | "fixture";
+// prompt and the tree it ran on as a prompt fixture, full for a reply drawn in
+// its short form.
+export type Act =
+  | "copy"
+  | "hide"
+  | "replay"
+  | "fold"
+  | "undo"
+  | "fixture"
+  | "full";
 
 // Change is one file an undo would touch: put back, deleted or recreated.
 export interface Change {
@@ -135,8 +146,15 @@ export function acts(msg: Message, doc: string | undefined): Act[] {
   }
   if (msg.kind !== "agent") return [];
   const out: Act[] = (msg.body ?? "").trim() ? ["copy", "hide"] : [];
+  if (msg.shortHtml) out.unshift("full");
   if (foldable(msg, doc)) out.push("fold");
   return out;
+}
+
+// prose is what a bubble draws: the short form when it has one and you have
+// not asked for the reply as the agent wrote it.
+export function prose(msg: Message, full: boolean): string | undefined {
+  return msg.shortHtml && !full ? msg.shortHtml : msg.html;
 }
 
 export function foldable(msg: Message, doc: string | undefined): boolean {

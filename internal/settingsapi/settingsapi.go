@@ -143,6 +143,8 @@ type View struct {
 
 	// SharpenOff stops the pre-send questions about a vague prompt.
 	SharpenOff bool `json:"sharpenOff"`
+	// CleanseOff stops the agent's replies being rewritten short.
+	CleanseOff bool `json:"cleanseOff"`
 	// MergeQueuedOff stops prompts queued during one run being sent as one turn.
 	MergeQueuedOff bool `json:"mergeQueuedOff"`
 
@@ -202,6 +204,7 @@ func (a *API) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		PreviewURL     string `json:"previewUrl"`
 		PreviewOff     bool   `json:"previewOff"`
 		SharpenOff     bool   `json:"sharpenOff"`
+		CleanseOff     bool   `json:"cleanseOff"`
 		MergeQueuedOff bool   `json:"mergeQueuedOff"`
 
 		// A pointer, so a page that does not send the field leaves it alone
@@ -304,6 +307,7 @@ func (a *API) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		into.Preview = settings.Preview{URL: shot, Off: req.PreviewOff}
 		into.SharpenOff = req.SharpenOff
+		into.CleanseOff = req.CleanseOff
 		into.MergeQueuedOff = req.MergeQueuedOff
 
 		cfg = *into
@@ -337,6 +341,7 @@ func (a *API) HandlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		PreviewURL          string   `json:"previewUrl"`
 		PreviewOff          bool     `json:"previewOff"`
 		SharpenOff          bool     `json:"sharpenOff"`
+		CleanseOff          bool     `json:"cleanseOff"`
 		MergeQueuedOff      bool     `json:"mergeQueuedOff"`
 		DashboardURL        string   `json:"dashboardUrl"`
 		DashboardHost       string   `json:"dashboardHost"`
@@ -380,6 +385,7 @@ func (a *API) HandlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		into.Preview = settings.Preview{URL: preview, Off: req.PreviewOff}
 		into.SharpenOff = req.SharpenOff
+		into.CleanseOff = req.CleanseOff
 		into.MergeQueuedOff = req.MergeQueuedOff
 		dashboard, err := settings.CheckDashboard(settings.Dashboard{
 			URL: req.DashboardURL, Host: req.DashboardHost, Claude: req.DashboardClaude,
@@ -416,6 +422,7 @@ func ViewOf(cfg settings.Settings, path string) View {
 		SandboxPaths:   cfg.Sandbox.Paths, SandboxEnv: sandbox.RedactEnv(cfg.Sandbox.Env),
 		PreviewURL: cfg.Preview.URL, PreviewOff: cfg.Preview.Off,
 		SharpenOff:     cfg.SharpenOff,
+		CleanseOff:     cfg.CleanseOff,
 		MergeQueuedOff: cfg.MergeQueuedOff,
 		Instructions:   cfg.Instructions, InstructionsMaxLength: settings.MaxInstructions,
 	}

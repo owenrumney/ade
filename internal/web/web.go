@@ -235,9 +235,13 @@ type Server struct {
 	verifyLast    *verify.Outcome
 	verifyOffer   []verify.Check
 	verifyGen     int
-	// attaching serialises appending pictures to a finished turn's reply. The
-	// preview capture and the outbox both do it, off the turn and at once.
+	// attaching serialises the read-modify-writes of a reply off the turn: the
+	// pictures the preview and the outbox put on it, and the cleanse's short form.
 	attaching sync.Mutex
+	// cleansing counts the rewrites in flight, so a test can wait for them.
+	cleansing sync.WaitGroup
+	// cleansingOne runs them one at a time: under a sandbox each is a cold slot a named agent needs.
+	cleansingOne sync.Mutex
 	// recording is the one commit-record publisher: a commit, an amend and a
 	// merge all write the same wiki draft.
 	recording sync.Mutex
