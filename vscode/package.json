@@ -134,6 +134,11 @@
         "icon": "$(trash)"
       },
       {
+        "command": "ade.showComments",
+        "title": "ade: Open Comments View",
+        "icon": "$(comment)"
+      },
+      {
         "command": "ade.openSession",
         "title": "ade: Open Session"
       },
@@ -835,6 +840,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "ade.showComments",
+          "when": "false"
+        },
         {
           "command": "ade.toggleSandbox",
           "when": "false"

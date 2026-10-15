@@ -66,6 +66,7 @@ export const GROUPS: { title: string; commands: string[] }[] = [
       "ade.removeResolved",
       "ade.removeDeclined",
       "ade.removeAllComments",
+      "ade.showComments",
       "ade.setScope",
       "ade.openReview",
       "ade.explain",
