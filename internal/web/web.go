@@ -188,7 +188,9 @@ type Server struct {
 	ws       *workspace
 	diff     *gitdiff.Diff
 	diffHash string
-	draft    *CommitDraft
+	// baseRef is the resolved base branch, for the rebase count and its label.
+	baseRef string
+	draft   *CommitDraft
 	// quiz is the questions written about the diff, held so reopening the
 	// panel does not pay for them again. Nothing about how you did is kept.
 	quiz *Quiz
@@ -1228,7 +1230,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		Meta: meta{
 			Repo:     ws.homeRoot,
 			Branch:   ws.branch,
-			Base:     ws.opts.Base,
+			Base:     s.currentBase(),
 			Mode:     diff.Mode,
 			Store:    ws.store.Path(),
 			Scope:    ws.opts.Scope,

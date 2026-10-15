@@ -15,32 +15,32 @@ import (
 // the cache can be proved.
 type fake struct {
 	*Resolver
-	commits map[string]string // email -> sha
-	logins  map[string]string // sha -> login
-	accepts []string
-	added   []string
-	lookups int
-	addErr  error
+	commits    map[string]string // email -> sha
+	logins     map[string]string // sha -> login
+	assignable []string
+	added      []string
+	lookups    int
+	addErr     error
 }
 
 func newFake() *fake {
 	f := &fake{
-		commits: map[string]string{"liam@infracost.io": "sha-liamg"},
-		logins:  map[string]string{"sha-liamg": "liamg"},
-		accepts: []string{"owenrumney", "liamg"},
+		commits:    map[string]string{"liam@infracost.io": "sha-liamg"},
+		logins:     map[string]string{"sha-liamg": "liamg"},
+		assignable: []string{"owenrumney", "liamg"},
 	}
 	f.Resolver = &Resolver{known: map[string]string{}}
-	f.Resolver.commitBy = func(_ context.Context, _, email string) (string, error) {
+	f.commitBy = func(_ context.Context, _, email string) (string, error) {
 		f.lookups++
 		return f.commits[email], nil
 	}
-	f.Resolver.loginOf = func(_ context.Context, _, _, sha string) (string, error) {
+	f.loginOf = func(_ context.Context, _, _, sha string) (string, error) {
 		return f.logins[sha], nil
 	}
-	f.Resolver.accepts = func(_ context.Context, _, _ string) ([]string, error) {
-		return f.accepts, nil
+	f.accepts = func(_ context.Context, _, _ string) ([]string, error) {
+		return f.assignable, nil
 	}
-	f.Resolver.add = func(_ context.Context, _, _, login string) error {
+	f.add = func(_ context.Context, _, _, login string) error {
 		if f.addErr != nil {
 			return f.addErr
 		}
@@ -68,7 +68,7 @@ func TestTwoPeopleWithOneFirstNameGetDifferentHandles(t *testing.T) {
 	f := newFake()
 	f.commits["liam.cervante@infracost.io"] = "sha-cervante"
 	f.logins["sha-cervante"] = "liamcervante"
-	f.accepts = append(f.accepts, "liamcervante")
+	f.assignable = append(f.assignable, "liamcervante")
 
 	for email, want := range map[string]string{
 		"liam@infracost.io":          "liamg",
@@ -117,7 +117,7 @@ func TestAnAddressWithNoCommitHereIsNotGuessedAt(t *testing.T) {
 // list is checked first.
 func TestSomeoneTheRepositoryWillNotTakeIsNotAsked(t *testing.T) {
 	f := newFake()
-	f.accepts = []string{"owenrumney"}
+	f.assignable = []string{"owenrumney"}
 
 	got := f.Set(context.Background(), ".", "infracost/cli", "pr", user("liam@infracost.io"))
 
@@ -156,7 +156,7 @@ func TestTheHandleIsLookedUpOncePerRepository(t *testing.T) {
 // An empty list is GitHub telling us nothing, not telling us no.
 func TestAnEmptyAssignableListStillAsks(t *testing.T) {
 	f := newFake()
-	f.accepts = nil
+	f.assignable = nil
 
 	got := f.Set(context.Background(), ".", "infracost/cli", "pr", user("liam@infracost.io"))
 
