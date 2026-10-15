@@ -240,7 +240,7 @@ func agentOf(sessions []*transcripts.Session, repo string, now time.Time) Agent 
 	}
 	mine := make([]*transcripts.Session, 0, len(sessions))
 	for _, s := range sessions {
-		if s != nil && transcripts.RepoKey(s.CWD) == repo {
+		if s != nil && s.Repository() == repo {
 			mine = append(mine, s)
 		}
 	}
