@@ -789,6 +789,29 @@ func commit(ctx context.Context, dir, message string, amend bool) (string, error
 	return strings.TrimSpace(out), nil
 }
 
+// LastCommitBy is the newest commit whose author email is exactly email.
+// GitHub maps a commit back to the account owning the address.
+func LastCommitBy(ctx context.Context, dir, email string) (string, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return "", nil
+	}
+	// The author filter is a substring match, so the address is compared
+	// exactly below: liam@ must not answer for xliam@.
+	out, err := run(ctx, dir, "log", "--all", "--fixed-strings",
+		"--author="+email, "--max-count=20", "--format=%ae %H")
+	if err != nil {
+		return "", fmt.Errorf("look for a commit by %s: %w", email, err)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		got, sha, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if ok && strings.EqualFold(got, email) {
+			return sha, nil
+		}
+	}
+	return "", nil
+}
+
 // HeadSHA returns the commit currently checked out.
 func HeadSHA(ctx context.Context, dir string) (string, error) {
 	out, err := run(ctx, dir, "rev-parse", "HEAD")

@@ -24,6 +24,7 @@ import (
 	"github.com/owenrumney/ade/internal/lineage"
 	"github.com/owenrumney/ade/internal/linear"
 	"github.com/owenrumney/ade/internal/memory"
+	"github.com/owenrumney/ade/internal/quiz"
 	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -179,8 +180,13 @@ var responseShapes = map[string][]string{
 	"StateResponse": {
 		"agent struct", "attachment ptr", "branchPr ptr", "bus ptr", "chat struct", "created ptr", "design ptr", "diffVersion string",
 		"draft ptr", "hub ptr", "limits ptr", "linear ptr", "meta struct", "notifications slice",
-		"openPrs slice", "pr ptr", "project ptr", "reviews slice", "threads slice",
+		"openPrs slice", "pr ptr", "project ptr", "quiz ptr", "reviews slice", "threads slice",
 		"verify ptr", "worktree ptr",
+	},
+	"Quiz": {"base string", "files int", "questions slice", "scope string", "stale bool"},
+	"QuizQuestion": {
+		"about string", "answer string", "file string", "line int", "options slice",
+		"question string", "ref string", "why string",
 	},
 	"VerifyState": {
 		"at string", "failed string", "narrow bool", "offer slice", "passed bool", "ran int",
@@ -355,6 +361,8 @@ func TestTheResponseShapesStillMatchTheGoStructs(t *testing.T) {
 		"Attached":          Attachment{},
 		"VerifyState":       VerifyState{},
 		"VerifyCheck":       verify.Check{},
+		"Quiz":              Quiz{},
+		"QuizQuestion":      quiz.Question{},
 	}
 	require.Len(t, subjects, len(responseShapes), "a struct is in one table and not the other")
 

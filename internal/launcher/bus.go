@@ -281,11 +281,11 @@ func (s *Server) busStatus() string {
 	}
 	switch {
 	case at.Asking > 0:
-		return "waiting on an answer in " + at.Label
+		return "waiting on an answer"
 	case at.Running:
-		return "an agent is working in " + at.Label
+		return "an agent is working"
 	}
-	return at.Label
+	return "here"
 }
 
 func (s *Server) busLabel() string {

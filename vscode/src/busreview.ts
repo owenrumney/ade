@@ -74,3 +74,22 @@ export function describe(row: BusOnline): string {
   else if (row.instance.label) bits.push(row.instance.label);
   return bits.filter(Boolean).join(" · ");
 }
+
+// Asked is what the launcher answers a review request with: who was asked on
+// the bus, and what it managed to do about the pull request in GitHub.
+export interface Asked {
+  to: string;
+  reviewerSet?: boolean;
+  reviewer?: string;
+  reviewerNote?: string;
+}
+
+// askedLine is the line after a review request. The ask leads; whether GitHub
+// names a reviewer follows, said either way.
+export function askedLine(sent: Asked): string {
+  const who = `asked ${sent.to} to review`;
+  if (sent.reviewerSet && sent.reviewer) {
+    return `${who} · ${sent.reviewer} is on the pull request`;
+  }
+  return sent.reviewerNote ? `${who} · ${sent.reviewerNote}` : who;
+}

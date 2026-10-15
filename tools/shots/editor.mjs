@@ -483,3 +483,93 @@ export async function buildPurge(page, repoRoot) {
   await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/purge.js`, "utf8") });
   await page.waitForSelector(".rows tbody tr", { timeout: 15000 });
 }
+
+// buildQuiz runs the shipped quiz panel over a fixture set of questions: the
+// page draws from one posted message, so nothing has to be served for it.
+export async function buildQuiz(page, repoRoot) {
+  const quiz = {
+    files: 23,
+    base: "origin/main",
+    scope: "branch",
+    questions: [
+      {
+        ref: "Q1",
+        file: "internal/web/commit.go",
+        line: 88,
+        about: "internal/commitmsg/commitmsg.go",
+        question:
+          "The commit message run now asks twice when /ctb is missing. What did a machine without the skill get before?",
+        options: [
+          "No message at all, and an empty modal",
+          "The agent's refusal, shown as the commit title",
+          "The staged file list as the body",
+        ],
+        answer: "B",
+        why: "Parse takes the first conventional-commit line, and a refusal has none, so the modal showed the raw reply.",
+      },
+      {
+        ref: "Q2",
+        file: "internal/web/queue.go",
+        line: 231,
+        question:
+          "A new run kind that is queued but missing from this switch does what?",
+        options: [
+          "It runs with no label on the queue row",
+          "It is dropped when the agent goes idle",
+          "It waits forever and never runs",
+        ],
+        answer: "C",
+        why: "drain only starts the kinds it has a case for; anything else is taken off the queue and never spawned.",
+      },
+      {
+        ref: "Q3",
+        file: "internal/quiz/quiz.go",
+        line: 64,
+        about: "internal/review/verdict.go",
+        question:
+          "Parse drops a block whose file is not in the diff. What is lost if that check goes?",
+        options: [
+          "Nothing: the panel would simply not draw the link",
+          "The link opens a file the branch never touched, so the question is not about the change",
+          "The shuffle can no longer remap the answer letter",
+        ],
+        answer: "B",
+        why: "file and line are the anchor; a question pointing outside the diff is no longer tied to the change under review.",
+      },
+      {
+        ref: "Q4",
+        file: "internal/web/web.go",
+        line: 1238,
+        question: "Why is the held quiz sent with /api/state rather than fetched on its own?",
+        options: [
+          "The questions arrive after the run finishes, as the commit draft does",
+          "So another machine can read your score",
+          "Because the panel has no client of its own",
+        ],
+        answer: "A",
+        why: "The run answers before the quiz exists, so the panel needs the same later-arrival path the commit draft uses.",
+      },
+    ],
+  };
+
+  await page.evaluate(
+    (vars, state) => {
+      for (const [name, value] of Object.entries(vars))
+        document.documentElement.style.setProperty(`--vscode-${name}`, value);
+      document.body.innerHTML = '<main id="quiz"></main>';
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          if (message?.kind !== "ready") return;
+          window.dispatchEvent(
+            new MessageEvent("message", { data: { kind: "state", quiz: state } }),
+          );
+        },
+      });
+    },
+    THEME,
+    quiz,
+  );
+  await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/quiz.css`, "utf8") });
+  await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/quiz.js`, "utf8") });
+  await page.waitForSelector(".option", { timeout: 15000 });
+}

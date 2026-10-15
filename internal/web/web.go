@@ -189,6 +189,9 @@ type Server struct {
 	diff     *gitdiff.Diff
 	diffHash string
 	draft    *CommitDraft
+	// quiz is the questions written about the diff, held so reopening the
+	// panel does not pay for them again. Nothing about how you did is kept.
+	quiz *Quiz
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
@@ -769,6 +772,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/queue/{id}/urgent", s.guard(s.handlePromoteQueued))
 	mux.HandleFunc("POST /api/sharpen", s.guard(s.handleSharpen))
 	mux.HandleFunc("POST /api/commit-message", s.guard(s.handleCommitMessage))
+	mux.HandleFunc("POST /api/quiz", s.guard(s.handleQuiz))
 	mux.HandleFunc("POST /api/commit", s.guard(s.handleCommit))
 	mux.HandleFunc("POST /api/stage", s.guard(s.handleStage))
 	mux.HandleFunc("POST /api/unstage", s.guard(s.handleUnstage))
@@ -1111,6 +1115,7 @@ type stateResponse struct {
 	Meta          meta                `json:"meta"`
 	Agent         RunState            `json:"agent"`
 	Draft         *CommitDraft        `json:"draft,omitempty"`
+	Quiz          *Quiz               `json:"quiz,omitempty"`
 	PR            *PRInfo             `json:"pr,omitempty"`
 	Worktree      *gitdiff.Status     `json:"worktree,omitempty"`
 	Created       *CreatedPR          `json:"created,omitempty"`
@@ -1236,6 +1241,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		},
 		Agent:         s.agentState(),
 		Draft:         s.currentDraft(),
+		Quiz:          s.currentQuiz(),
 		PR:            ws.pr,
 		Worktree:      s.currentWorktree(),
 		Created:       s.currentCreatedPR(),
