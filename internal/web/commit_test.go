@@ -487,3 +487,55 @@ func TestBranchRefusesANameAlreadyTaken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "already exists")
 }
+
+// git runs a command that changes the test repository.
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+}
+
+// Without a --base and without a pull request the base was empty, so the count
+// was never taken and Rebase read "up to date" however far behind you were.
+func TestBehindIsCountedWithNoBaseConfigured(t *testing.T) {
+	s := newTestServer(t)
+	require.Empty(t, s.ws.opts.Base, "the usual case: nothing set the base")
+
+	// Move main on, so the branch is genuinely behind it.
+	gitRun(t, s.ws.homeRoot, "checkout", "-q", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(s.ws.homeRoot, "c.go"), []byte("package main\n"), 0o600))
+	gitRun(t, s.ws.homeRoot, "add", "c.go")
+	gitRun(t, s.ws.homeRoot, "commit", "-qm", "main moves on", "--no-gpg-sign")
+	gitRun(t, s.ws.homeRoot, "checkout", "-q", "feature")
+
+	s.refreshWorktree(context.Background())
+
+	require.NotNil(t, s.currentWorktree())
+	assert.Equal(t, 1, s.currentWorktree().Behind, "a branch one commit behind main")
+	assert.Equal(t, "main", s.currentBase(), "the button has to name what it rebases onto")
+}
+
+// An explicit base is still the one used, and costs no lookup.
+func TestAConfiguredBaseWins(t *testing.T) {
+	s := newTestServer(t)
+	s.ws.opts.Base = "main"
+
+	s.refreshWorktree(context.Background())
+
+	assert.Equal(t, "main", s.currentBase())
+}
+
+// The label and the count come from one answer, so they cannot disagree.
+func TestTheResolvedBaseReachesTheState(t *testing.T) {
+	s := newTestServer(t)
+	s.refreshWorktree(context.Background())
+
+	var got stateResponse
+	require.NoError(t, json.Unmarshal(do(t, s, "GET", "/api/state", "").Body.Bytes(), &got))
+	assert.Equal(t, "main", got.Meta.Base, "an empty base drew \"Rebase onto the base branch\"")
+}

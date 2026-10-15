@@ -26,6 +26,7 @@ import {
   group,
   isQuestion,
   line,
+  prose,
   questionsOf,
   step,
   type Message,
@@ -126,6 +127,9 @@ const unfolded = new Set<string>();
 // hidden is the replies folded to their heading, kept across a redraw.
 const hidden = new Set<string>();
 
+// full is the replies shown as the agent wrote them: per message, kept across a redraw.
+const full = new Set<string>();
+
 // undoing is the undo waiting on your confirmation: nothing is put back
 // until you have seen which files it touches.
 let undoing: { id: string; changes: Change[] } | undefined;
@@ -142,6 +146,7 @@ function draw(): void {
     return;
   }
   deferred = false;
+  const anchor = pinned ? undefined : anchored();
   list.innerHTML = "";
   const shown = folds(messages);
   under = shown.under;
@@ -165,6 +170,29 @@ function draw(): void {
     list.append(row);
   }
   if (pinned) list.scrollTop = list.scrollHeight;
+  else if (anchor) hold(anchor);
+}
+
+// anchored is the first row in view and where its top sits: a redraw that
+// changes a height above it, a short form landing, must not move what you read.
+function anchored(): { id: string; top: number } | undefined {
+  const edge = list.getBoundingClientRect().top;
+  for (const el of rows()) {
+    const box = el.getBoundingClientRect();
+    if (box.bottom > edge) return { id: el.dataset.id || "", top: box.top - edge };
+  }
+  return undefined;
+}
+
+function hold(anchor: { id: string; top: number }): void {
+  const el = rows().find((r) => r.dataset.id === anchor.id);
+  if (!el) return;
+  const edge = list.getBoundingClientRect().top;
+  list.scrollTop += el.getBoundingClientRect().top - edge - anchor.top;
+}
+
+function rows(): HTMLElement[] {
+  return Array.from(list.querySelectorAll<HTMLElement>("[data-id]"));
 }
 
 function selecting(): boolean {
@@ -373,6 +401,7 @@ function tools(msgs: Message[]): HTMLElement {
   const el = document.createElement("details");
   el.className = "tools";
   const key = msgs[0].id;
+  el.dataset.id = key;
   el.open = unfolded.has(key) || opens(msgs);
   el.ontoggle = () => (el.open ? unfolded.add(key) : unfolded.delete(key));
 
@@ -418,6 +447,7 @@ function row(msg: Message): HTMLElement {
 
   const el = document.createElement("div");
   el.className = `msg ${msg.kind === "you" ? "you" : "agent"}`;
+  el.dataset.id = msg.id;
 
   const face = document.createElement("div");
   face.className = "face";
@@ -444,8 +474,9 @@ function row(msg: Message): HTMLElement {
   body.className = "body";
   // The server renders the agent's prose; a prompt is yours and never html, so
   // a url in one is made an anchor rather than left as text.
-  if (msg.kind !== "you" && msg.html) {
-    body.innerHTML = msg.html;
+  const html = prose(msg, full.has(msg.id));
+  if (msg.kind !== "you" && html) {
+    body.innerHTML = html;
     linkify(body);
     addCopyButtons(body);
   } else body.append(linked(msg.body || ""));
@@ -595,6 +626,19 @@ function actRow(msg: Message, verbs: Act[]): HTMLElement {
     if (verb === "fold") {
       const chip = button("chip", "Update doc", () => void fold(msg.id, chip));
       chip.title = `Fold this into ${doc}`;
+      row.append(chip);
+      continue;
+    }
+    if (verb === "full") {
+      const showing = full.has(msg.id);
+      const chip = button("linkact", showing ? "Short" : "Full", () => {
+        if (showing) full.delete(msg.id);
+        else full.add(msg.id);
+        draw();
+      });
+      chip.title = showing
+        ? "Show the short form"
+        : "Show the reply as the agent wrote it";
       row.append(chip);
       continue;
     }

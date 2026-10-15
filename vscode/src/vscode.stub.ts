@@ -123,6 +123,9 @@ export const window = {
   onDidChangeWindowState: (_l: (e: { focused: boolean }) => void) => ({
     dispose: () => {},
   }),
+  showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> =>
+    undefined,
+  setStatusBarMessage: (_text: string, _hide?: number) => ({ dispose() {} }),
   withProgress: <R>(_options: unknown, work: () => Promise<R>): Promise<R> =>
     work(),
 };

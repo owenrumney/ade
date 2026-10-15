@@ -110,3 +110,13 @@ export function body(block: string): string {
     lines.pop();
   return lines.join("\n");
 }
+
+// picture reads `![alt](url "title")`. Only a relative path resolves: the
+// frame may load files beside the document and nothing else.
+export function picture(src: string, base: string): { alt: string; url: string } | undefined {
+  const m = /^!\[([^\]]*)\]\(\s*<?([^\s>)]+)>?(?:\s+["'(].*)?\)$/.exec(src.trim());
+  if (!m || !base) return undefined;
+  const [, alt, path] = m;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("/")) return undefined;
+  return { alt, url: new URL(path, base.endsWith("/") ? base : `${base}/`).toString() };
+}

@@ -188,7 +188,12 @@ type Server struct {
 	ws       *workspace
 	diff     *gitdiff.Diff
 	diffHash string
-	draft    *CommitDraft
+	// baseRef is the resolved base branch, for the rebase count and its label.
+	baseRef string
+	draft   *CommitDraft
+	// quiz is the questions written about the diff, held so reopening the
+	// panel does not pay for them again. Nothing about how you did is kept.
+	quiz *Quiz
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
@@ -230,9 +235,13 @@ type Server struct {
 	verifyLast    *verify.Outcome
 	verifyOffer   []verify.Check
 	verifyGen     int
-	// attaching serialises appending pictures to a finished turn's reply. The
-	// preview capture and the outbox both do it, off the turn and at once.
+	// attaching serialises the read-modify-writes of a reply off the turn: the
+	// pictures the preview and the outbox put on it, and the cleanse's short form.
 	attaching sync.Mutex
+	// cleansing counts the rewrites in flight, so a test can wait for them.
+	cleansing sync.WaitGroup
+	// cleansingOne runs them one at a time: under a sandbox each is a cold slot a named agent needs.
+	cleansingOne sync.Mutex
 	// recording is the one commit-record publisher: a commit, an amend and a
 	// merge all write the same wiki draft.
 	recording sync.Mutex
@@ -769,6 +778,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/queue/{id}/urgent", s.guard(s.handlePromoteQueued))
 	mux.HandleFunc("POST /api/sharpen", s.guard(s.handleSharpen))
 	mux.HandleFunc("POST /api/commit-message", s.guard(s.handleCommitMessage))
+	mux.HandleFunc("POST /api/quiz", s.guard(s.handleQuiz))
 	mux.HandleFunc("POST /api/commit", s.guard(s.handleCommit))
 	mux.HandleFunc("POST /api/stage", s.guard(s.handleStage))
 	mux.HandleFunc("POST /api/unstage", s.guard(s.handleUnstage))
@@ -1111,6 +1121,7 @@ type stateResponse struct {
 	Meta          meta                `json:"meta"`
 	Agent         RunState            `json:"agent"`
 	Draft         *CommitDraft        `json:"draft,omitempty"`
+	Quiz          *Quiz               `json:"quiz,omitempty"`
 	PR            *PRInfo             `json:"pr,omitempty"`
 	Worktree      *gitdiff.Status     `json:"worktree,omitempty"`
 	Created       *CreatedPR          `json:"created,omitempty"`
@@ -1223,7 +1234,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		Meta: meta{
 			Repo:     ws.homeRoot,
 			Branch:   ws.branch,
-			Base:     ws.opts.Base,
+			Base:     s.currentBase(),
 			Mode:     diff.Mode,
 			Store:    ws.store.Path(),
 			Scope:    ws.opts.Scope,
@@ -1236,6 +1247,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		},
 		Agent:         s.agentState(),
 		Draft:         s.currentDraft(),
+		Quiz:          s.currentQuiz(),
 		PR:            ws.pr,
 		Worktree:      s.currentWorktree(),
 		Created:       s.currentCreatedPR(),

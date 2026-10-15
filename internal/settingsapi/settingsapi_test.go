@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/owenrumney/ade/internal/agents"
 
 	"github.com/owenrumney/ade/internal/settings"
 )
@@ -169,6 +172,11 @@ func put(t *testing.T, api *API, body string) *httptest.ResponseRecorder {
 
 func TestAUserAgentIsInstalledThenEdited(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// The shipped prompts live in ade-private, so this brings its own two.
+	t.Cleanup(agents.UseDefaults(fstest.MapFS{
+		"defaults/tester.md":   {Data: []byte("---\nname: tester\ndescription: shipped\n---\nfind the missing case\n")},
+		"defaults/security.md": {Data: []byte("---\nname: security\ndescription: shipped\n---\nlook for the injection\n")},
+	}))
 	mux := http.NewServeMux()
 	(&API{}).Mount(mux, func(h http.HandlerFunc) http.HandlerFunc { return h })
 	do := func(method, path, body string) *httptest.ResponseRecorder {

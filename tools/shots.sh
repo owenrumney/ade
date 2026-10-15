@@ -90,6 +90,8 @@ flowchart LR
 | First message | instant | eight seconds |
 | Slots held | one per checkout | none |
 
+![the mark a warm box wears](cold-sandbox.svg)
+
 - A slot is a container, not a process.
 - Four is the ceiling, and it is not configurable.
 
@@ -99,6 +101,7 @@ for _, r in ipairs(results) do
 end
 ```
 MD
+cp vscode/media/ade.svg "$docs/cold-sandbox.svg"
 
 # A subfolder, so the Design tree is photographed nesting one rather than
 # listing one level and hiding what is under it.
@@ -156,9 +159,17 @@ make editor-package editor-install
 open http://127.0.0.1:5173/
 \`\`\`"
 
-quiet "seedchat" go run ./tools/seedchat "$out/repos/ade/.git" \
+# Long prose with the short form the cleanse would have put beside it, so the
+# shot is of what the page draws first and the way back to the original.
+quiet "seedchat" go run ./tools/seedchat \
+  -short "Order the write-back by expiry, not by whether the access token is in date.
+
+- Two copies of one login: the one refreshed last holds the only chain that still works.
+- None of the three call sites in \`internal/authstore\` sorts before writing, so the stale copy wins when the newer one was refreshed on another machine.
+- Fix: one sort in the writer, and a test that refreshes the second copy first." \
+  "$out/repos/ade/.git" \
   11111111-2222-3333-4444-555555555555 architect \
-  "The write-back needs an ordering rule. Two copies of one login, and whichever refreshed last holds the only chain that still works — so order them by expiry, not by whether the access token is in date." \
+  "The write-back needs an ordering rule. Two copies of one login, and whichever refreshed last holds the only chain that still works — so order them by expiry, not by whether the access token is in date. I went through the three call sites in internal/authstore and, as far as I can tell, none of them sorts before writing, which means the stale copy wins whenever the newer one happened to be refreshed on another machine. The fix is probably one sort in the writer, plus a test that refreshes the second copy first so the ordering is actually exercised." \
   "VITE v7.1.0  ready in 412 ms
 
   ➜  Local:   http://127.0.0.1:5173/

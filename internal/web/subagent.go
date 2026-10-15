@@ -894,8 +894,8 @@ func (s *Server) onSubagentEventModel(name, model, asker, batch string, ev bridg
 	}
 	// The finding blocks are the comments they became, not prose.
 	if text := review.StripStream(ev.Text); text != "" {
-		s.say(ChatMessage{Kind: chat.KindAgent, Author: name, For: asker, Run: runSubagent, Model: model,
-			Review: batch != "", Body: text, HTML: s.replyHTML(text)})
+		s.cleanse(s.say(ChatMessage{Kind: chat.KindAgent, Author: name, For: asker, Run: runSubagent, Model: model,
+			Review: batch != "", Body: text, HTML: s.replyHTML(text)}))
 	}
 	for _, result := range ev.ToolResults {
 		s.answerTool(result)

@@ -24,6 +24,7 @@ import (
 	"github.com/owenrumney/ade/internal/lineage"
 	"github.com/owenrumney/ade/internal/linear"
 	"github.com/owenrumney/ade/internal/memory"
+	"github.com/owenrumney/ade/internal/quiz"
 	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -121,7 +122,7 @@ var responseShapes = map[string][]string{
 	"ChatMessage": {
 		"at string", "author string", "body string", "context ptr", "doing string", "failed bool", "files slice", "foldedInto string", "for string",
 		"html string", "id string", "images slice", "input string", "kind string", "model string", "output string",
-		"review bool", "rule string", "run string", "steps int", "target string", "tool string", "toolId string", "undo string",
+		"review bool", "rule string", "run string", "short string", "shortHtml string", "steps int", "target string", "tool string", "toolId string", "undo string",
 		"undone string",
 	},
 	"ChatContext":  {"from string", "text string"},
@@ -179,8 +180,13 @@ var responseShapes = map[string][]string{
 	"StateResponse": {
 		"agent struct", "attachment ptr", "branchPr ptr", "bus ptr", "chat struct", "created ptr", "design ptr", "diffVersion string",
 		"draft ptr", "hub ptr", "limits ptr", "linear ptr", "meta struct", "notifications slice",
-		"openPrs slice", "pr ptr", "project ptr", "reviews slice", "threads slice",
+		"openPrs slice", "pr ptr", "project ptr", "quiz ptr", "reviews slice", "threads slice",
 		"verify ptr", "worktree ptr",
+	},
+	"Quiz": {"base string", "files int", "questions slice", "scope string", "stale bool"},
+	"QuizQuestion": {
+		"about string", "answer string", "file string", "line int", "options slice",
+		"question string", "ref string", "why string",
 	},
 	"VerifyState": {
 		"at string", "failed string", "narrow bool", "offer slice", "passed bool", "ran int",
@@ -234,7 +240,7 @@ var responseShapes = map[string][]string{
 		"title string", "updatedAt string", "url string",
 	},
 	"SettingsView": {
-		"colors map", "dashboardClaude string", "dashboardCodex string", "dashboardHost string", "dashboardTokenEnd string", "dashboardTokenSet bool", "dashboardUrl string", "deepBackground bool",
+		"cleanseOff bool", "colors map", "dashboardClaude string", "dashboardCodex string", "dashboardHost string", "dashboardTokenEnd string", "dashboardTokenSet bool", "dashboardUrl string", "deepBackground bool",
 		"gitHubPackagesTokenEnd string", "gitHubPackagesTokenSet bool", "homeAssistantDesk string", "homeAssistantNotify string", "homeAssistantTokenEnd string", "homeAssistantTokenSet bool", "homeAssistantUrl string",
 		"hosts slice", "ignoreAuthors slice", "ignoreOlderDays int", "ignoreReasons slice", "ignoreRepos slice", "ignoredDirs slice",
 		"instructions string", "instructionsMaxLength int",
@@ -355,6 +361,8 @@ func TestTheResponseShapesStillMatchTheGoStructs(t *testing.T) {
 		"Attached":          Attachment{},
 		"VerifyState":       VerifyState{},
 		"VerifyCheck":       verify.Check{},
+		"Quiz":              Quiz{},
+		"QuizQuestion":      quiz.Question{},
 	}
 	require.Len(t, subjects, len(responseShapes), "a struct is in one table and not the other")
 

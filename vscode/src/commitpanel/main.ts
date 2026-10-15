@@ -140,6 +140,9 @@ function draw(): void {
     doing.append(
       button("Show the pull request", () => send("showPR"), !idle(busy)),
     );
+  // The screen you are on at the moment the quiz is for: just before the
+  // pull request, not just before the commit.
+  doing.append(link("Quiz me", () => send("quizMe"), false));
   root.append(doing);
   const how = signing(sign);
   const under2 = el("p", "said");

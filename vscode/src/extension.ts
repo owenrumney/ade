@@ -80,6 +80,7 @@ import {
   OTHER,
   reviewers as busReviewers,
   reviewTarget,
+  askedLine,
   targetItems,
 } from "./busreview";
 import { listed } from "./detail";
@@ -350,6 +351,11 @@ import { offstage } from "./loading";
 import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
+import { RepoPage } from "./repoview";
+import { PurgePage } from "./purgeview";
+import type { Sweep } from "./purgepanel/view";
+import { QuizPage } from "./quizview";
+import type { Repo as RepoStats } from "./repo/view";
 import type { Board, Do } from "./dashboard/view";
 import { openCount } from "./comments";
 import {
@@ -763,6 +769,9 @@ let concierge: Chat;
 let settingsPage: Settings;
 let commitView: CommitView;
 let dashboard: Dashboard;
+let repoPage: RepoPage;
+let purgePage: PurgePage;
+let quizPage: QuizPage;
 let sessions: Sessions;
 let design: Design;
 let machines: Machines;
@@ -848,8 +857,14 @@ export async function activate(
   concierge.onShown = () => void startDesk();
   boxContext = context;
   dashboard = new Dashboard(context, boardNow, boardAct);
+  repoPage = new RepoPage(context, repoNow);
+  purgePage = new PurgePage(context, sweepNow, pruneIn);
+  quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
     dashboard,
+    repoPage,
+    purgePage,
+    quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
       deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
     }),
@@ -1042,6 +1057,11 @@ export async function activate(
       () => void openBranchPR(),
     ),
     vscode.commands.registerCommand(
+      "ade.showComments",
+      () =>
+        void vscode.commands.executeCommand("workbench.panel.comments.focus"),
+    ),
+    vscode.commands.registerCommand(
       "ade.startLauncher",
       () => void startLauncher(),
     ),
@@ -1141,6 +1161,12 @@ export async function activate(
     vscode.commands.registerCommand("ade.jobs", () => void pickJob()),
     vscode.commands.registerCommand("ade.memory", () => void pickMemory()),
     vscode.commands.registerCommand("ade.showStats", () => void showStats()),
+    vscode.commands.registerCommand("ade.showRepo", () => void repoPage.show()),
+    vscode.commands.registerCommand(
+      "ade.purgeWorktrees",
+      () => void purgePage.show(),
+    ),
+    vscode.commands.registerCommand("ade.quizMe", () => void quizPage.show()),
     vscode.commands.registerCommand("ade.showGraph", () => void showGraph()),
     vscode.commands.registerCommand("ade.showUsage", () => void showUsage()),
     vscode.commands.registerCommand("ade.showPR", () => void showPR()),
@@ -4174,6 +4200,42 @@ async function newScratch(): Promise<void> {
   }
 }
 
+// repoNow is this window's folder, read by the launcher: what the repository
+// is, and what ade has done in it.
+async function repoNow(fresh: boolean): Promise<RepoStats> {
+  const folder = (vscode.workspace.workspaceFolders ?? [])[0];
+  if (!folder) throw new Error("this window has no folder open");
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<RepoStats>(
+    launcher,
+    `/api/repo?dir=${encodeURIComponent(folder.uri.fsPath)}${fresh ? "&fresh=1" : ""}`,
+  );
+}
+
+// sweepNow is every worktree on this machine. The launcher is the only
+// server that can sweep: an ade serving a checkout knows only its own.
+async function sweepNow(fresh: boolean): Promise<Sweep> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<Sweep>(
+    launcher,
+    `/api/worktrees/all${fresh ? "?fresh=1" : ""}`,
+  );
+}
+
+// pruneIn removes one repository's worktrees, through the launcher: a server
+// cannot remove the checkout it is serving from.
+async function pruneIn(
+  repo: string,
+  paths: string[],
+  force: boolean,
+): Promise<{ removed?: string[]; kept?: { path: string; why: string }[] }> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return pruneAt(launcher, repo, paths, force);
+}
+
 // showStats opens what the transcripts say was spent, as a page. Generated
 // each time: it is a reading, not a file.
 async function showStats(): Promise<void> {
@@ -5871,6 +5933,7 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
     chat.serving(undefined);
     settingsPage.serving(undefined);
     commitView.serving(undefined);
+    quizPage.serving(undefined);
     sessions.serving(found.checkout, undefined);
     design.serving(undefined);
     queueTree.serving(undefined);
@@ -5902,6 +5965,7 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
   sessions.serving(server.root, client);
   queueTree.serving(client);
   commitView.serving(client);
+  quizPage.serving(client);
   issues.serving(client);
   changes.serving(client);
   driftTree.serving(client);
@@ -6637,7 +6701,7 @@ async function sendBranchPRTo(node: unknown): Promise<void> {
   if (note === undefined) return;
   try {
     const sent = await c.busRequestReview(url, to, note.trim());
-    vscode.window.setStatusBarMessage(`ade: asked ${sent.to} to review`, 5000);
+    vscode.window.setStatusBarMessage(`ade: ${askedLine(sent)}`, 6000);
   } catch (err) {
     void vscode.window.showWarningMessage(`ade: ${reason(err)}`);
   }
@@ -6752,7 +6816,7 @@ async function askTeamForReview(arg: unknown): Promise<void> {
 
   try {
     const sent = await c.busRequestReview(url, to, note.trim());
-    vscode.window.setStatusBarMessage(`ade: asked ${sent.to} to review`, 5000);
+    vscode.window.setStatusBarMessage(`ade: ${askedLine(sent)}`, 6000);
   } catch (err) {
     void vscode.window.showWarningMessage(`ade: ${String(err)}`);
   }
@@ -6982,6 +7046,7 @@ async function refresh(client: Client): Promise<void> {
     drawRun();
     drawBoxed();
     commitView.apply(state);
+    quizPage.apply(state);
     drawChecks(state.verify);
     if (state.verify?.offer?.length) void offerChecks(state.verify.offer);
     await drawScope(state.meta?.scope);

@@ -53,6 +53,10 @@
       "type": "boolean",
       "description": "Do not ask about a vague prompt before it is sent."
     },
+    "cleanse_off": {
+      "type": "boolean",
+      "description": "Do not rewrite the agent's replies short with a cheap model."
+    },
     "merge_queued_off": {
       "type": "boolean",
       "description": "Do not send prompts queued during one run to the agent as one turn."

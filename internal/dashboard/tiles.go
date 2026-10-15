@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -53,6 +54,7 @@ func Subscriptions(state limits.State, who Accounts, host string) []Tile {
 				"provider": each.limits.Provider,
 				"windows":  windows(each.limits.Windows),
 			},
+			Labels: map[string]string{"provider": each.limits.Provider, "account": each.label},
 		})
 	}
 	return out
@@ -95,14 +97,29 @@ func Usage(stats transcripts.Stats, host string, now time.Time, days int) []Tile
 			Data: map[string]any{"items": []map[string]any{{"label": host, "value": stats.Tools}}},
 		},
 		{
-			Source: "tokens.cacheread", Type: TypeCounter, Title: "Cached input tokens",
-			Group: "breakdown", Order: 30, Reduce: Sum, Host: host, At: now,
-			Data: map[string]any{"value": stats.Usage.CacheRead},
+			Source: "value.by_repo", Type: TypeList, Title: "API value today, by repo",
+			Group: "breakdown", Order: 15, Reduce: Sum, Host: host, At: now,
+			Data: map[string]any{"items": byModel(stats.ByDayRepo[todayKey])},
 		},
 		{
-			Source: "tokens.total", Type: TypeCounter, Title: "Total tokens",
-			Group: "breakdown", Order: 40, Reduce: Sum, Host: host, At: now,
-			Data: map[string]any{"value": stats.Usage.Total()},
+			Source: "activity.by_repo", Type: TypeList, Title: "Completed turns today, by repo",
+			Group: "breakdown", Order: 16, Reduce: Sum, Host: host, At: now,
+			Data: map[string]any{"items": byCount(stats.ByDayRepoTurns[todayKey])},
+		},
+		{
+			Source: "tokens.by_kind", Type: TypeList, Title: "Tokens, all time, by kind",
+			Group: "breakdown", Order: 30, Reduce: Sum, Host: host, At: now,
+			Data: map[string]any{"items": byKind(stats.Usage)},
+		},
+		{
+			Source: "sessions.top", Type: TypeList, Title: "Most expensive sessions today",
+			Group: "breakdown", Order: 60, Reduce: Sum, Host: host, At: now,
+			Data: map[string]any{"items": topSessions(stats.TopSessions[todayKey])},
+		},
+		{
+			Source: "turns.by_agent", Type: TypeList, Title: "Completed turns today, by agent",
+			Group: "performance", Order: 55, Reduce: Sum, Host: host, At: now,
+			Data: map[string]any{"items": byCount(stats.ByDayAgentTurns[todayKey])},
 		},
 		{
 			Source: "turn.duration", Type: TypeList, Title: "Turn duration buckets",
@@ -179,6 +196,36 @@ func Usage(stats transcripts.Stats, host string, now time.Time, days int) []Tile
 	}
 }
 
+// UsageByAgent is Usage for each agent's transcripts, labelled with the
+// provider and the account this machine is logged into for it.
+func UsageByAgent(byAgent map[transcripts.Agent]transcripts.Stats, who Accounts, host string, now time.Time, days int) []Tile {
+	agents := make([]transcripts.Agent, 0, len(byAgent))
+	for agent := range byAgent {
+		agents = append(agents, agent)
+	}
+	slices.Sort(agents)
+
+	var out []Tile
+	for _, agent := range agents {
+		labels := map[string]string{"provider": string(agent), "account": who.of(agent)}
+		for _, tile := range Usage(byAgent[agent], host, now, days) {
+			tile.Labels = labels
+			out = append(out, tile)
+		}
+	}
+	return out
+}
+
+func (a Accounts) of(agent transcripts.Agent) string {
+	switch agent {
+	case transcripts.AgentClaude:
+		return a.Claude
+	case transcripts.AgentCodex:
+		return a.Codex
+	}
+	return ""
+}
+
 // Operations is the fresh machine state that does not come from transcripts.
 func Operations(live, queued int, wait time.Duration, additions, deletions int, host string, now time.Time) []Tile {
 	return []Tile{
@@ -236,6 +283,26 @@ func byCount(groups []transcripts.Group) []map[string]any {
 	out := make([]map[string]any, 0, len(groups))
 	for _, group := range groups {
 		out = append(out, map[string]any{"label": group.Key, "value": group.Sessions})
+	}
+	return out
+}
+
+func byKind(usage transcripts.Usage) []map[string]any {
+	return []map[string]any{
+		{"label": "input", "value": usage.Input},
+		{"label": "output", "value": usage.Output},
+		{"label": "cacheread", "value": usage.CacheRead},
+		{"label": "cachewrite", "value": usage.CacheWrite},
+		{"label": "reasoning", "value": usage.Reasoning},
+	}
+}
+
+// topSessions labels each session with its repo first: the id alone says
+// nothing on a wall.
+func topSessions(costs []transcripts.SessionCost) []map[string]any {
+	out := make([]map[string]any, 0, len(costs))
+	for _, each := range costs {
+		out = append(out, map[string]any{"label": each.Repo + " · " + each.ID, "value": each.Cost})
 	}
 	return out
 }

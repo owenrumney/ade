@@ -242,7 +242,13 @@ func (s *Server) refreshWorktree(ctx context.Context) bool {
 		return false
 	}
 	status.Signing = gitdiff.SigningOf(ctx, s.space().diffRoot())
-	if base := s.space().opts.Base; base != "" {
+	// Resolved, not only the one set at start: an empty base left Behind at 0,
+	// so Rebase read "up to date" however far behind you were.
+	base := s.space().opts.Base
+	if base == "" {
+		base = gitdiff.BaseBranch(ctx, s.space().diffRoot())
+	}
+	if base != "" {
 		status.Behind, _ = gitdiff.CommitsBehind(ctx, s.space().diffRoot(), base)
 	}
 	fingerprint := fmt.Sprintf("%v|%v|%s|%d|%d|%v", status.Staged, status.Unstaged,
@@ -251,7 +257,7 @@ func (s *Server) refreshWorktree(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := fingerprint != s.worktreeHash
-	s.worktree, s.worktreeHash = &status, fingerprint
+	s.worktree, s.worktreeHash, s.baseRef = &status, fingerprint, base
 	return changed
 }
 
@@ -259,6 +265,17 @@ func (s *Server) currentWorktree() *gitdiff.Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.worktree
+}
+
+// currentBase is the branch a rebase would land on, named so the button can
+// say it. FetchBase resolves an empty one the same way, so the two agree.
+func (s *Server) currentBase() string {
+	if base := s.space().opts.Base; base != "" {
+		return base
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.baseRef
 }
 
 // indexSide is one direction across the index: which paths a request may name,

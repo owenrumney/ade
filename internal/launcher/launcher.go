@@ -31,6 +31,7 @@ import (
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
+	"github.com/owenrumney/ade/internal/reviewer"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -88,10 +89,14 @@ type Server struct {
 	spend *spendCache
 
 	// stats is the last machine-wide transcript summary.
-	stats *statsCache
+	stats     *statsCache
+	repoPages *repoCache
 
 	// disk is the last reading of what ade has left on disk.
 	disk *diskCache
+
+	// sweep is the last machine-wide worktree scan, for the purge panel.
+	sweep *sweepCache
 
 	// load is the last reading of what the connected machines are using.
 	load *loadCache
@@ -105,6 +110,10 @@ type Server struct {
 	// bus is this machine's one agentbus connection. The launcher holds it so
 	// a person is one row, and so a claim and its verdict share a connection.
 	bus *busnode
+
+	// reviewer turns the person a review was asked of into the reviewer on
+	// the pull request. It caches handles, so it is held rather than made.
+	reviewer *reviewer.Resolver
 
 	// wait is the last reading of what is waiting on you.
 	wait *waitingCache
@@ -203,11 +212,14 @@ func New(idle time.Duration, version string) (*Server, error) {
 		limits:    limits.NewCache(),
 		spend:     &spendCache{},
 		stats:     &statsCache{},
+		repoPages: &repoCache{},
 		disk:      &diskCache{},
+		sweep:     &sweepCache{},
 		load:      &loadCache{},
 		jobs:      &jobsClock{},
 		wait:      &waitingCache{},
 		bus:       newBusnode(),
+		reviewer:  reviewer.New(),
 		used:      time.Now(),
 		hub:       httpx.NewHub(),
 		hosts:     map[string]*conn{},
@@ -360,6 +372,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/suggestion/dismiss", s.guard(s.handleDismissSessionSuggestion))
 	mux.HandleFunc("GET /api/browse", s.guard(s.handleBrowse))
 	mux.HandleFunc("GET /api/worktrees", s.guard(s.handleWorktrees))
+	mux.HandleFunc("GET /api/worktrees/all", s.guard(s.handleWorktreesAll))
 	mux.HandleFunc("POST /api/prune", s.guard(s.handlePrune))
 	mux.HandleFunc("POST /api/sync", s.guard(s.handleSync))
 	mux.HandleFunc("GET /api/events", s.guard(s.hub.HandleSSE))
@@ -367,6 +380,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/limits", s.guard(s.handleLimits))
 	mux.HandleFunc("GET /api/limits/window", s.guard(s.handleWindowSpend))
 	mux.HandleFunc("GET /api/stats", s.guard(s.handleStats))
+	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
 	mux.HandleFunc("GET /api/disk", s.guard(s.handleDisk))
 	mux.HandleFunc("GET /api/disk/detail", s.guard(s.handleDiskDetail))
 	mux.HandleFunc("POST /api/disk/purge", s.guard(s.handleDiskPurge))
@@ -1057,6 +1071,7 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(removed) > 0 {
 		_ = gitdiff.PruneWorktrees(r.Context(), repo.Path)
+		s.sweep.forget()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})
 }
@@ -1092,6 +1107,10 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// A rebase moves every count the purge panel prints.
+	if !req.DryRun {
+		s.sweep.forget()
 	}
 	writeJSON(w, http.StatusOK, report)
 }

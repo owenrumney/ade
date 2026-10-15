@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -45,6 +46,7 @@ const (
 	kindResolve       = "resolve"
 	kindDraftReply    = "draft-reply"
 	kindPRCreate      = "pr-create"
+	kindQuiz          = "quiz"
 	kindSeed          = "design-seed"
 	kindFold          = "design-fold"
 )
@@ -810,20 +812,13 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 	ws = ws.Under(cfg.Sandbox)
 	// The worker's session token, and only a worker's: an exported GH_TOKEN in
 	// the shell that started ade locally is the user's, not the session's.
-	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" && httpx.Wide() {
-		if ws.Env == nil {
-			ws.Env = map[string]string{}
-		}
-		if ws.Env["GH_TOKEN"] == "" {
-			ws.Env["GH_TOKEN"] = token
-		}
+	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" && httpx.Wide() && ws.Env["GH_TOKEN"] == "" {
+		ws.Env["GH_TOKEN"] = token
 	}
 	if ws.Env["NODE_AUTH_TOKEN"] == "" {
 		ws.Env["NODE_AUTH_TOKEN"] = cfg.GitHubPackagesToken
 	}
-	if ws.Env == nil {
-		ws.Env = map[string]string{}
-	}
+	fillGitHubTokens(ctx, ws.Env)
 	// Inside the container the git directory is mounted at its own path, so
 	// the outbox is the same string on both sides.
 	if dir := a.outboxDir(); dir != "" {
@@ -859,6 +854,34 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 		return nil, nil, err
 	}
 	return &spec, in.rt, nil
+}
+
+// hostGitHubToken prefers ADE_GITHUB_TOKEN, a scoped token, over the whole gh login.
+var hostGitHubToken = func(ctx context.Context) string {
+	if token := strings.TrimSpace(os.Getenv("ADE_GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// fillGitHubTokens gives every GitHub token the box has no value for the host's.
+func fillGitHubTokens(ctx context.Context, env map[string]string) {
+	var host string
+	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "NODE_AUTH_TOKEN"} {
+		if env[key] != "" {
+			continue
+		}
+		if host == "" {
+			if host = hostGitHubToken(ctx); host == "" {
+				return
+			}
+		}
+		env[key] = host
+	}
 }
 
 // setTitle records the session's name on the runner, for the state.

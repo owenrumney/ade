@@ -8,6 +8,7 @@ import (
 	"github.com/owenrumney/ade/internal/dashboard"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/settings"
+	"github.com/owenrumney/ade/internal/transcripts"
 )
 
 // dashboardInterval is how often the kiosk is told, and usageEvery how many
@@ -83,7 +84,7 @@ func (s *Server) reportDashboard(ctx context.Context, to *dashboard.Reporter, wh
 	additions, deletions := changedLines(ctx, operations.Dirs)
 	to.Send(dashboard.Operations(operations.Live, operations.Queued, operations.QueueWait, additions, deletions, host, now)...)
 	if usage {
-		to.Send(dashboard.Usage(s.stats.read(), host, now, dashboard.SparkDays)...)
+		to.Send(dashboard.UsageByAgent(transcripts.StatisticsByAgent(transcripts.Scan()), who, host, now, dashboard.SparkDays)...)
 	}
 }
 
