@@ -94,6 +94,9 @@ type Server struct {
 	// disk is the last reading of what ade has left on disk.
 	disk *diskCache
 
+	// sweep is the last machine-wide worktree scan, for the purge panel.
+	sweep *sweepCache
+
 	// load is the last reading of what the connected machines are using.
 	load *loadCache
 
@@ -206,6 +209,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 		stats:     &statsCache{},
 		repoPages: &repoCache{},
 		disk:      &diskCache{},
+		sweep:     &sweepCache{},
 		load:      &loadCache{},
 		jobs:      &jobsClock{},
 		wait:      &waitingCache{},
@@ -362,6 +366,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/suggestion/dismiss", s.guard(s.handleDismissSessionSuggestion))
 	mux.HandleFunc("GET /api/browse", s.guard(s.handleBrowse))
 	mux.HandleFunc("GET /api/worktrees", s.guard(s.handleWorktrees))
+	mux.HandleFunc("GET /api/worktrees/all", s.guard(s.handleWorktreesAll))
 	mux.HandleFunc("POST /api/prune", s.guard(s.handlePrune))
 	mux.HandleFunc("POST /api/sync", s.guard(s.handleSync))
 	mux.HandleFunc("GET /api/events", s.guard(s.hub.HandleSSE))
@@ -1060,6 +1065,7 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(removed) > 0 {
 		_ = gitdiff.PruneWorktrees(r.Context(), repo.Path)
+		s.sweep.forget()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})
 }
@@ -1095,6 +1101,10 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// A rebase moves every count the purge panel prints.
+	if !req.DryRun {
+		s.sweep.forget()
 	}
 	writeJSON(w, http.StatusOK, report)
 }
