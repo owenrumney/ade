@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,7 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(dir, ".gitconfig")); err != nil {
 		panic(err)
 	}
+	hostGitHubToken = func(context.Context) string { return "" }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

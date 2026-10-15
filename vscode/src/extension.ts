@@ -1047,6 +1047,11 @@ export async function activate(
       () => void openBranchPR(),
     ),
     vscode.commands.registerCommand(
+      "ade.showComments",
+      () =>
+        void vscode.commands.executeCommand("workbench.panel.comments.focus"),
+    ),
+    vscode.commands.registerCommand(
       "ade.startLauncher",
       () => void startLauncher(),
     ),
