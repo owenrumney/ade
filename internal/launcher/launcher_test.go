@@ -53,6 +53,7 @@ func TestTheTokenIsRequired(t *testing.T) {
 		{http.MethodPost, "/api/sessions/uncombine"},
 		{http.MethodPost, "/api/sessions/suggestion/dismiss"},
 		{http.MethodGet, "/api/worktrees"},
+		{http.MethodGet, "/api/worktrees/all"},
 		{http.MethodPost, "/api/prune"},
 		{http.MethodPost, "/api/scratch"},
 		{http.MethodGet, "/api/stats"},

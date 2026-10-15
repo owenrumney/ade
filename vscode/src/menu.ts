@@ -158,6 +158,7 @@ export const GROUPS: { title: string; commands: string[] }[] = [
       "ade.showUsage",
       "ade.showGraph",
       "ade.syncWorktrees",
+      "ade.purgeWorktrees",
       "ade.disk",
       "ade.openPermissions",
       "ade.reconnect",

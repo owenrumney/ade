@@ -1,0 +1,145 @@
+/* The purge panel. Colours come from the theme, never named here. */
+
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.sub,
+.when,
+.behind,
+.branch {
+  color: var(--vscode-descriptionForeground);
+}
+
+.refresh {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-infoBackground);
+  border: 1px solid var(--vscode-inputValidation-infoBorder);
+}
+
+.trouble {
+  margin: 0 0 12px;
+}
+
+.trouble p {
+  margin: 0 0 4px;
+}
+
+.rows {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.rows th {
+  padding: 0 10px 6px 0;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.rows td {
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  vertical-align: baseline;
+}
+
+.rows .pick {
+  width: 24px;
+  padding-right: 6px;
+}
+
+.rows input[type="checkbox"] {
+  accent-color: var(--vscode-button-background);
+}
+
+.repo {
+  font-weight: 600;
+}
+
+.name {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.state.free {
+  color: var(--vscode-charts-green);
+}
+
+.state.kept {
+  color: var(--vscode-descriptionForeground);
+}
+
+.row.kept {
+  opacity: 0.75;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.force {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.remove {
+  margin-left: auto;
+  padding: 4px 14px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.remove:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
