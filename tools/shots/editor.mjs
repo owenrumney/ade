@@ -380,3 +380,106 @@ export async function buildWorktrees(page, repoRoot) {
   await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/worktrees.js`, "utf8") });
   await page.waitForSelector(".lane-head", { timeout: 15000 });
 }
+
+// buildPurge runs the shipped purge panel over a fixture sweep: the page
+// draws from one posted message, so nothing has to be served for it.
+export async function buildPurge(page, repoRoot) {
+  const ago = (mins) => new Date(Date.now() - mins * 60 * 1000).toISOString();
+  const sweep = {
+    at: new Date().toISOString(),
+    repos: [
+      {
+        path: "/code/ade",
+        name: "ade",
+        worktrees: [
+          {
+            path: "/code/ade-12-finding-consolidation",
+            name: "ade-12-finding-consolidation",
+            branch: "12-finding-consolidation",
+            kind: "session",
+            removable: true,
+            merged: true,
+            behind: 214,
+            lastUsed: ago(60 * 24 * 130),
+          },
+          {
+            path: "/code/ade-checks-in-ci",
+            name: "ade-checks-in-ci",
+            branch: "checks-in-ci",
+            kind: "session",
+            removable: false,
+            keep: "unpushed",
+            unpushed: 2,
+            behind: 41,
+            lastUsed: ago(60 * 24 * 26),
+          },
+          {
+            path: "/code/ade-fix-remote",
+            name: "ade-fix-remote",
+            branch: "fix-remote",
+            kind: "session",
+            removable: false,
+            keep: "serving",
+            serving: "http://127.0.0.1:4310/",
+            uncommitted: 3,
+            behind: 2,
+            lastUsed: ago(14),
+          },
+        ],
+      },
+      {
+        path: "/code/coast",
+        name: "coast",
+        worktrees: [
+          {
+            path: "/code/coast-fix-541",
+            name: "coast-fix-541",
+            branch: "fix-541",
+            kind: "session",
+            removable: false,
+            keep: "uncommitted",
+            uncommitted: 7,
+            behind: 9,
+            lastUsed: ago(60 * 30),
+          },
+          {
+            path: "/code/coast-bump-pricing",
+            name: "coast-bump-pricing",
+            branch: "bump-pricing",
+            kind: "session",
+            removable: true,
+            behind: 88,
+            lastUsed: ago(60 * 24 * 61),
+          },
+        ],
+      },
+      {
+        path: "/code/cloud-pricing-api",
+        name: "cloud-pricing-api",
+        why: "fatal: not a git repository",
+        worktrees: [],
+      },
+    ],
+  };
+
+  await page.evaluate(
+    (vars, state) => {
+      for (const [name, value] of Object.entries(vars))
+        document.documentElement.style.setProperty(`--vscode-${name}`, value);
+      document.body.innerHTML = '<main id="purge"></main>';
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          if (message?.kind !== "ready") return;
+          window.dispatchEvent(
+            new MessageEvent("message", { data: { kind: "state", sweep: state } }),
+          );
+        },
+      });
+    },
+    THEME,
+    sweep,
+  );
+  await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/purge.css`, "utf8") });
+  await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/purge.js`, "utf8") });
+  await page.waitForSelector(".rows tbody tr", { timeout: 15000 });
+}

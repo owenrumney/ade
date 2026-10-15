@@ -351,6 +351,8 @@ import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
 import { RepoPage } from "./repoview";
+import { PurgePage } from "./purgeview";
+import type { Sweep } from "./purgepanel/view";
 import type { Repo as RepoStats } from "./repo/view";
 import type { Board, Do } from "./dashboard/view";
 import { openCount } from "./comments";
@@ -766,6 +768,7 @@ let settingsPage: Settings;
 let commitView: CommitView;
 let dashboard: Dashboard;
 let repoPage: RepoPage;
+let purgePage: PurgePage;
 let sessions: Sessions;
 let design: Design;
 let machines: Machines;
@@ -852,9 +855,11 @@ export async function activate(
   boxContext = context;
   dashboard = new Dashboard(context, boardNow, boardAct);
   repoPage = new RepoPage(context, repoNow);
+  purgePage = new PurgePage(context, sweepNow, pruneIn);
   context.subscriptions.push(
     dashboard,
     repoPage,
+    purgePage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
       deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
     }),
@@ -1147,6 +1152,10 @@ export async function activate(
     vscode.commands.registerCommand("ade.memory", () => void pickMemory()),
     vscode.commands.registerCommand("ade.showStats", () => void showStats()),
     vscode.commands.registerCommand("ade.showRepo", () => void repoPage.show()),
+    vscode.commands.registerCommand(
+      "ade.purgeWorktrees",
+      () => void purgePage.show(),
+    ),
     vscode.commands.registerCommand("ade.showGraph", () => void showGraph()),
     vscode.commands.registerCommand("ade.showUsage", () => void showUsage()),
     vscode.commands.registerCommand("ade.showPR", () => void showPR()),
@@ -4191,6 +4200,29 @@ async function repoNow(fresh: boolean): Promise<RepoStats> {
     launcher,
     `/api/repo?dir=${encodeURIComponent(folder.uri.fsPath)}${fresh ? "&fresh=1" : ""}`,
   );
+}
+
+// sweepNow is every worktree on this machine. The launcher is the only
+// server that can sweep: an ade serving a checkout knows only its own.
+async function sweepNow(fresh: boolean): Promise<Sweep> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<Sweep>(
+    launcher,
+    `/api/worktrees/all${fresh ? "?fresh=1" : ""}`,
+  );
+}
+
+// pruneIn removes one repository's worktrees, through the launcher: a server
+// cannot remove the checkout it is serving from.
+async function pruneIn(
+  repo: string,
+  paths: string[],
+  force: boolean,
+): Promise<{ removed?: string[]; kept?: { path: string; why: string }[] }> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return pruneAt(launcher, repo, paths, force);
 }
 
 // showStats opens what the transcripts say was spent, as a page. Generated
