@@ -3,6 +3,8 @@ import type { ProjectView } from "./projectrow";
 import type { Body as SandboxBody, SandboxFile } from "./sandboxfile";
 import type { Repo } from "./launcher";
 import type { Server } from "./discover";
+import type { Quiz } from "./quizpanel/view";
+import type { Asked } from "./busreview";
 
 // Thread mirrors comments.Thread. Only the fields the editor renders are named;
 // the rest of the JSON is carried without being described twice.
@@ -392,6 +394,7 @@ export interface State {
   meta?: Meta;
   linear?: Tickets | null;
   draft?: CommitDraft | null;
+  quiz?: Quiz | null;
   design?: DesignState | null;
   bus?: BusState | null;
   verify?: VerifyState | null;
@@ -620,12 +623,8 @@ export class Client {
     return this.post("/api/bus/dismiss", { id });
   }
 
-  busRequestReview(
-    pr: string,
-    to: string,
-    note: string,
-  ): Promise<{ to: string }> {
-    return this.post<{ to: string }>("/api/bus/request-review", {
+  busRequestReview(pr: string, to: string, note: string): Promise<Asked> {
+    return this.post<Asked>("/api/bus/request-review", {
       pr,
       to,
       note,
@@ -664,6 +663,14 @@ export class Client {
   // queues it rather than refusing, and says how many are waiting.
   writeCommitMessage(): Promise<{ queued?: number }> {
     return this.post<{ queued?: number }>("/api/commit-message", {});
+  }
+
+  // A quiz already written for this diff comes straight back; otherwise this
+  // answers before it exists and the questions arrive on a later /api/state.
+  quiz(regenerate = false): Promise<{ quiz?: Quiz; queued?: number }> {
+    return this.post<{ quiz?: Quiz; queued?: number }>("/api/quiz", {
+      regenerate,
+    });
   }
 
   // The verbs that are one POST and no form. Each is a palette entry and

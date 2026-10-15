@@ -122,11 +122,17 @@ func (c Claude) Spec(box string) (Spec, error) {
 			}
 		}
 	}
+	carried := []string{}
 	for _, name := range []string{"agents", "commands", "skills", "plugins/cache", "plugins/marketplaces"} {
 		path := filepath.Join(claudeDir, name)
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			mounts = append(mounts, Mount{Host: path, Guest: path})
+			carried = append(carried, path)
 		}
+	}
+	// After all of them, so a link from one into another is already covered.
+	for _, path := range carried {
+		mounts = append(mounts, linked(path, mounts)...)
 	}
 	// The pair and not ~/.ssh, read-only, at host paths so `~` resolves.
 	for _, key := range signing {
@@ -719,6 +725,52 @@ func skipWalk(name string) bool {
 		return true
 	}
 	return strings.HasPrefix(name, ".")
+}
+
+// linked mounts what a symlinked entry points at. Mounting the directory
+// carries the link and not its target, so a stowed skill dangles without this.
+func linked(dir string, have []Mount) []Mount {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []Mount
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		at := filepath.Join(dir, entry.Name())
+		target, err := os.Readlink(at)
+		if err != nil {
+			continue
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		// Dangling on the host, or a file: apple's container mounts directories.
+		resolved, err := filepath.EvalSymlinks(at)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+			continue
+		}
+		if covered(have, target) || covered(out, target) {
+			continue
+		}
+		out = append(out, Mount{Host: resolved, Guest: target})
+	}
+	return out
+}
+
+// covered is whether a mount already brings this path into the guest.
+func covered(mounts []Mount, guest string) bool {
+	for _, m := range mounts {
+		if within(guest, m.Guest) {
+			return true
+		}
+	}
+	return false
 }
 
 func held(mounts []Mount, guest string) bool {

@@ -31,6 +31,7 @@ import (
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
+	"github.com/owenrumney/ade/internal/reviewer"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -109,6 +110,10 @@ type Server struct {
 	// bus is this machine's one agentbus connection. The launcher holds it so
 	// a person is one row, and so a claim and its verdict share a connection.
 	bus *busnode
+
+	// reviewer turns the person a review was asked of into the reviewer on
+	// the pull request. It caches handles, so it is held rather than made.
+	reviewer *reviewer.Resolver
 
 	// wait is the last reading of what is waiting on you.
 	wait *waitingCache
@@ -214,6 +219,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 		jobs:      &jobsClock{},
 		wait:      &waitingCache{},
 		bus:       newBusnode(),
+		reviewer:  reviewer.New(),
 		used:      time.Now(),
 		hub:       httpx.NewHub(),
 		hosts:     map[string]*conn{},

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GROUPS, ROW_ONLY } from "./menu";
 import type { BusOnline } from "./client";
-import { ANYONE, describe as describeRow, EVERYONE, OTHER, reviewers, reviewTarget, targetItems } from "./busreview";
+import { ANYONE, askedLine, describe as describeRow, EVERYONE, OTHER, reviewers, reviewTarget, targetItems } from "./busreview";
 
 function row(over: Partial<BusOnline> = {}): BusOnline {
   return {
@@ -95,5 +95,26 @@ describe("asking the team to review this branch", () => {
       "ade.askTeamForReview",
     );
     expect(ROW_ONLY).not.toContain("ade.askTeamForReview");
+  });
+});
+
+describe("askedLine", () => {
+  it("leads with the ask and adds the reviewer", () => {
+    expect(
+      askedLine({ to: "liam@infracost.io", reviewerSet: true, reviewer: "liamg" }),
+    ).toBe("asked liam@infracost.io to review · liamg is on the pull request");
+  });
+
+  // A group reached the people it meant; there was nobody single to name.
+  it("says why nobody was named", () => {
+    expect(
+      askedLine({ to: "anyone", reviewerNote: "anyone is not one person, so no reviewer was set" }),
+    ).toBe("asked anyone to review · anyone is not one person, so no reviewer was set");
+  });
+
+  it("is just the ask when there is nothing to add", () => {
+    expect(askedLine({ to: "liam@infracost.io" })).toBe(
+      "asked liam@infracost.io to review",
+    );
   });
 });
