@@ -9,6 +9,7 @@ import {
   group,
   line,
   opens,
+  prose,
   selected,
   shotsOf,
   shown,
@@ -367,6 +368,14 @@ describe("the verbs on a bubble", () => {
     ).toEqual(["copy", "hide", "fold"]);
   });
 
+  it("offers the full reply first when a short form stands in for it", () => {
+    expect(acts({ ...said, shortHtml: "<p>done</p>" }, undefined)).toEqual([
+      "full",
+      "copy",
+      "hide",
+    ]);
+  });
+
   it("offers undo and a fixture on your message once it has a snapshot", () => {
     expect(acts({ ...you, undo: "ab12" }, undefined)).toEqual([
       "replay",
@@ -405,6 +414,22 @@ describe("the verbs on a bubble", () => {
     expect(
       acts({ id: "4", kind: "note", body: "cancelled", at: "" }, "x"),
     ).toEqual([]);
+  });
+});
+
+describe("the short form of a reply", () => {
+  const long = msg({ html: "<p>long</p>", shortHtml: "<p>short</p>" });
+
+  it("is drawn first, and the full prose on request", () => {
+    expect(prose(long, false)).toBe("<p>short</p>");
+    expect(prose(long, true)).toBe("<p>long</p>");
+  });
+
+  it("is the prose itself when there is no short form", () => {
+    const plain = msg({ html: "<p>long</p>" });
+    expect(prose(plain, false)).toBe("<p>long</p>");
+    expect(prose(plain, true)).toBe("<p>long</p>");
+    expect(prose(msg(), false)).toBeUndefined();
   });
 });
 
