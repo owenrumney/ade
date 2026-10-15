@@ -190,6 +190,8 @@ func (q queued) describe() string {
 		return "switch to " + modelLabel(q.model)
 	case kindCommitMessage:
 		return "write a commit message"
+	case kindQuiz:
+		return "write a quiz about the diff"
 	case kindFixChecks:
 		return "read the failing checks"
 	case kindReview:
@@ -230,6 +232,8 @@ func label(kind string) string {
 		return "Switch model"
 	case kindCommitMessage:
 		return "Commit message"
+	case kindQuiz:
+		return "Quiz me"
 	case kindReview:
 		return "Review"
 	case kindResolve:
@@ -522,6 +526,18 @@ func (s *Server) drainAfter(since time.Time) {
 		}
 		s.setDraft(nil)
 		s.spawn(func() { s.runCommitMessage(runCtx, staged) })
+	case kindQuiz:
+		// Read now, not when it was queued: the quiz is of the diff the tab
+		// is showing when it runs.
+		s.mu.RLock()
+		diff := s.diff
+		s.mu.RUnlock()
+		if diff == nil || len(diff.Files) == 0 {
+			s.agent.finish(nil)
+			return
+		}
+		s.setQuiz(nil)
+		s.spawn(func() { s.runQuiz(runCtx, diff) })
 	case kindFixChecks:
 		// Read now, not when it was queued: a run that took ten minutes is
 		// long enough for the checks to have gone green on their own.

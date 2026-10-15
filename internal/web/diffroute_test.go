@@ -36,6 +36,7 @@ var viewSafe = map[string]string{
 	"POST /api/review":                      "reads only, and its run takes the diff's root",
 	"POST /api/explain":                     "reads only, and its run takes the diff's root",
 	"POST /api/commit-message":              "reads only, and its run takes the diff's root",
+	"POST /api/quiz":                        "reads only, and its run takes the diff's root",
 	"POST /api/answer":                      "reads only, in the agent's own directory, and writes nothing",
 	"POST /api/sharpen":                     "reads the prompt it is sent and the open design document, and writes nothing",
 	"POST /api/commit":                      "git acts on the directory it is given",

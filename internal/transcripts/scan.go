@@ -14,6 +14,7 @@ type indexRow struct {
 	Agent       Agent     `json:"agent"`
 	ID          string    `json:"id"`
 	CWD         string    `json:"cwd,omitempty"`
+	Repo        string    `json:"repo,omitempty"`
 	Branch      string    `json:"branch,omitempty"`
 	Model       string    `json:"model,omitempty"`
 	Title       string    `json:"title,omitempty"`
@@ -105,9 +106,18 @@ func cachedIndex(path string, index func(string) *Session) *Session {
 		return index(path)
 	}
 	if row, hit := indexCache.get(path, at); hit {
+		// A row from before repos were kept gets one now, while its worktree lasts.
+		if row != nil && row.Repo == "" {
+			if row.Repo = RepoKey(row.CWD); row.Repo != "" {
+				indexCache.put(path, at, row)
+			}
+		}
 		return row.session(path)
 	}
 	s := index(path)
+	if s != nil {
+		s.Repo = RepoKey(s.CWD)
+	}
 	indexCache.put(path, at, rowOf(s))
 	return s
 }
@@ -117,7 +127,7 @@ func rowOf(s *Session) *indexRow {
 		return nil
 	}
 	return &indexRow{
-		Agent: s.Agent, ID: s.ID, CWD: s.CWD, Branch: s.Branch, Model: s.Model,
+		Agent: s.Agent, ID: s.ID, CWD: s.CWD, Repo: s.Repo, Branch: s.Branch, Model: s.Model,
 		Title: s.Title, Status: s.Status, Subagent: s.Subagent,
 		FirstPrompt: s.FirstPrompt, LastUsed: s.LastUsed,
 	}
@@ -128,7 +138,7 @@ func (r *indexRow) session(path string) *Session {
 		return nil
 	}
 	return &Session{
-		Agent: r.Agent, ID: r.ID, Path: path, CWD: r.CWD, Branch: r.Branch,
+		Agent: r.Agent, ID: r.ID, Path: path, CWD: r.CWD, Repo: r.Repo, Branch: r.Branch,
 		Model: r.Model, Title: r.Title, Status: r.Status, Subagent: r.Subagent,
 		FirstPrompt: r.FirstPrompt, LastUsed: r.LastUsed,
 	}

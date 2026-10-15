@@ -33,7 +33,9 @@ describe("the settings webview", () => {
 
   it("has a switch for each cheap-model helper", () => {
     expect(page).toContain('id="sharpen-off"');
+    expect(page).toContain('id="cleanse-off"');
     expect(page).toContain('id="merge-queued-off"');
+    expect(script).toContain("cleanseOff");
     expect(script).toContain("mergeQueuedOff");
   });
 });

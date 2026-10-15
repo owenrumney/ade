@@ -285,6 +285,7 @@ func TestEveryQueuedKindSaysWhatItWillDo(t *testing.T) {
 	for _, kind := range []string{
 		kindChat, kindConvert, kindSwitchModel, kindCommitMessage, kindFixChecks,
 		kindReview, kindResolve, kindDraftReply, kindPRCreate, kindSeed, kindFold,
+		kindQuiz,
 	} {
 		assert.NotEqual(t, kind, label(kind), "%s has no label", kind)
 		if kind == kindChat {
