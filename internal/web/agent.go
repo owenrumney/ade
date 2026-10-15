@@ -46,6 +46,7 @@ const (
 	kindResolve       = "resolve"
 	kindDraftReply    = "draft-reply"
 	kindPRCreate      = "pr-create"
+	kindQuiz          = "quiz"
 	kindSeed          = "design-seed"
 	kindFold          = "design-fold"
 )

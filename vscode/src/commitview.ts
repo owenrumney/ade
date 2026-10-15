@@ -133,6 +133,9 @@ export class CommitView implements vscode.Disposable {
         case "showPR":
           await vscode.commands.executeCommand("ade.showPR");
           return;
+        case "quizMe":
+          await vscode.commands.executeCommand("ade.quizMe");
+          return;
         case "rebase":
           await this.rebase(c);
           return;

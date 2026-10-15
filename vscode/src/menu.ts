@@ -70,6 +70,7 @@ export const GROUPS: { title: string; commands: string[] }[] = [
       "ade.setScope",
       "ade.openReview",
       "ade.explain",
+      "ade.quizMe",
       "ade.pullBase",
       "ade.diffRoot",
       "ade.draftReplies",

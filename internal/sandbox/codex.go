@@ -104,6 +104,7 @@ func (c Codex) Spec() (Spec, error) {
 	for _, dir := range []string{skills.Dir(c.Home), filepath.Join(c.Home, ".claude", "plugins", "cache")} {
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
 			mounts = append(mounts, Mount{Host: dir, Guest: dir})
+			mounts = append(mounts, linked(dir, mounts)...)
 		}
 	}
 	claude := Claude{Home: c.Home, Root: c.Root, GitDir: c.GitDir}

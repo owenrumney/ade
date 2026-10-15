@@ -249,6 +249,35 @@ func TestTheSpecMountsWhatClaudeNeedsAndNoMore(t *testing.T) {
 	}
 }
 
+func TestASymlinkedSkillBringsItsTargetIntoTheContainer(t *testing.T) {
+	home := t.TempDir()
+	noKeychain(t)
+	root := filepath.Join(home, "code", "x")
+	skills := filepath.Join(home, ".claude", "skills")
+	elsewhere := filepath.Join(home, ".watchtower", "skills", "adhd")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+	require.NoError(t, os.MkdirAll(skills, 0o750))
+	require.NoError(t, os.MkdirAll(elsewhere, 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(skills, "here"), 0o750))
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(skills, "adhd")))
+	require.NoError(t, os.Symlink(filepath.Join(home, "gone"), filepath.Join(skills, "dangling")))
+	require.NoError(t, os.Symlink(filepath.Join(skills, "here"), filepath.Join(skills, "sibling")))
+
+	spec, err := Claude{Home: home, Root: root}.Spec(Box(home))
+	require.NoError(t, err)
+
+	guests := map[string]Mount{}
+	for _, m := range spec.Mounts {
+		guests[m.Guest] = m
+	}
+	target := guests[elsewhere]
+	require.NotZero(t, target, "the link's target is mounted, or the skill dangles in the guest")
+	assert.False(t, target.RW, "read-only, like the skills directory itself")
+	assert.DirExists(t, target.Host)
+	assert.NotContains(t, guests, filepath.Join(home, "gone"), "a link broken on the host stays broken")
+	assert.NotContains(t, guests, filepath.Join(skills, "here"), "a sibling comes with the directory")
+}
+
 func TestCredentialsAreCopiedOnceAndThenLeftAlone(t *testing.T) {
 	home := t.TempDir()
 	noKeychain(t)

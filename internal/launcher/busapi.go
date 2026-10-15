@@ -290,7 +290,7 @@ func (s *Server) handleBusRequestReview(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	url, _, err := agentbus.ParsePR(req.PR)
+	url, repo, err := agentbus.ParsePR(req.PR)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -316,7 +316,18 @@ func (s *Server) handleBusRequestReview(w http.ResponseWriter, r *http.Request) 
 		Kind: "review", To: to.String(), PR: url, At: time.Now()}
 	s.bus.mu.Unlock()
 	s.rememberAsked()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "asked", "id": id, "to": to.String()})
+
+	// The ask has gone out, so from here nothing may fail the request.
+	said := s.reviewer.Set(r.Context(), req.Dir, repo, url, to)
+	out := map[string]any{"status": "asked", "id": id, "to": to.String(), "reviewerSet": said.Set}
+	if said.Login != "" {
+		out["reviewer"] = said.Login
+	}
+	if said.Why != "" {
+		out["reviewerNote"] = said.Why
+		slog.Debug("no reviewer on the pull request", "pr", url, "to", to.String(), "why", said.Why)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleBusRefresh reads the roster again. The pushes carry only changes, so

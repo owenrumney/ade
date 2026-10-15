@@ -1,0 +1,107 @@
+/* The editor's own tokens throughout: this is a pane of VS Code. */
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font: var(--vscode-font-size) var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+main { max-width: 52em; }
+
+h1 { font-size: 1.2em; margin: 0; }
+h2 {
+  font-size: 1em;
+  margin: 22px 0 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.head { margin-bottom: 18px; }
+.sub { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
+.warn { margin: 6px 0 0; color: var(--vscode-editorWarning-foreground); }
+.note { color: var(--vscode-errorForeground); }
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.verbs { margin-top: 14px; }
+
+button {
+  font: inherit;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: 0.5; }
+
+.linkish {
+  padding: 0;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+  font-family: var(--vscode-editor-font-family);
+}
+.linkish:hover:not(:disabled) { background: none; }
+
+/* Where you are, and how each answered one went. */
+.dots { display: flex; gap: 6px; margin: 0 0 14px; }
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--vscode-badge-background);
+}
+.dot.right { background: var(--vscode-charts-green); }
+.dot.wrong { background: var(--vscode-errorForeground); }
+.dot.here { background: var(--vscode-focusBorder); }
+.dot.ahead { opacity: 0.4; }
+
+.ask { font-size: 1.05em; margin: 0 0 14px; }
+
+.options { display: flex; flex-direction: column; gap: 6px; }
+/* An option is a row to read, not a verb to press, so it wears the widget
+   border rather than the button background. */
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border, transparent);
+}
+.option:hover:not(:disabled) { border-color: var(--vscode-focusBorder); background: var(--vscode-editorWidget-background); }
+.option:disabled { opacity: 1; }
+.option .letter { color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); }
+.option.right { border-color: var(--vscode-charts-green); }
+.option.wrong { border-color: var(--vscode-errorForeground); }
+
+.verdict { margin: 14px 0 4px; font-weight: 600; }
+.verdict.right { color: var(--vscode-charts-green); }
+.verdict.wrong { color: var(--vscode-errorForeground); }
+.why { margin: 0; color: var(--vscode-descriptionForeground); }
+
+.tally { font-size: 1.1em; margin: 0 0 14px; }
+
+.card {
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: var(--vscode-editorWidget-background);
+  border-left: 3px solid var(--vscode-charts-green);
+}
+.card.wrong { border-left-color: var(--vscode-errorForeground); }
+.card .ask { font-size: 1em; margin-bottom: 8px; }
+.card .chose, .card .was { margin: 2px 0; }
+.card .was { color: var(--vscode-charts-green); }
+
+.links { margin: 8px 0 0; gap: 14px; }
+
+/* Passing a quiz written from the change is not assurance the change is right. */
+.caveat {
+  margin: 20px 0 0;
+  color: var(--vscode-descriptionForeground);
+  border-top: 1px solid var(--vscode-panel-border);
+  padding-top: 12px;
+}

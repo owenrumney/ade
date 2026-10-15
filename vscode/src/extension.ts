@@ -80,6 +80,7 @@ import {
   OTHER,
   reviewers as busReviewers,
   reviewTarget,
+  askedLine,
   targetItems,
 } from "./busreview";
 import { listed } from "./detail";
@@ -353,6 +354,7 @@ import { Dashboard } from "./dashview";
 import { RepoPage } from "./repoview";
 import { PurgePage } from "./purgeview";
 import type { Sweep } from "./purgepanel/view";
+import { QuizPage } from "./quizview";
 import type { Repo as RepoStats } from "./repo/view";
 import type { Board, Do } from "./dashboard/view";
 import { openCount } from "./comments";
@@ -769,6 +771,7 @@ let commitView: CommitView;
 let dashboard: Dashboard;
 let repoPage: RepoPage;
 let purgePage: PurgePage;
+let quizPage: QuizPage;
 let sessions: Sessions;
 let design: Design;
 let machines: Machines;
@@ -856,10 +859,12 @@ export async function activate(
   dashboard = new Dashboard(context, boardNow, boardAct);
   repoPage = new RepoPage(context, repoNow);
   purgePage = new PurgePage(context, sweepNow, pruneIn);
+  quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
     dashboard,
     repoPage,
     purgePage,
+    quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
       deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
     }),
@@ -1161,6 +1166,7 @@ export async function activate(
       "ade.purgeWorktrees",
       () => void purgePage.show(),
     ),
+    vscode.commands.registerCommand("ade.quizMe", () => void quizPage.show()),
     vscode.commands.registerCommand("ade.showGraph", () => void showGraph()),
     vscode.commands.registerCommand("ade.showUsage", () => void showUsage()),
     vscode.commands.registerCommand("ade.showPR", () => void showPR()),
@@ -5927,6 +5933,7 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
     chat.serving(undefined);
     settingsPage.serving(undefined);
     commitView.serving(undefined);
+    quizPage.serving(undefined);
     sessions.serving(found.checkout, undefined);
     design.serving(undefined);
     queueTree.serving(undefined);
@@ -5958,6 +5965,7 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
   sessions.serving(server.root, client);
   queueTree.serving(client);
   commitView.serving(client);
+  quizPage.serving(client);
   issues.serving(client);
   changes.serving(client);
   driftTree.serving(client);
@@ -6693,7 +6701,7 @@ async function sendBranchPRTo(node: unknown): Promise<void> {
   if (note === undefined) return;
   try {
     const sent = await c.busRequestReview(url, to, note.trim());
-    vscode.window.setStatusBarMessage(`ade: asked ${sent.to} to review`, 5000);
+    vscode.window.setStatusBarMessage(`ade: ${askedLine(sent)}`, 6000);
   } catch (err) {
     void vscode.window.showWarningMessage(`ade: ${reason(err)}`);
   }
@@ -6808,7 +6816,7 @@ async function askTeamForReview(arg: unknown): Promise<void> {
 
   try {
     const sent = await c.busRequestReview(url, to, note.trim());
-    vscode.window.setStatusBarMessage(`ade: asked ${sent.to} to review`, 5000);
+    vscode.window.setStatusBarMessage(`ade: ${askedLine(sent)}`, 6000);
   } catch (err) {
     void vscode.window.showWarningMessage(`ade: ${String(err)}`);
   }
@@ -7038,6 +7046,7 @@ async function refresh(client: Client): Promise<void> {
     drawRun();
     drawBoxed();
     commitView.apply(state);
+    quizPage.apply(state);
     drawChecks(state.verify);
     if (state.verify?.offer?.length) void offerChecks(state.verify.offer);
     await drawScope(state.meta?.scope);
