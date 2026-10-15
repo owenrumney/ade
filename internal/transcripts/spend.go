@@ -135,10 +135,12 @@ func Statistics(sessions []*Session) Stats {
 		if row == nil {
 			continue
 		}
-		repo, known := repos[sessions[i].CWD]
-		if !known {
-			repo = RepoKey(sessions[i].CWD)
-			repos[sessions[i].CWD] = repo
+		cwd, repo := sessions[i].CWD, sessions[i].Repo
+		if repo == "" {
+			if _, known := repos[cwd]; !known {
+				repos[cwd] = RepoKey(cwd)
+			}
+			repo = repos[cwd]
 		}
 		if repo == "" {
 			repo = "unknown"

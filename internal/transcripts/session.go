@@ -65,6 +65,9 @@ type Session struct {
 	Status      string
 	LastUsed    time.Time
 	FirstPrompt string
+	// Repo is the repository CWD was in when the transcript was indexed. It
+	// outlives the worktree, which a purge removes before the day is reported.
+	Repo string
 
 	Loaded  bool
 	LoadErr error
@@ -146,6 +149,14 @@ func (s *Session) TopTools(n int) []ToolCount {
 		counts = counts[:n]
 	}
 	return counts
+}
+
+// Repository is the recorded repo, or what the working directory says now.
+func (s *Session) Repository() string {
+	if s.Repo != "" {
+		return s.Repo
+	}
+	return RepoKey(s.CWD)
 }
 
 // LastPrompt is the most recent thing the user typed, if the session is loaded.

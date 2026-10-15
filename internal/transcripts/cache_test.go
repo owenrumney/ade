@@ -135,3 +135,45 @@ func padTo(n int) string {
 	out[n-1] = '\n'
 	return string(out)
 }
+
+func TestARepoOutlivesThePurgeOfItsWorktree(t *testing.T) {
+	home := fakeHome(t)
+	worktree := filepath.Join(home, "src", "ade-purge-worktrees")
+	writeConfig(t, filepath.Join(worktree, ".git"), "git@github.com:owenrumney/ade.git")
+	path := filepath.Join(home, ".claude", "projects", "-src-ade-purge-worktrees", "cccc-3333.jsonl")
+	writeFixture(t, path, `{"type":"user","timestamp":"2026-10-15T10:00:00Z","cwd":"`+worktree+`","message":{"role":"user","content":"purge them"}}
+{"type":"assistant","timestamp":"2026-10-15T10:01:00Z","requestId":"r1","message":{"id":"m1","role":"assistant","model":"claude-opus-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":10,"output_tokens":20}}}
+`)
+	find := func() *Session {
+		for _, s := range Scan() {
+			if s.Path == path {
+				return s
+			}
+		}
+		t.Fatal("the worktree session went missing")
+		return nil
+	}
+
+	require.Equal(t, "owenrumney/ade", find().Repo, "the first scan records the repo")
+	require.NoError(t, os.RemoveAll(worktree))
+
+	gone := find()
+	assert.Equal(t, "owenrumney/ade", gone.Repo, "a later scan keeps it although the worktree is gone")
+	assert.Equal(t, "owenrumney/ade", Statistics([]*Session{gone}).ByDayRepo["2026-10-15"][0].Key)
+}
+
+func TestARowFromBeforeReposWereKeptGetsOne(t *testing.T) {
+	home := fakeHome(t)
+	repo := filepath.Join(home, "src", "ade")
+	writeConfig(t, filepath.Join(repo, ".git"), "git@github.com:owenrumney/ade.git")
+	path := filepath.Join(home, ".claude", "projects", "-src-ade", "dddd-4444.jsonl")
+	writeFixture(t, path, `{"type":"user","timestamp":"2026-10-15T10:00:00Z","cwd":"`+repo+`","message":{"role":"user","content":"hello"}}`+"\n")
+	at, ok := stampOf(path)
+	require.True(t, ok)
+	indexCache.put(path, at, &indexRow{Agent: AgentClaude, ID: "dddd-4444", CWD: repo})
+
+	assert.Equal(t, "owenrumney/ade", cachedIndex(path, indexClaudeFile).Repo, "filled on the hit")
+	row, hit := indexCache.get(path, at)
+	require.True(t, hit)
+	assert.Equal(t, "owenrumney/ade", row.Repo, "and kept for the next scan")
+}
