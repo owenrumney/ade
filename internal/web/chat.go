@@ -914,7 +914,7 @@ func (s *Server) writeEvent(run string, ev bridge.Event) {
 		// Text is progress too, and a turn that is all prose would otherwise
 		// look like silence to the watchdog.
 		s.agent.touch()
-		s.say(ChatMessage{Kind: chat.KindAgent, Run: run, Body: text, HTML: s.replyHTML(text)})
+		s.cleanse(s.say(ChatMessage{Kind: chat.KindAgent, Run: run, Body: text, HTML: s.replyHTML(text)}))
 	}
 	for _, result := range ev.ToolResults {
 		s.agent.touch()

@@ -122,7 +122,7 @@ var responseShapes = map[string][]string{
 	"ChatMessage": {
 		"at string", "author string", "body string", "context ptr", "doing string", "failed bool", "files slice", "foldedInto string", "for string",
 		"html string", "id string", "images slice", "input string", "kind string", "model string", "output string",
-		"review bool", "rule string", "run string", "steps int", "target string", "tool string", "toolId string", "undo string",
+		"review bool", "rule string", "run string", "short string", "shortHtml string", "steps int", "target string", "tool string", "toolId string", "undo string",
 		"undone string",
 	},
 	"ChatContext":  {"from string", "text string"},
@@ -240,7 +240,7 @@ var responseShapes = map[string][]string{
 		"title string", "updatedAt string", "url string",
 	},
 	"SettingsView": {
-		"colors map", "dashboardClaude string", "dashboardCodex string", "dashboardHost string", "dashboardTokenEnd string", "dashboardTokenSet bool", "dashboardUrl string", "deepBackground bool",
+		"cleanseOff bool", "colors map", "dashboardClaude string", "dashboardCodex string", "dashboardHost string", "dashboardTokenEnd string", "dashboardTokenSet bool", "dashboardUrl string", "deepBackground bool",
 		"gitHubPackagesTokenEnd string", "gitHubPackagesTokenSet bool", "homeAssistantDesk string", "homeAssistantNotify string", "homeAssistantTokenEnd string", "homeAssistantTokenSet bool", "homeAssistantUrl string",
 		"hosts slice", "ignoreAuthors slice", "ignoreOlderDays int", "ignoreReasons slice", "ignoreRepos slice", "ignoredDirs slice",
 		"instructions string", "instructionsMaxLength int",

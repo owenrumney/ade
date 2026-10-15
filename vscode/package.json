@@ -135,7 +135,7 @@
       },
       {
         "command": "ade.showComments",
-        "title": "ade: Open Comments View",
+        "title": "ade: Show Comments View",
         "icon": "$(comment)"
       },
       {
