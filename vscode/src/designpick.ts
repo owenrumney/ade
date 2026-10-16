@@ -31,6 +31,7 @@ export interface Act {
     | "seed"
     | "grill"
     | "condense"
+    | "archive"
     | "delete";
   label: string;
   detail: string;
@@ -70,6 +71,11 @@ export const ACTS: Act[] = [
     id: "condense",
     detail: "the condenser rewrites it to be scannable, losing nothing",
     label: "Condense it",
+  },
+  {
+    id: "archive",
+    label: "Archive it",
+    detail: "the work is finished: publish it to the wiki and delete it here",
   },
   {
     id: "delete",

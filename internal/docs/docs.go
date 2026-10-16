@@ -186,6 +186,18 @@ func Tree(dir, current string) ([]render.FileEntry, error) {
 	return buildTree(files, current, made), nil
 }
 
+// List names the markdown files under dir, in the order the tree draws them.
+func List(dir string) ([]string, error) {
+	return markdownFiles(dir)
+}
+
+// Stem is a document's name without its directory or extension, which is what
+// a branch's last segment is matched against.
+func Stem(file string) string { return stem(file) }
+
+// LastSegment is the part of a branch name after the last slash.
+func LastSegment(branch string) string { return lastSegment(branch) }
+
 // Ensure returns the document for name, scaffolding it only if it is not already
 // there. Running the same create twice is asking to carry on with that design,
 // not an error.

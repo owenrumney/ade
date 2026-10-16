@@ -1045,6 +1045,12 @@ export class Client {
     return this.del(`/api/design/doc?file=${encodeURIComponent(file)}`);
   }
 
+  // archiveDoc distils a finished design onto the wiki and deletes it here.
+  // The page is pushed first, so a failure leaves the document alone.
+  archiveDoc(file: string): Promise<{ page: string; commit?: string }> {
+    return this.post(`/api/design/archive?file=${encodeURIComponent(file)}`, {});
+  }
+
   // headMessage is the last commit's message, which an amend starts from.
   headMessage(): Promise<{ title: string; body: string }> {
     return this.get("/api/commit/head");

@@ -1445,6 +1445,7 @@ func newDocCommand(docsDir *string) *cobra.Command {
 		Short: "Work with design documents",
 	}
 	cmd.AddCommand(newDocListCommand(docsDir))
+	cmd.AddCommand(newDocArchiveCommand(docsDir))
 	cmd.AddCommand(newDocRemoveCommand(docsDir))
 	cmd.AddCommand(newDocWriteCommand())
 	return cmd
