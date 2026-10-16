@@ -840,6 +840,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/design", s.guard(s.handleDesignSave))
 	mux.HandleFunc("DELETE /api/design", s.guard(s.handleDesignClose))
 	mux.HandleFunc("DELETE /api/design/doc", s.guard(s.handleDesignDelete))
+	mux.HandleFunc("POST /api/design/archive", s.guard(s.handleDesignArchive))
 	mux.HandleFunc("POST /api/design/push", s.guard(s.handleDesignPush))
 	mux.HandleFunc("GET /api/hosts", s.guard(s.handleHosts))
 	mux.HandleFunc("POST /api/design/seed", s.guard(s.handleDesignSeed))

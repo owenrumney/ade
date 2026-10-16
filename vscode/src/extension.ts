@@ -1268,6 +1268,9 @@ export async function activate(
     vscode.commands.registerCommand("ade.deleteDoc", (node: unknown) =>
       deleteDoc(node),
     ),
+    vscode.commands.registerCommand("ade.archiveDoc", (node: unknown) =>
+      archiveDoc(node),
+    ),
     vscode.commands.registerCommand("ade.issues", () => void pickIssue()),
     vscode.commands.registerCommand("ade.pendingPRs", () => void pendingPRs()),
     vscode.commands.registerCommand(
@@ -3028,6 +3031,8 @@ async function pickDesign(): Promise<void> {
       return grillDesign(picked.file);
     case "condense":
       return condenseDesign(picked.file);
+    case "archive":
+      return archiveDoc(picked.file);
     case "delete":
       return deleteDoc(picked.file);
   }
@@ -3655,6 +3660,42 @@ async function editOutgoing(arg: unknown): Promise<void> {
     if (!text?.trim()) return;
     await c.setOutgoing(id, text.trim());
     await refresh(c);
+  } catch (err) {
+    void vscode.window.showErrorMessage(`ade: ${String(err)}`);
+  }
+}
+
+// archiveDoc publishes a finished design to the wiki and deletes it here. It
+// takes a model call and a push, so the progress note is not optional.
+async function archiveDoc(node: unknown): Promise<void> {
+  const name = docName(node);
+  const c = client;
+  if (!name || !c) {
+    void vscode.window.showErrorMessage("ade: no document to archive.");
+    return;
+  }
+  const yes = await vscode.window.showWarningMessage(
+    `Archive ${name}?`,
+    {
+      modal: true,
+      detail:
+        "It is distilled onto the shared wiki and deleted here. The page is pushed first, so nothing is lost if that fails.",
+    },
+    "Archive",
+  );
+  if (yes !== "Archive") return;
+  try {
+    const out = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `ade: archiving ${name}`,
+      },
+      () => c.archiveDoc(name),
+    );
+    vscode.window.setStatusBarMessage(
+      `ade: archived ${name} to ${out.page}`,
+      5000,
+    );
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
   }

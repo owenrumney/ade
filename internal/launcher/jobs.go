@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/jobs"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -47,6 +48,8 @@ type jobsClock struct {
 	start jobs.Starter
 	// distill is the wiki distiller's model. nil is the real one-shot.
 	distill wiki.DistillModel
+	// archive is the design archiver's model. nil is the real one-shot.
+	archive archive.Runner
 
 	// inflight is the fires a tick started, so a test can wait one out.
 	inflight sync.WaitGroup
@@ -121,6 +124,30 @@ func (s *Server) distillWiki(ctx context.Context, manual bool) jobs.Outcome {
 		model = jobs.DistillModel("", dir)
 	}
 	out := jobs.FireDistill(ctx, store, jobs.DistillTargets(ctx, repos, all), model, manual)
+	s.refreshWiki()
+	return out
+}
+
+// archiveDesigns is the built-in design-archive job: see jobs.FireArchive for
+// what it sweeps.
+func (s *Server) archiveDesigns(ctx context.Context) jobs.Outcome {
+	started := time.Now()
+	if ok, why := jobs.WithinSpend(s.limits.Snapshot(ctx)); !ok {
+		return jobs.Outcome{FiredAt: started, Error: "held: " + why}
+	}
+	repos, err := s.repos()
+	if err != nil {
+		return jobs.Outcome{FiredAt: started, Error: err.Error()}
+	}
+	model := s.jobs.archive
+	if model == nil {
+		dir, err := settings.Dir()
+		if err != nil {
+			return jobs.Outcome{FiredAt: started, Error: err.Error()}
+		}
+		model = jobs.ArchiveModel("", dir)
+	}
+	out := jobs.FireArchive(ctx, s.distillStore(), jobs.ArchiveTargets(ctx, repos), model)
 	s.refreshWiki()
 	return out
 }
@@ -359,6 +386,13 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 
 	state := jobs.ReadState(job)
 	now := time.Now()
+	if job.Kind == jobs.KindDesignArchive {
+		out := s.archiveDesigns(ctx)
+		if _, err := jobs.Record(job, out, "", now); err != nil {
+			slog.Warn("record a design archive", "err", err)
+		}
+		return out, nil
+	}
 	if job.Kind == jobs.KindWikiDistill {
 		out := s.distillWiki(ctx, manual)
 		if _, err := jobs.Record(job, out, "", now); err != nil {

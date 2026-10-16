@@ -833,6 +833,21 @@ func Branch(ctx context.Context, dir string) string {
 	return "detached"
 }
 
+// Branches lists the repository's local branch names.
+func Branches(ctx context.Context, dir string) ([]string, error) {
+	out, err := run(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+	if err != nil {
+		return nil, fmt.Errorf("list branches: %w", err)
+	}
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
 // NewBranch starts name at HEAD and checks it out. Uncommitted work comes with
 // it, which is what moving off a base branch before committing needs.
 func NewBranch(ctx context.Context, dir, name string) error {

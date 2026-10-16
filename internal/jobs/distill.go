@@ -50,14 +50,13 @@ func WikiDistillJob() Job {
 	}
 }
 
-// WithBuiltins adds the built-in jobs the settings turn on. A user job of the
-// same name wins, as a repository job does over a user one.
-//
-// Distillation is not among them any more: a session distils itself when it
-// goes idle (`internal/web/distill.go`). A job of the same name written by hand
-// still runs, which is the only way back to a schedule.
+// WithBuiltins adds the built-in jobs; one written by hand wins. The design
+// archive is the only one: a session distils itself when it goes idle.
 func WithBuiltins(list []Job, _ settings.Settings) []Job {
-	return list
+	if _, found := Find(list, KindDesignArchive); found {
+		return list
+	}
+	return append(list, DesignArchiveJob())
 }
 
 // DistillTargets groups the machine's transcripts by the wiki repository they

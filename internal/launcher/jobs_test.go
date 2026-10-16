@@ -47,7 +47,15 @@ func listJobs(t *testing.T, s *Server) []jobs.View {
 		Skipped []jobs.Skipped `json:"skipped"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	return out.Jobs
+	// Less the built-ins: every machine has those, and these tests are about
+	// the jobs a person wrote.
+	var mine []jobs.View
+	for _, view := range out.Jobs {
+		if view.Scope != jobs.ScopeBuiltin {
+			mine = append(mine, view)
+		}
+	}
+	return mine
 }
 
 func TestTheClockFiresAJobThatHasNeverFired(t *testing.T) {
@@ -170,7 +178,7 @@ func TestABrokenDefinitionIsListedRatherThanVanishing(t *testing.T) {
 		Skipped []jobs.Skipped `json:"skipped"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.Jobs)
+	assert.Empty(t, listJobs(t, s), "the broken one is the only job this home has")
 	require.Len(t, out.Skipped, 1)
 	assert.Contains(t, out.Skipped[0].Error, "outside 0-23")
 }

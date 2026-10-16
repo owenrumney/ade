@@ -269,6 +269,48 @@ func ForBranch(ctx context.Context, dir, branch string) (*PR, error) {
 	return parsePR(out)
 }
 
+// Head is one pull request's branch and what became of it, which GitHub still
+// answers once that branch is deleted.
+type Head struct {
+	Number int    `json:"number"`
+	Branch string `json:"branch"`
+	State  string `json:"state"`
+	URL    string `json:"url"`
+}
+
+// Merged reports whether this pull request landed.
+func (h Head) Merged() bool { return strings.EqualFold(h.State, "MERGED") }
+
+// Open reports whether this pull request is still in flight.
+func (h Head) Open() bool { return strings.EqualFold(h.State, "OPEN") }
+
+// Heads lists every pull request's head branch, whatever its state, newest
+// first: how a branch the repository no longer has is matched to its fate.
+func Heads(ctx context.Context, dir string, limit int) ([]Head, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	out, err := run(ctx, dir, "pr", "list", "--state", "all", "--limit", strconv.Itoa(limit),
+		"--json", "number,headRefName,state,url")
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Number  int    `json:"number"`
+		HeadRef string `json:"headRefName"`
+		State   string `json:"state"`
+		URL     string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("parse pr list: %w", err)
+	}
+	heads := make([]Head, 0, len(raw))
+	for _, r := range raw {
+		heads = append(heads, Head{Number: r.Number, Branch: r.HeadRef, State: r.State, URL: r.URL})
+	}
+	return heads, nil
+}
+
 // Listed is a pull request in the picker: enough to choose one, no more.
 type Listed struct {
 	Number  int    `json:"number"`
