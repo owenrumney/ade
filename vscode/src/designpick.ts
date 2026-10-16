@@ -28,6 +28,7 @@ export interface Act {
     | "preview"
     | "discuss"
     | "build"
+    | "session"
     | "seed"
     | "grill"
     | "condense"
@@ -47,6 +48,12 @@ export const ACTS: Act[] = [
   },
   { id: "open", label: "Open the Markdown", detail: "the source, in the editor" },
   { id: "build", label: "Build this design", detail: "start an agent on it" },
+  {
+    id: "session",
+    label: "Start a session on it",
+    detail:
+      "a worktree and a branch named after the document; nothing is built",
+  },
   {
     id: "preview",
     label: "Preview it",

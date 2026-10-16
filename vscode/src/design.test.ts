@@ -160,7 +160,8 @@ describe("the document's title buttons", () => {
       "ade.grillDesign",
       "ade.condenseDesign",
     ]);
-    for (const m of title) expect(m.when).toBe("resourcePath in ade.designDocs");
+    for (const m of title)
+      expect(m.when).toBe("resourcePath in ade.designDocs");
   });
 
   it("read the key the design list publishes", () => {
@@ -187,5 +188,27 @@ describe("grill", () => {
       "c.openDoc(name)",
     );
     expect(body).toContain("`/grill-me ");
+  });
+});
+
+// The name the session is created under is the document's: `ade create` reuses
+// a document already there rather than scaffolding a second one.
+describe("a session of the document's own", () => {
+  it("is one of the document's actions, under build", () => {
+    const ids = ACTS.map((a) => a.id);
+    expect(ids.indexOf("session")).toBe(ids.indexOf("build") + 1);
+  });
+
+  it("creates under the document, so the document is the session's", () => {
+    const fn = extension.slice(extension.indexOf("async function sessionOn"));
+    const body = fn.slice(0, fn.indexOf("\n}\n"));
+    expect(
+      body,
+      "a name of its own would scaffold a second document",
+    ).toContain("newWorkspace(launcher, dir, file, message)");
+    expect(
+      body,
+      "the branch and worktree it makes, before it makes them",
+    ).toContain("worktreeFor(root, branch)");
   });
 });

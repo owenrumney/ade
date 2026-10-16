@@ -95,8 +95,8 @@ import {
 } from "./discover";
 import { Chat } from "./chat";
 import { Settings } from "./settings";
-import { Design } from "./design";
-import { nameProblem } from "./docs";
+import { Design, base as docBase } from "./design";
+import { nameProblem, title as docTitle } from "./docs";
 import { diagnose, netReport } from "./diagnose";
 import {
   type Detail as DiskDetail,
@@ -380,7 +380,13 @@ import { AdeIndex, GitIndex, type Index, Scm } from "./scm";
 import { gitRepository } from "./gitapi";
 import { picked } from "./picked";
 import { input, inputBox, pick, quickPick } from "./pick";
-import { madeFrom, wouldMake } from "./wouldmake";
+import {
+  branchFor,
+  madeFrom,
+  tilde,
+  worktreeFor,
+  wouldMake,
+} from "./wouldmake";
 import { AGENTS, models as modelsFor, says, wheres } from "./build";
 import {
   forceable as canForce,
@@ -2976,6 +2982,32 @@ async function build(name?: string): Promise<void> {
   void chat.reveal(live);
 }
 
+// sessionOn gives the document a session of its own. The name it is created
+// under is the document's, so `ade create` reuses it rather than scaffolding one.
+async function sessionOn(file: string): Promise<void> {
+  const dir = live?.root ?? openFolder();
+  if (!dir) {
+    void vscode.window.showErrorMessage(
+      "ade: no checkout is being served, so there is nowhere to branch from.",
+    );
+    return;
+  }
+  launcher = await ensureLauncher();
+  if (!launcher) {
+    void vscode.window.showErrorMessage(noLauncher("session"));
+    return;
+  }
+  const root = await madeFrom(dir);
+  const branch = branchFor(file);
+  const message = await input({
+    title: `New session on ${docTitle(docBase(file))}`,
+    prompt: `Branch ${branch} · worktree ${tilde(worktreeFor(root, branch))}. What do you want to do?`,
+    placeHolder: "Work through what the document describes.",
+  });
+  if (!message) return;
+  await newWorkspace(launcher, dir, file, message);
+}
+
 // Which document, when the command did not come off a row. The tree's list is
 // the directory's, which is the same list the server would offer.
 // pickDesign is the design directory and what you can do with a document.
@@ -3025,6 +3057,8 @@ async function pickDesign(): Promise<void> {
       return discussDoc(uri);
     case "build":
       return build(picked.file);
+    case "session":
+      return sessionOn(picked.file);
     case "seed":
       return seedDesign(picked.file);
     case "grill":
