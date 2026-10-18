@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
+	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/statedir"
 )
@@ -26,6 +27,9 @@ import (
 const (
 	KindSession = "session"
 	KindReview  = "review"
+	// KindClone is a whole checkout a session was cloned into on a worker,
+	// not a linked worktree: removing it takes the session directory around it.
+	KindClone = "clone"
 )
 
 // Why a worktree is kept.
@@ -99,6 +103,16 @@ func Scan(ctx context.Context, root string, force bool) ([]Worktree, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].LastUsed.Before(out[j].LastUsed) })
 	return out, nil
+}
+
+// Clone judges a worker's session clone by the rules a worktree is judged by:
+// it is a checkout like any other, and the same work can be lost with it.
+func Clone(ctx context.Context, path string, force bool) Worktree {
+	base := gitdiff.RemoteBase(ctx, path, gitdiff.BaseBranch(ctx, path))
+	wt := inspect(ctx, path, false, base)
+	wt.Kind = KindClone
+	wt.Removable = wt.Keep == "" || (force && wt.Keep == KeepUnpushed)
+	return wt
 }
 
 // Switchable is where an ade can move to: the main checkout first, then the
@@ -180,6 +194,25 @@ func Remove(ctx context.Context, root string, wt Worktree) error {
 		return err
 	}
 	return nil
+}
+
+// RemoveClone takes a worker's session clone away, and the session directory
+// around it: that directory holds this checkout and nothing else.
+func RemoveClone(ctx context.Context, wt Worktree) error {
+	owned, ok := provision.OwnedDir(wt.Path)
+	if !ok {
+		return fmt.Errorf("%s is not a session clone", wt.Path)
+	}
+	if wt.Serving != "" {
+		return fmt.Errorf("ade is serving %s on %s", wt.Path, wt.Serving)
+	}
+	if !wt.Removable {
+		return fmt.Errorf("%s is kept: %s", wt.Path, wt.Keep)
+	}
+	if gitDir, err := gitdiff.GitDir(ctx, wt.Path); err == nil {
+		_, _ = session.Stop(session.Path(gitDir), 5*time.Second)
+	}
+	return os.RemoveAll(owned)
 }
 
 // underneath is whether path is inside dir, by what both resolve to.

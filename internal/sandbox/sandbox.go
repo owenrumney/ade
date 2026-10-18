@@ -7,11 +7,13 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +71,17 @@ type Runtime interface {
 	Args(spec Spec) []string
 	// Bin is the binary.
 	Bin() string
+	// HasArgs asks whether the image is already on this machine. The two
+	// runtimes spell it differently, and a pull is what fails without a login.
+	HasArgs(image string) []string
+}
+
+// HasImage is whether the runtime already holds the image. A false is not a
+// refusal: the run pulls. It is how ade says which of the two it is doing.
+func HasImage(ctx context.Context, rt Runtime, image string) bool {
+	look, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(look, rt.Bin(), rt.HasArgs(image)...).Run() == nil // #nosec G204 -- runtime's own verbs
 }
 
 // Docker is `docker run`; OrbStack, Docker Desktop and the Linux daemon all
@@ -94,6 +107,9 @@ const envHubContainer = "ADE_HUB_CONTAINER"
 type Apple struct {
 	// CPUs is container run --cpus, the size of the VM. Zero is its default.
 	CPUs int
+	// Host is the machine's address on the container network; no name resolves
+	// to it the way host.docker.internal does.
+	Host string
 }
 
 // DefaultImage is the image the agent runs in: published from
@@ -118,19 +134,28 @@ func Detect(ctx context.Context) (Runtime, error) {
 	rt, err := detect(ctx, exec.LookPath, func(ctx context.Context, name string, args ...string) error {
 		return exec.CommandContext(ctx, name, args...).Run() // #nosec G204 -- fixed runtime probes
 	})
-	if docker, ok := rt.(Docker); ok {
-		docker.Socket = resolveDockerSocket(ctx)
-		if hub := strings.TrimSpace(os.Getenv(envHubContainer)); hub != "" {
-			docker.Network = "container:" + hub
-		}
-		docker.CPUs = min(spawncap.Jobs(), dockerCPUs(ctx))
-		docker.User, docker.Groups = hostUser(docker.Socket)
-		return docker, err
+	if _, ok := rt.(Docker); ok {
+		return DockerRuntime(ctx), err
 	}
 	if _, ok := rt.(Apple); ok {
-		return Apple{CPUs: spawncap.Jobs()}, err
+		return Apple{CPUs: spawncap.Jobs(), Host: appleGateway(ctx)}, err
 	}
 	return rt, err
+}
+
+// DockerRuntime is Docker as Detect hands it back, for a fallback. nil when
+// there is no docker on PATH.
+func DockerRuntime(ctx context.Context) Runtime {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return nil
+	}
+	docker := Docker{Socket: resolveDockerSocket(ctx)}
+	if hub := strings.TrimSpace(os.Getenv(envHubContainer)); hub != "" {
+		docker.Network = "container:" + hub
+	}
+	docker.CPUs = min(spawncap.Jobs(), dockerCPUs(ctx))
+	docker.User, docker.Groups = hostUser(docker.Socket)
+	return docker
 }
 
 // dockerCPUs is how many the daemon has, which on a Mac is its VM and not the
@@ -144,6 +169,30 @@ func dockerCPUs(ctx context.Context) int {
 	}
 	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
 	return n
+}
+
+// appleGateway is the host's address on the default container network.
+func appleGateway(ctx context.Context) string {
+	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(probe, "container", "network", "inspect", "default").Output()
+	if err != nil {
+		slog.Debug("could not read the container network", "err", err)
+		return ""
+	}
+	return parseAppleGateway(out)
+}
+
+func parseAppleGateway(out []byte) string {
+	var nets []struct {
+		Status struct {
+			IPv4Gateway string `json:"ipv4Gateway"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(out, &nets); err != nil || len(nets) == 0 {
+		return ""
+	}
+	return nets[0].Status.IPv4Gateway
 }
 
 func cpuArgs(args []string, cpus int) []string {
@@ -177,6 +226,14 @@ func detect(ctx context.Context, lookPath func(string) (string, error), run func
 // the client is killed, so nothing is left running with the checkout mounted.
 func Command(ctx context.Context, rt Runtime, spec Spec) *exec.Cmd {
 	clearName(ctx, rt, spec.Name)
+	if _, apple := rt.(Apple); apple {
+		staged, err := StageFiles(spec, stagingRoot(spec.Name))
+		if err != nil {
+			slog.Warn("could not stage the file mounts; the run will refuse them", "err", err)
+		} else {
+			spec = staged
+		}
+	}
 	cmd := exec.CommandContext(ctx, rt.Bin(), rt.Args(spec)...) // #nosec G204 -- runtime and spec built here
 	slog.Info("container", "runtime", rt.Name(), "image", spec.Image, "name", spec.Name,
 		"workdir", spec.Workdir, "mounts", len(spec.Mounts), "env", len(spec.Env))
@@ -194,6 +251,8 @@ func Command(ctx context.Context, rt Runtime, spec Spec) *exec.Cmd {
 
 func (Docker) Name() string { return "docker" }
 func (Docker) Bin() string  { return "docker" }
+
+func (Docker) HasArgs(image string) []string { return []string{"image", "inspect", image} }
 
 // Args is docker run: interactive for the stream on stdin, removed when it
 // exits, and on Linux the host's ids so files it writes are yours.
@@ -259,6 +318,8 @@ func unixSocket(endpoint string) string {
 
 func (Apple) Name() string { return "container" }
 func (Apple) Bin() string  { return "container" }
+
+func (Apple) HasArgs(image string) []string { return []string{"images", "inspect", image} }
 
 // Args is container run, which takes docker's flags for everything here.
 func (a Apple) Args(spec Spec) []string {
@@ -339,6 +400,81 @@ func Remove(ctx context.Context, rt Runtime, name string) {
 		return
 	}
 	removeContainer(ctx, rt.Bin(), name)
+}
+
+// StageFiles rewrites file mounts as directory ones, because Apple's runtime
+// binds directories only. Files of one guest directory are copied into one.
+func StageFiles(spec Spec, root string) (Spec, error) {
+	covered := map[string]bool{}
+	var out []Mount
+	byDir := map[string][]Mount{}
+	for _, m := range spec.Mounts {
+		info, err := os.Stat(m.Host)
+		switch {
+		case err != nil || info.IsDir():
+			// A path that cannot be read is the runtime's complaint to make.
+			covered[m.Guest] = true
+			out = append(out, m)
+		default:
+			guestDir := filepath.Dir(m.Guest)
+			byDir[guestDir] = append(byDir[guestDir], m)
+		}
+	}
+	if len(byDir) == 0 {
+		return spec, nil
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return spec, err
+	}
+	for _, guestDir := range sortedKeys(byDir) {
+		// Already mounted whole: staging over it would hide what is there.
+		if covered[guestDir] {
+			out = append(out, byDir[guestDir]...)
+			continue
+		}
+		staged := filepath.Join(root, strings.ReplaceAll(strings.Trim(guestDir, string(filepath.Separator)), string(filepath.Separator), "_"))
+		if err := os.MkdirAll(staged, 0o700); err != nil {
+			return spec, err
+		}
+		for _, m := range byDir[guestDir] {
+			if err := copyFile(m.Host, filepath.Join(staged, filepath.Base(m.Guest))); err != nil {
+				return spec, err
+			}
+		}
+		out = append(out, Mount{Host: staged, Guest: guestDir})
+	}
+	spec.Mounts = out
+	return spec, nil
+}
+
+// stagingRoot is where one container's staged files go, wiped at each start.
+func stagingRoot(name string) string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "ade", "mounts", name)
+}
+
+func copyFile(from, to string) error {
+	info, err := os.Stat(from)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(from) // #nosec G304 -- a path ade already mounts
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, info.Mode().Perm())
+}
+
+func sortedKeys(set map[string][]Mount) []string {
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func clearName(ctx context.Context, rt Runtime, name string) {

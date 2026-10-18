@@ -458,14 +458,32 @@ func TestSpecMountsTheSigningKeyTheConfigNames(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(got), "gpgsign = false", "the host signs, and now the box can")
 
-	assert.Contains(t, spec.Mounts, Mount{Host: pub, Guest: pub})
-	assert.Contains(t, spec.Mounts, Mount{Host: secret, Guest: secret})
+	// Apple's runtime binds only directories, so a copy of the pair goes in.
+	staged := filepath.Join(home, "box", "ssh")
+	assert.Contains(t, spec.Mounts, Mount{Host: staged, Guest: filepath.Join(home, ".ssh")})
 	for _, m := range spec.Mounts {
-		if m.Host == pub || m.Host == secret {
+		if m.Host == staged {
 			assert.False(t, m.RW, "a key the agent could rewrite is a key it could replace")
 		}
-		assert.NotEqual(t, filepath.Join(home, ".ssh"), m.Host, "the pair, never the directory")
+		assert.NotEqual(t, filepath.Join(home, ".ssh"), m.Host, "a copy, never the host's directory")
+		assert.NotEqual(t, pub, m.Host, "a directory, never the file")
+		assert.NotEqual(t, secret, m.Host, "a directory, never the file")
 	}
+
+	named, err := os.ReadDir(staged)
+	require.NoError(t, err)
+	var there []string
+	for _, e := range named {
+		there = append(there, e.Name())
+	}
+	assert.ElementsMatch(t, []string{filepath.Base(pub), filepath.Base(secret)}, there,
+		"the pair and nothing else")
+
+	was, err := os.Stat(secret)
+	require.NoError(t, err)
+	now, err := os.Stat(filepath.Join(staged, filepath.Base(secret)))
+	require.NoError(t, err)
+	assert.Equal(t, was.Mode().Perm(), now.Mode().Perm())
 }
 
 func TestOnlyAResolvableKeyUnderHomeIsMounted(t *testing.T) {
@@ -963,4 +981,13 @@ func TestACPULimitIsPassedToBothRuntimes(t *testing.T) {
 	assert.Equal(t, "run -i --rm --name agent --cpus 5 image", strings.Join(Docker{CPUs: 5}.Args(spec), " "))
 	assert.Equal(t, "run -i --rm --name agent --cpus 5 image", strings.Join(Apple{CPUs: 5}.Args(spec), " "))
 	assert.NotContains(t, Docker{}.Args(spec), "--cpus")
+}
+
+// The two runtimes spell the question differently, and asking the wrong one
+// reads as "no image" on a machine that has it.
+func TestEachRuntimeAsksForAnImageItsOwnWay(t *testing.T) {
+	assert.Equal(t, []string{"image", "inspect", "ade-agent:latest"},
+		Docker{}.HasArgs("ade-agent:latest"))
+	assert.Equal(t, []string{"images", "inspect", "ade-agent:latest"},
+		Apple{}.HasArgs("ade-agent:latest"))
 }

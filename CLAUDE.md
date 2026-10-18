@@ -55,6 +55,14 @@ under a certificate `make sign-setup` creates once. Ad-hoc
 signatures make every rebuild a new identity, so a permission granted to one
 build does not survive the next.
 
+**Never run `make install`, `make ui` or `make full` from a session.** Each
+depends on `killall`, which quits ADE.app and kills every `ade` — including
+the launcher and the server running the session you are in. Install the same
+binary without that: `go install -ldflags "-X main.version=$(git describe
+--tags --always --dirty)" ./cmd/ade && ./tools/sign.sh "$(go env GOPATH)/bin/ade"`.
+Replacing the file does not disturb the running process; the next start picks
+it up.
+
 **`make install` is the Go binary and nothing else.** Not the editor extension.
 Change anything under `vscode/src` and telling someone to `make install` ships
 them none of it — the symptom is a backend that plainly works and a UI that

@@ -104,8 +104,9 @@ func TestTheBoxedTakeoverIsATerminalOnTheBoxsServers(t *testing.T) {
 
 type seenRuntime struct{ spec *sandbox.Spec }
 
-func (seenRuntime) Name() string { return "seen" }
-func (seenRuntime) Bin() string  { return "/no/such/runtime" }
+func (seenRuntime) Name() string            { return "seen" }
+func (seenRuntime) Bin() string             { return "/no/such/runtime" }
+func (seenRuntime) HasArgs(string) []string { return []string{"true"} }
 func (r seenRuntime) Args(spec sandbox.Spec) []string {
 	*r.spec = spec
 	return []string{"run", spec.Name}

@@ -72,6 +72,64 @@ type conn struct {
 	// url is where it is reachable from here, not the port it serves on.
 	url  string
 	stop context.CancelFunc
+
+	// cmu holds everything below: the port stream and a window resolving an
+	// authority both change what is wanted.
+	cmu sync.Mutex
+	// launcher is where this machine reaches that one's launcher, ports what
+	// it last published, and editor its editor server. Zero until one asks.
+	launcher     remote.Mapping
+	ports        []int
+	editor       remote.Mapping
+	editorCommit string
+	// What `uname` said. A machine does not change arch.
+	system, machine string
+}
+
+// want is the whole forwarded set, rebuilt rather than patched: the port
+// stream publishes the whole set every frame.
+func (c *conn) want() []remote.Mapping {
+	c.cmu.Lock()
+	defer c.cmu.Unlock()
+	return mappings(c.ports, c.launcher, c.editor)
+}
+
+func (c *conn) setPorts(ports []int) {
+	c.cmu.Lock()
+	c.ports = ports
+	c.cmu.Unlock()
+}
+
+func (c *conn) setEditor(mapping remote.Mapping, commit string) {
+	c.cmu.Lock()
+	c.editor, c.editorCommit = mapping, commit
+	c.cmu.Unlock()
+}
+
+// editorServer is the forward and the build running there, or a zero mapping
+// when no window ever asked for one.
+func (c *conn) editorServer() (remote.Mapping, string) {
+	c.cmu.Lock()
+	defer c.cmu.Unlock()
+	return c.editor, c.editorCommit
+}
+
+// arch is the host's own names for the tarball it can run.
+func (c *conn) arch(ctx context.Context) (string, string, error) {
+	c.cmu.Lock()
+	system, machine := c.system, c.machine
+	c.cmu.Unlock()
+	if system != "" {
+		return system, machine, nil
+	}
+	system, machine, err := c.host.Arch(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	c.cmu.Lock()
+	c.system, c.machine = system, machine
+	c.cmu.Unlock()
+	return system, machine, nil
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -572,12 +630,12 @@ func (s *Server) connect(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("%s answered, but its port stream did not: %w", name, err)
 	}
 
-	live := &conn{host: host, fwd: fwd, url: url, stop: stop}
+	live := &conn{host: host, fwd: fwd, url: url, stop: stop, launcher: mapping}
 	s.mu.Lock()
 	s.hosts[name] = live
 	s.mu.Unlock()
 
-	go s.follow(follow, name, live, mapping, stream)
+	go s.follow(follow, name, live, stream)
 	return url, nil
 }
 
@@ -833,14 +891,14 @@ func portsStream(ctx context.Context, launcherURL string) (*http.Response, error
 // follow keeps this machine's forwards in step with that one's. The stream
 // ending is how a remote launcher that idled out says so, and the connection
 // goes with it.
-func (s *Server) follow(ctx context.Context, name string, live *conn, launcher remote.Mapping, stream *http.Response) {
+func (s *Server) follow(ctx context.Context, name string, live *conn, stream *http.Response) {
 	defer s.disconnect(name)
-	if err := s.readPorts(ctx, live, launcher, stream); err != nil && ctx.Err() == nil {
+	if err := s.readPorts(ctx, live, stream); err != nil && ctx.Err() == nil {
 		slog.Info("stopped following a host", "host", name, "err", err)
 	}
 }
 
-func (s *Server) readPorts(ctx context.Context, live *conn, launcher remote.Mapping, res *http.Response) error {
+func (s *Server) readPorts(ctx context.Context, live *conn, res *http.Response) error {
 	defer func() { _ = res.Body.Close() }()
 
 	scanner := bufio.NewScanner(res.Body)
@@ -855,7 +913,8 @@ func (s *Server) readPorts(ctx context.Context, live *conn, launcher remote.Mapp
 		if err := json.Unmarshal([]byte(data), &frame); err != nil {
 			continue
 		}
-		if err := live.fwd.Sync(ctx, mappings(frame.Ports, launcher)); err != nil {
+		live.setPorts(frame.Ports)
+		if err := live.fwd.Sync(ctx, live.want()); err != nil {
 			slog.Warn("could not forward every port", "err", err)
 		}
 	}
@@ -880,6 +939,12 @@ func (s *Server) disconnect(name string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// Before the forwards: they are the only way into that server.
+	if _, commit := live.editorServer(); commit != "" {
+		if err := live.host.StopEditorServer(ctx, commit); err != nil {
+			slog.Debug("stop the editor server", "host", name, "err", err)
+		}
+	}
 	if err := live.fwd.Close(ctx); err != nil {
 		slog.Debug("drop forwards", "host", name, "err", err)
 	}
@@ -911,10 +976,20 @@ func (s *Server) connected() bool {
 }
 
 // mappings keeps the launcher's even when a frame omits it.
-func mappings(ports []int, launcher remote.Mapping) []remote.Mapping {
-	out := []remote.Mapping{launcher}
+// mappings is the fixed forwards this side chose a local port for, then every
+// port the far side published that none of them holds.
+func mappings(ports []int, fixed ...remote.Mapping) []remote.Mapping {
+	var out []remote.Mapping
+	held := map[int]bool{}
+	for _, m := range fixed {
+		if m.Local <= 0 || m.Remote <= 0 || held[m.Remote] {
+			continue
+		}
+		out = append(out, m)
+		held[m.Remote] = true
+	}
 	for _, port := range ports {
-		if port != launcher.Remote {
+		if !held[port] {
 			out = append(out, remote.Same(port))
 		}
 	}

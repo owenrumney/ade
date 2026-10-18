@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/worktrees"
 )
@@ -121,6 +122,10 @@ func scanOne(ctx context.Context, repo sessions.Repo) sweepRepo {
 		return row
 	}
 	row.Tree = append(row.Tree, found...)
+	// Without this, abandoned clones are the disk nothing lists.
+	if _, cloned := provision.OwnedDir(repo.Path); cloned {
+		row.Tree = append(row.Tree, worktrees.Clone(ctx, repo.Path, false))
+	}
 	return row
 }
 

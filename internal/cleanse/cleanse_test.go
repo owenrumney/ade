@@ -25,8 +25,9 @@ func TestTheGatePassesLongProseAndNothingElse(t *testing.T) {
 		want bool
 	}{
 		{"nothing", "", false},
-		{"short prose", "Done. The counter resets on success now.", false},
-		{"just under the floor", strings.Repeat("a ", 119), false},
+		{"blank", "  \n\n ", false},
+		{"short prose", "Done. The counter resets on success now.", true},
+		{"a short line of jargon", "cheapRunner is not boxed, cold slots untouched", true},
 		{"long prose", prose, true},
 		{"a path list", paths, false},
 		{"a table", table, false},
@@ -68,12 +69,11 @@ func TestAReplyIsReadAsTheTextAndNothingElse(t *testing.T) {
 	}
 }
 
-func TestAnAnswerStandsInOnlyWhenItIsShorterAndKeepsEveryBlock(t *testing.T) {
+func TestAnAnswerStandsInOnlyWhenItKeepsEveryBlockAndDoesNotRamble(t *testing.T) {
 	body := prose + "\n\n```sh\ngo test ./internal/retry/\n```"
 	assert.True(t, Faithful(body, "Counter resets on success.\n\n```sh\ngo test ./internal/retry/\n```"))
 	assert.False(t, Faithful(body, ""), "nothing is not a rewrite")
-	assert.False(t, Faithful(body, body), "the same text is not shorter")
-	assert.False(t, Faithful(body, body+" And more."), "longer is not a cleanse")
+	assert.False(t, Faithful(body, body+strings.Repeat(" And more.", 40)), "padding is not a translation")
 	assert.False(t, Faithful(body, "Counter resets on success. Run the tests."), "a block went missing")
 	assert.False(t, Faithful(body, "Counter resets on success.\n\n```sh\ngo test ./...\n```"), "a block was rewritten")
 	assert.True(t, Faithful(prose, "Counter resets on success."), "no block, nothing to keep")
@@ -109,7 +109,7 @@ func TestAClosingTagQuotedInTheBodyCannotEndTheWrapper(t *testing.T) {
 		sent = prompt
 		return "", nil
 	}, body)
-	require.NoError(t, err)
+	assert.Equal(t, WhyEmpty, dropped(t, err).Why)
 	assert.Empty(t, got)
 	assert.Equal(t, 1, strings.Count(sent, "</reply>"), "the one closing tag is the prompt's own")
 	assert.True(t, strings.HasSuffix(strings.TrimSpace(sent), "</reply>"))
@@ -130,12 +130,21 @@ func TestRewriteSendsTheBodyUnderTheRole(t *testing.T) {
 	assert.Contains(t, sent, "<reply>\n"+strings.TrimSpace(prose)+"\n</reply>")
 }
 
+// dropped is the *Drop a Rewrite answered with, so a test can read the reason.
+func dropped(t *testing.T, err error) *Drop {
+	t.Helper()
+	var drop *Drop
+	require.ErrorAs(t, err, &drop, "a drop that is not a *Drop cannot be counted")
+	return drop
+}
+
 func TestAFailedLateEmptyOrUnfaithfulAnswerIsNoChange(t *testing.T) {
 	boom := errors.New("no claude")
 	got, err := Rewrite(context.Background(), func(context.Context, string, string) (string, error) {
 		return "", boom
 	}, prose)
 	require.ErrorIs(t, err, boom)
+	assert.Equal(t, WhyFailed, dropped(t, err).Why)
 	assert.Empty(t, got)
 
 	var deadline time.Duration
@@ -145,6 +154,7 @@ func TestAFailedLateEmptyOrUnfaithfulAnswerIsNoChange(t *testing.T) {
 		return "", context.DeadlineExceeded
 	}, prose)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, WhyTimeout, dropped(t, err).Why, "a timeout is not a failure; the count turns on the difference")
 	assert.Empty(t, got)
 	assert.LessOrEqual(t, deadline, Timeout)
 	assert.Greater(t, deadline, Timeout-time.Second)
@@ -155,13 +165,96 @@ func TestAFailedLateEmptyOrUnfaithfulAnswerIsNoChange(t *testing.T) {
 		return "Short, but after the deadline.", nil
 	}, prose)
 	require.ErrorIs(t, err, context.Canceled, "an answer that arrives late is dropped, not amended in")
+	assert.Equal(t, WhyTimeout, dropped(t, err).Why)
 	assert.Empty(t, got)
 
-	for name, answer := range map[string]string{"nothing": "", "a fence only": "```\n```", "longer": prose + " And more."} {
+	for name, tt := range map[string]struct{ answer, why string }{
+		"nothing":      {"", WhyEmpty},
+		"a fence only": {"```\n```", WhyEmpty},
+		"padded":       {prose + strings.Repeat(" And more.", 40), WhyLonger},
+	} {
 		got, err = Rewrite(context.Background(), func(context.Context, string, string) (string, error) {
-			return answer, nil
+			return tt.answer, nil
 		}, prose)
-		require.NoError(t, err, name)
+		assert.Equal(t, tt.why, dropped(t, err).Why, name)
 		assert.Empty(t, got, name)
 	}
+}
+
+func TestAnUnfaithfulRewriteNamesWhatItLost(t *testing.T) {
+	body := prose + "\n\nEdit `auth.go:42`, then:\n\n```sh\ngo test ./internal/retry/\n```"
+	tests := []struct {
+		name  string
+		short string
+		lost  string
+	}{
+		{"a block dropped", "Counter resets on success. Edit `auth.go:42`.", "go test ./internal/retry/"},
+		{"a path dropped", "Counter resets on success.\n\n```sh\ngo test ./internal/retry/\n```", "auth.go:42"},
+		{"all kept", "Counter resets on success. Edit `auth.go:42`.\n\n```sh\ngo test ./internal/retry/\n```", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.lost, Lost(body, tt.short))
+			assert.Equal(t, tt.lost == "", Faithful(body, tt.short))
+
+			got, err := Rewrite(context.Background(), func(context.Context, string, string) (string, error) {
+				return tt.short, nil
+			}, body)
+			if tt.lost == "" {
+				require.NoError(t, err)
+				assert.Equal(t, tt.short, got)
+				return
+			}
+			drop := dropped(t, err)
+			assert.Equal(t, WhyUnfaithful, drop.Why)
+			assert.Equal(t, tt.lost, drop.Lost)
+			assert.Contains(t, drop.Error(), tt.lost)
+		})
+	}
+}
+
+func TestANameMayBecomePlainWordsAndAFactMayNot(t *testing.T) {
+	tests := []struct {
+		span string
+		name bool
+	}{
+		{"cheapRunner", true},
+		{"Faithful", true},
+		{"DiagnosticKind.MissingPermission", true},
+		{"auth.go:42", false},
+		{"chat.go", false},
+		{"internal/web/cleanse.go", false},
+		{"git reset --soft HEAD~1", false},
+		{"--soft", false},
+		{"vol-03febb78740d8620d", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.span, func(t *testing.T) {
+			assert.Equal(t, tt.name, Name(tt.span))
+		})
+	}
+}
+
+func TestARewriteMayDropASymbolButNotAPathOrANumber(t *testing.T) {
+	body := "`cheapRunner` inherits the sandbox, so `auth.go:42` boots a VM before the 3 lines run."
+	plain := "The shortening call starts a container first; see `auth.go:42`, 3 lines."
+	assert.Empty(t, Lost(body, plain), "the name was translated, which is the point")
+	assert.True(t, Faithful(body, plain))
+
+	assert.Equal(t, "auth.go:42", Lost(body, "The shortening call starts a container first, 3 lines."))
+	assert.Equal(t, "3", Lost(body, "The shortening call starts a container first; see `auth.go:42`."))
+}
+
+// The line that prompted all this: 45 runes of jargon, 49 of plain English.
+// A rewrite that must be shorter can never fix it.
+func TestAPlainRewriteMayRunLongerThanTheJargonItReplaces(t *testing.T) {
+	body := "`cheapRunner` is not boxed, cold slots untouched"
+	plain := "The shortening call no longer starts a container."
+	assert.Greater(t, len(plain), len(body))
+
+	got, err := Rewrite(context.Background(), func(context.Context, string, string) (string, error) {
+		return plain, nil
+	}, body)
+	require.NoError(t, err)
+	assert.Equal(t, plain, got)
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/url"
@@ -43,6 +44,8 @@ type Claude struct {
 	Servers map[string]json.RawMessage
 	Argv    []string
 	Image   string
+	// MakeMountPoints creates a mount's target before the run.
+	MakeMountPoints bool
 }
 
 // keychainService is where Claude Code on macOS keeps its login.
@@ -134,9 +137,13 @@ func (c Claude) Spec(box string) (Spec, error) {
 	for _, path := range carried {
 		mounts = append(mounts, linked(path, mounts)...)
 	}
-	// The pair and not ~/.ssh, read-only, at host paths so `~` resolves.
-	for _, key := range signing {
-		mounts = append(mounts, Mount{Host: key, Guest: key})
+	// A directory, not the two files: Apple's runtime binds only directories.
+	if len(signing) > 0 {
+		staged, err := signingInto(filepath.Join(box, signingDir), signing)
+		if err != nil {
+			return Spec{}, err
+		}
+		mounts = append(mounts, Mount{Host: staged, Guest: filepath.Dir(signing[0])})
 	}
 	mounts = append(mounts, c.Extra...)
 	node, err := c.nodeModules()
@@ -179,6 +186,8 @@ const mcpFile = "ade-mcp.json"
 
 // gitconfigFile is the host's git config, in the box for GIT_CONFIG_GLOBAL.
 const gitconfigFile = "gitconfig"
+
+const signingDir = "ssh"
 
 const npmrcFile = "ade-npmrc"
 
@@ -301,6 +310,30 @@ func mcpInto(src, dst, host string, own map[string]json.RawMessage) (bool, error
 		return false, err
 	}
 	return true, os.WriteFile(dst, out, 0o600)
+}
+
+// signingInto copies the pair into dst, modes and all.
+func signingInto(dst string, keys []string) (string, error) {
+	if err := os.RemoveAll(dst); err != nil {
+		return "", fmt.Errorf("sandbox: clear %s: %w", dst, err)
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return "", fmt.Errorf("sandbox: %s: %w", dst, err)
+	}
+	for _, key := range keys {
+		data, err := os.ReadFile(key) // #nosec G304 -- a signing key named by your own gitconfig
+		if err != nil {
+			return "", fmt.Errorf("sandbox: read %s: %w", key, err)
+		}
+		mode := fs.FileMode(0o600)
+		if info, err := os.Stat(key); err == nil {
+			mode = info.Mode().Perm()
+		}
+		if err := os.WriteFile(filepath.Join(dst, filepath.Base(key)), data, mode); err != nil {
+			return "", fmt.Errorf("sandbox: stage %s: %w", key, err)
+		}
+	}
+	return dst, nil
 }
 
 func npmrcInto(dst string) error {
@@ -686,6 +719,12 @@ func (c Claude) nodeModules() ([]Mount, error) {
 		host := NodeModulesDir(c.Home, guest)
 		if err := os.MkdirAll(host, 0o750); err != nil {
 			return nil, fmt.Errorf("sandbox: node_modules for %s: %w", dir, err)
+		}
+		// errno 17 otherwise: the target has to exist before the mount.
+		if c.MakeMountPoints {
+			if err := os.MkdirAll(guest, 0o750); err != nil {
+				return nil, fmt.Errorf("sandbox: mount point %s: %w", guest, err)
+			}
 		}
 		out = append(out, Mount{Host: host, Guest: guest, RW: true})
 	}

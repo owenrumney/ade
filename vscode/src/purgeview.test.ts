@@ -83,12 +83,15 @@ describe("removing worktrees", () => {
 
   it("names every worktree the server kept back, with its own reason", async () => {
     says("Remove");
-    const view = page(async () => ({
+    // One call per repository, so the fixture answers for the paths it was
+    // asked about rather than for both every time.
+    const why: Record<string, string> = {
+      "/code/ade-old": "uncommitted",
+      "/code/coast-wip": "serving",
+    };
+    const view = page(async (_repo, paths) => ({
       removed: [],
-      kept: [
-        { path: "/code/ade-old", why: "uncommitted" },
-        { path: "/code/coast-wip", why: "serving" },
-      ],
+      kept: paths.map((path) => ({ path, why: why[path] })),
     }));
     await view.show();
 

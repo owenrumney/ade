@@ -240,8 +240,6 @@ type Server struct {
 	attaching sync.Mutex
 	// cleansing counts the rewrites in flight, so a test can wait for them.
 	cleansing sync.WaitGroup
-	// cleansingOne runs them one at a time: under a sandbox each is a cold slot a named agent needs.
-	cleansingOne sync.Mutex
 	// recording is the one commit-record publisher: a commit, an amend and a
 	// merge all write the same wiki draft.
 	recording sync.Mutex

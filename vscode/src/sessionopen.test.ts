@@ -21,7 +21,7 @@ describe("opening a conversation that is on another machine", () => {
 
   it("addresses it as the machine's own folder", () => {
     expect(folderURI("ade@ade-owen", "/home/ade/code/x/ade")).toBe(
-      "vscode-remote://ssh-remote+ade@ade-owen/home/ade/code/x/ade",
+      "vscode-remote://ade-ssh+ade@ade-owen/home/ade/code/x/ade",
     );
   });
 });
