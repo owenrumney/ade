@@ -845,15 +845,27 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 	if err != nil {
 		return nil, nil, err
 	}
-	mcpHost := ""
-	if docker, ok := in.rt.(sandbox.Docker); ok && docker.Network == "" {
-		mcpHost = "host.docker.internal"
-	}
-	spec, err := sandbox.Claude{Home: home, Root: in.dir, GitDir: in.gitDir, Docs: in.docs, Extra: extra, Env: ws.Env, MCPHost: mcpHost, Servers: servers}.Spec(filepath.Dir(creds))
+	spec, err := claudeSpec(in.rt, in, home, ws, extra, servers, creds)
 	if err != nil {
 		return nil, nil, err
 	}
 	return &spec, in.rt, nil
+}
+
+// claudeSpec builds the container for one runtime; the caller may try another.
+func claudeSpec(rt sandbox.Runtime, in boxInputs, home string, ws sandbox.Workspace, extra []sandbox.Mount, servers map[string]json.RawMessage, creds string) (sandbox.Spec, error) {
+	mcpHost := ""
+	switch at := rt.(type) {
+	case sandbox.Docker:
+		if at.Network == "" {
+			mcpHost = "host.docker.internal"
+		}
+	case sandbox.Apple:
+		mcpHost = at.Host
+	}
+	_, apple := rt.(sandbox.Apple)
+	return sandbox.Claude{Home: home, Root: in.dir, GitDir: in.gitDir, Docs: in.docs,
+		Extra: extra, Env: ws.Env, MCPHost: mcpHost, Servers: servers, MakeMountPoints: apple}.Spec(filepath.Dir(creds))
 }
 
 // hostGitHubToken prefers ADE_GITHUB_TOKEN, a scoped token, over the whole gh login.
@@ -1668,7 +1680,7 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 			}
 		},
 	}
-	runtime := ""
+	runtime, held := "", false
 	if a.sandbox {
 		// a.mu is already held, so the spec is built from here rather than
 		// through sandboxOpts, which takes it.
@@ -1683,7 +1695,7 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
 		opts.Sandbox, opts.Runtime = spec, rt
-		runtime = rt.Name()
+		runtime, held = rt.Name(), sandbox.HasImage(ctx, rt, spec.Image)
 	}
 	if dir := a.outboxDir(); dir != "" {
 		opts.Env = append(opts.Env, bridge.OutboxEnv+"="+dir)
@@ -1729,12 +1741,22 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 	// is a long silence with nothing to show for it. Said here, and only here:
 	// every later turn on the same process replays nothing.
 	if runtime != "" {
-		a.step(provider + " is running in a container, via " + runtime)
+		a.step(containerStep(provider, runtime, held))
 	}
 	if replaying > 0 {
 		a.step(fmt.Sprintf("resuming a %.1fMB session transcript", float64(replaying)/(1<<20)))
 	}
 	return agent, nil
+}
+
+// containerStep is what to say as the agent starts. Said before the container
+// has proved it can run, so a missing image is a fetch and not a claim.
+func containerStep(provider, runtime string, held bool) string {
+	if held {
+		return provider + " is running in a container, via " + runtime
+	}
+	return provider + " is fetching the sandbox image, via " + runtime +
+		" — if it fails, build it here with make sandbox-image"
 }
 
 /* HTTP */

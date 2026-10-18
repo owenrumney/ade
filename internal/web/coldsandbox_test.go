@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/cleanse"
 	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,4 +116,24 @@ func TestANamedAgentRunsInTheContainer(t *testing.T) {
 	require.Len(t, *seen, 1)
 	require.NotNil(t, (*seen)[0].Sandbox)
 	assert.Equal(t, "security", (*seen)[0].Agent)
+}
+
+// A cheap model with no tools reads no checkout. Boxing it bought nothing and
+// cost a VM boot inside the call's own budget, which is what killed it.
+func TestACheapRunStaysOnTheHostWithTheSandboxOn(t *testing.T) {
+	s := newTestServer(t)
+	seen := boxed(t, s)
+
+	_, err := s.cheapRunner(context.Background(), cleanse.Model, cleanse.Role(), "rewrite this")
+	require.NoError(t, err)
+	require.Len(t, *seen, 1)
+	assert.Nil(t, (*seen)[0].Sandbox, "a rewrite booted a container to read a reply it was handed")
+	assert.Nil(t, (*seen)[0].Runtime)
+	assert.Equal(t, []string{}, (*seen)[0].Tools)
+
+	// Every cold slot is still free: a named agent is not waiting behind a rewrite.
+	for slot := 0; slot < sandbox.ColdSlots; slot++ {
+		_, ok := s.agent.takeColdSlot()
+		require.True(t, ok)
+	}
 }

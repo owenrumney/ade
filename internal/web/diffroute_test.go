@@ -90,6 +90,7 @@ var viewSafe = map[string]string{
 	"POST /api/design/seed":                 "drafts from a ticket, not from the diff",
 	"POST /api/design/fold":                 "the design document is the session's",
 	"POST /api/design/condense":             "the design document is the session's",
+	"POST /api/design/archive":              "the design document is the session's",
 	"PUT /api/project":                      "project memory is the session's",
 	"POST /api/project/entry":               "project memory is the session's",
 	"POST /api/project/distil":              "project memory is the session's",

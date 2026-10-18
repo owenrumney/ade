@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -397,16 +398,25 @@ func RecordPath() (string, error) {
 	return filepath.Join(dir, "server.json"), nil
 }
 
-// ScanOverride is the scan root the environment names, if it does. A worker is
+// ScanOverride is the roots the environment names, if it does. A worker is
 // told where to look and must not inherit what a previous run happened to save.
-func ScanOverride() string {
-	return strings.TrimSpace(os.Getenv("ADE_SCAN_DIR"))
+// Both, because a session's clone lands in the work root and the repositories
+// worth offering are in the scan root, and they are not the same directory.
+func ScanOverride() []string {
+	var out []string
+	for _, name := range []string{"ADE_WORK_DIR", "ADE_SCAN_DIR"} {
+		root := strings.TrimSpace(os.Getenv(name))
+		if root != "" && !slices.Contains(out, root) {
+			out = append(out, root)
+		}
+	}
+	return out
 }
 
 // Defaults is what a machine with no settings file behaves as.
 func Defaults() Settings {
-	if root := ScanOverride(); root != "" {
-		return Settings{ScanDirs: []string{root}, IgnoredDirs: []string{}}
+	if roots := ScanOverride(); len(roots) > 0 {
+		return Settings{ScanDirs: roots, IgnoredDirs: []string{}}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -452,8 +462,8 @@ func Load() (Settings, error) {
 // scanOverridden applies ADE_SCAN_DIR over what was loaded: the file a worker
 // writes on its first run would otherwise decide where later runs look.
 func scanOverridden(s Settings) Settings {
-	if root := ScanOverride(); root != "" {
-		s.ScanDirs = []string{root}
+	if roots := ScanOverride(); len(roots) > 0 {
+		s.ScanDirs = roots
 	}
 	return s
 }

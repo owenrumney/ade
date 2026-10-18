@@ -609,3 +609,15 @@ func TestTheSameCallOverAndOverIsCounted(t *testing.T) {
 	runner.finish(nil)
 	assert.Zero(t, runner.State().Repeats, "a run that is over is not going round")
 }
+
+// ade said "is running in a container" before the container existed, and the
+// pull then failed for want of a ghcr login. The step says which it is doing.
+func TestTheContainerStepDoesNotClaimAContainerItHasNotGot(t *testing.T) {
+	assert.Equal(t, "claude is running in a container, via container",
+		containerStep("claude", "container", true))
+
+	fetching := containerStep("claude", "docker", false)
+	assert.NotContains(t, fetching, "is running in a container")
+	assert.Contains(t, fetching, "fetching the sandbox image")
+	assert.Contains(t, fetching, "make sandbox-image")
+}

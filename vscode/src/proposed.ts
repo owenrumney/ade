@@ -150,4 +150,4 @@ export const PROPOSED_MENUS: Record<string, string> = {
 };
 
 // Proposals the code calls, each with its vscode.proposed.<name>.d.ts here.
-export const CODE_PROPOSALS = ["commentsDraftState"];
+export const CODE_PROPOSALS = ["commentsDraftState", "resolvers"];

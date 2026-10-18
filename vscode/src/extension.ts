@@ -63,6 +63,8 @@ async function pickReviewers(
 import * as vscode from "vscode";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { Client } from "./client";
 import type { BusOffer, BusWho, State } from "./client";
 import {
@@ -85,8 +87,10 @@ import {
 } from "./busreview";
 import { listed } from "./detail";
 import {
+  type Files,
   gitDir,
   label,
+  localFiles,
   nearest,
   probe,
   read,
@@ -129,10 +133,23 @@ import {
   folderURI,
   launcherAt,
   machineWide,
-  REMOTE_SSH,
   said,
   whyNotHere,
 } from "./remote";
+import {
+  AUTHORITY,
+  dispatch as publishRun,
+  Failed,
+  label as hostLabel,
+  noGh,
+  noServer,
+  published,
+  PUBLISH,
+  releaseVersion,
+  resolve as resolveAuthority,
+  serverURL,
+  UNVALIDATED,
+} from "./resolver";
 import { page as prPage } from "./prpage";
 import { blameWhen, combinable } from "./shape";
 import { choices, detail as ticketDetail } from "./ticketdir";
@@ -225,6 +242,7 @@ import {
   type Asked,
   type Review,
   reach,
+  editorServer,
   removeHost,
   reason,
   tell,
@@ -804,6 +822,8 @@ export async function activate(
     100,
   );
   status.command = "ade.reconnect";
+  // Before anything else: a remote window resolves on the way up.
+  registerResolver(context);
   run = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   run.command = "ade.openChat";
   ticker = setInterval(() => drawRun(), 1000);
@@ -1064,8 +1084,7 @@ export async function activate(
     ),
     vscode.commands.registerCommand(
       "ade.showComments",
-      () =>
-        void vscode.commands.executeCommand("workbench.panel.comments.focus"),
+      () => void showComments(),
     ),
     vscode.commands.registerCommand(
       "ade.startLauncher",
@@ -4870,28 +4889,201 @@ async function startElsewhere(): Promise<void> {
   }
 }
 
-// openThere offers a window on the machine the work is now on, which is where
-// its files are. Without Remote-SSH there is nothing to offer but the news.
+// product is the editor's own: the build's commit and its server download
+// url, neither of which the extension API reports.
+interface Product {
+  commit?: string;
+  serverDownloadUrlTemplate?: string;
+}
+
+function product(): Product {
+  try {
+    return JSON.parse(
+      readFileSync(join(vscode.env.appRoot, "product.json"), "utf8"),
+    ) as Product;
+  } catch {
+    return {};
+  }
+}
+
+// Cached for the session: a 404 does not become a 200 without a run.
+let serverPublished: boolean | undefined;
+
+// openThere offers a window where the work's files are. The only thing in
+// the way is a pin nothing was built a server for.
 async function openThere(
   name: string,
   label: string,
   dir: string,
   verb?: string,
 ): Promise<void> {
-  const can = Boolean(vscode.extensions.getExtension(REMOTE_SSH));
-  if (!can) {
-    void vscode.window.showInformationMessage(said(label, false, verb));
+  const template = product().serverDownloadUrlTemplate ?? "";
+  if (serverPublished === undefined)
+    serverPublished = await published(
+      serverURL(template),
+      async (at) => (await fetch(at, { method: "HEAD" })).status,
+    );
+  if (!serverPublished) {
+    await noServerYet(template, name, dir);
     return;
   }
   const open = await vscode.window.showInformationMessage(
-    said(label, true, verb),
+    said(label, verb),
     "Open a window there",
   );
   if (!open) return;
+  await openWindowOn(name, dir);
+}
+
+async function openWindowOn(name: string, dir: string): Promise<void> {
   await vscode.commands.executeCommand(
     "vscode.openFolder",
     vscode.Uri.parse(folderURI(name, dir)),
     { forceNewWindow: true },
+  );
+}
+
+// noServerYet offers the remedy rather than the diagnosis. No window opens:
+// publishing is 25 to 40 minutes. Ask again when the run is green.
+async function noServerYet(
+  template: string,
+  name: string,
+  dir: string,
+): Promise<void> {
+  const version = releaseVersion(template);
+  const press = await vscode.window.showWarningMessage(
+    noServer(version),
+    PUBLISH,
+    UNVALIDATED,
+  );
+  if (press === PUBLISH) {
+    await publishServer(version);
+    return;
+  }
+  if (press !== UNVALIDATED) return;
+  // One resolve, not a setting: a persisted flag is how a month goes by on
+  // an unvalidated server without anyone noticing.
+  await boxContext?.globalState.update(UNVALIDATED_ONCE, name);
+  await openWindowOn(name, dir);
+}
+
+async function publishServer(version: string): Promise<void> {
+  try {
+    const run = await gh(publishRun(version));
+    const url = await gh([
+      "run",
+      "list",
+      "--workflow=editor-reh.yml",
+      "--limit",
+      "1",
+      "--json",
+      "url",
+      "-q",
+      ".[0].url",
+    ]).catch(() => "");
+    void vscode.window.showInformationMessage(
+      `ade: building the editor server for ${version}. ${url.trim() || run.trim() || "25 to 40 minutes."}`,
+    );
+  } catch {
+    void vscode.window.showErrorMessage(noGh(version));
+  }
+}
+
+function gh(args: string[]): Promise<string> {
+  return new Promise((done, fail) => {
+    execFile("gh", args, (err, out) => (err ? fail(err) : done(out)));
+  });
+}
+
+// The resolve runs in the new window's extension host, not this one.
+const UNVALIDATED_ONCE = "ade.unvalidatedOnce";
+
+// remoteLog is each step of a resolve. resolve() has no progress channel of
+// its own, so a minutes-long install says so here and in a notification.
+let remoteLog: vscode.OutputChannel | undefined;
+
+function remoteOutput(): vscode.OutputChannel {
+  remoteLog ??= vscode.window.createOutputChannel("Remote - ade");
+  return remoteLog;
+}
+
+// registerResolver claims ade's own authority. Without the resolvers
+// proposal granted there is nothing to register.
+function registerResolver(context: vscode.ExtensionContext): void {
+  if (!vscode.workspace.registerRemoteAuthorityResolver) return;
+  context.subscriptions.push(
+    vscode.workspace.registerRemoteAuthorityResolver(AUTHORITY, {
+      resolve: (authority: string) => resolveHost(authority, context),
+    }),
+  );
+}
+
+async function resolveHost(
+  authority: string,
+  context: vscode.ExtensionContext,
+): Promise<vscode.ResolvedAuthority> {
+  const log = remoteOutput();
+  try {
+    const got = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:
+          "ade: starting the editor server (a first install downloads 120 MiB)",
+      },
+      () =>
+        resolveAuthority(authority, {
+          launcher: findLauncher,
+          editorServer: (server, host, unvalidated) => {
+            const info = product();
+            return editorServer(
+              server,
+              host,
+              info.commit ?? "",
+              info.serverDownloadUrlTemplate ?? "",
+              unvalidated,
+            );
+          },
+          unvalidated: async (host) => {
+            const asked = context.globalState.get<string>(UNVALIDATED_ONCE);
+            if (asked === undefined) return false;
+            await context.globalState.update(UNVALIDATED_ONCE, undefined);
+            return asked === host;
+          },
+          log: (line) => log.appendLine(line),
+        }),
+    );
+    nameTheHost(context, authority, got.host);
+    return new vscode.ResolvedAuthority("127.0.0.1", got.port, got.token);
+  } catch (err) {
+    log.appendLine(String(err));
+    const message = err instanceof Failed ? err.message : String(err);
+    // A hard error is for what retrying cannot fix. Everything else heals
+    // itself, and the workbench retries on its own backoff.
+    if (err instanceof Failed && !err.retry)
+      throw vscode.RemoteAuthorityResolverError.NotAvailable(message, true);
+    throw vscode.RemoteAuthorityResolverError.TemporarilyNotAvailable(message);
+  }
+}
+
+// nameTheHost makes the remote indicator read "ade: pi@pi5.local" rather
+// than the raw authority.
+function nameTheHost(
+  context: vscode.ExtensionContext,
+  authority: string,
+  host: string,
+): void {
+  if (!vscode.workspace.registerResourceLabelFormatter) return;
+  context.subscriptions.push(
+    vscode.workspace.registerResourceLabelFormatter({
+      scheme: "vscode-remote",
+      authority,
+      formatting: {
+        label: "${path}",
+        separator: "/",
+        tildify: true,
+        workspaceSuffix: hostLabel(host),
+      },
+    }),
   );
 }
 
@@ -6079,17 +6271,19 @@ async function find(): Promise<
 
   const tried: string[] = [];
   let checkout: string | undefined;
+  const where = new Map(folders.map((f) => [f.uri.path, f.uri]));
   const roots = nearest(
-    folders.map((f) => f.uri.fsPath),
-    vscode.window.activeTextEditor?.document.uri.fsPath,
+    folders.map((f) => f.uri.path),
+    vscode.window.activeTextEditor?.document.uri.path,
   );
   for (const root of roots) {
-    const dir = await gitDir(root);
+    const files = filesOf(where.get(root));
+    const dir = await gitDir(root, files);
     if (!dir) {
       tried.push(`${root}: not a git checkout`);
       continue;
     }
-    const rec = await read(recordPath(dir));
+    const rec = await read(recordPath(dir), files);
     if (!rec) {
       tried.push(`${root}: no ade running`);
       checkout ??= root;
@@ -6101,6 +6295,32 @@ async function find(): Promise<
     checkout ??= root;
   }
   return { why: tried.join("\n"), checkout };
+}
+
+// filesOf is the disk the folder is on. A ui extension runs here in a window
+// on another machine, so a host path goes through the window's file service.
+function filesOf(uri: vscode.Uri | undefined): Files {
+  if (!uri || uri.scheme === "file") return localFiles;
+  const at = (path: string) => uri.with({ path });
+  return {
+    directory: async (path) => {
+      try {
+        const info = await vscode.workspace.fs.stat(at(path));
+        return (info.type & vscode.FileType.Directory) !== 0;
+      } catch {
+        return undefined;
+      }
+    },
+    text: async (path) => {
+      try {
+        return new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(at(path)),
+        );
+      } catch {
+        return undefined;
+      }
+    },
+  };
 }
 
 // queued runs a row's verb and redraws, so the view shows the new order rather
@@ -6175,12 +6395,34 @@ async function openDesk(): Promise<void> {
   await floatDesk();
 }
 
+// COMMENTS_PANEL is how the Comments view is opened, best first.
+const COMMENTS_PANEL = [
+  "workbench.action.focusCommentsPanel",
+  "workbench.panel.comments.focus",
+];
+
+// The view names its own focus command, so the id every other view answers to
+// is not registered. It is also hideIfEmpty, hence the word when nothing shows.
+async function showComments(): Promise<void> {
+  for (const command of COMMENTS_PANEL) {
+    try {
+      await vscode.commands.executeCommand(command);
+      return;
+    } catch {
+      // Try the next; the last one failing is what is reported.
+    }
+  }
+  void vscode.window.showInformationMessage(
+    "ade: no comments to show. The panel appears once a review leaves one.",
+  );
+}
+
 // arrange lays the window out for a session: ade's views on the left, the
 // Comments panel below, the concierge on the right, the editor in the middle.
 async function arrange(): Promise<void> {
   for (const command of [
     "workbench.view.extension.ade",
-    "workbench.panel.comments.focus",
+    ...COMMENTS_PANEL,
     "workbench.action.focusActiveEditorGroup",
   ]) {
     try {
@@ -6906,6 +7148,8 @@ function drawBoxed(): void {
   }
   boxed.text = badge.text;
   boxed.tooltip = badge.tooltip;
+  // Filled, so a sandboxed session is visible without reading the words.
+  boxed.backgroundColor = new vscode.ThemeColor(badge.background);
   boxed.show();
 }
 

@@ -20,11 +20,16 @@
     "contribTitleBarMenu",
     "contribCommentsViewThreadMenus",
     "contribSourceControlInputBoxMenu",
-    "commentsDraftState"
+    "commentsDraftState",
+    "resolvers"
+  ],
+  "extensionKind": [
+    "ui"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onUri"
+    "onUri",
+    "onResolveRemoteAuthority:ade-ssh"
   ],
   "contributes": {
     "customEditors": [

@@ -51,15 +51,14 @@ func (s *Server) handleSharpen(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// sharpenRunner is one claude run with no tools, whatever the session runs on.
 func (s *Server) sharpenRunner(ctx context.Context, system, prompt string) (string, error) {
 	return s.cheapRunner(ctx, sharpen.Model, system, prompt)
 }
 
-// cheapRunner is one run of a cheap model with no tools: in a cold container
-// when the session is sandboxed, on the host when not.
+// cheapRunner is one run of a cheap model with no tools, on the host even
+// under a sandbox: it reads no checkout, and a VM boot outlasts the call.
 func (s *Server) cheapRunner(ctx context.Context, model, system, prompt string) (string, error) {
-	turn, err := s.coldClaude(ctx, bridge.OneShotOpts{
+	turn, err := runOneShot(ctx, bridge.OneShotOpts{
 		Bin:                  s.agent.bin,
 		Dir:                  s.space().homeRoot,
 		Model:                model,
@@ -69,6 +68,7 @@ func (s *Server) cheapRunner(ctx context.Context, model, system, prompt string) 
 		NoMCP:                true,
 		NoSessionPersistence: true,
 	})
+	hideOneShot(turn)
 	if err != nil {
 		return "", err
 	}
