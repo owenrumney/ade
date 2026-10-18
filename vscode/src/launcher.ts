@@ -178,6 +178,35 @@ export async function reach(
   if (!res.ok) throw new Error((await res.text()) || `${path}: ${res.status}`);
 }
 
+// editorServer is one running on another machine, forwarded to a port here.
+// Minutes on a first install, one round trip on a reconnect.
+export async function editorServer(
+  server: Server,
+  host: string,
+  commit: string,
+  template: string,
+  unvalidated: boolean,
+): Promise<{ port: number; token: string; commit: string }> {
+  const res = await fetch(
+    `${server.base}/api/remote/editor-server?t=${encodeURIComponent(server.token)}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Ade-Token": server.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ host, commit, template, unvalidated }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(said(await res.text()) || `editor server: ${res.status}`);
+  return (await res.json()) as {
+    port: number;
+    token: string;
+    commit: string;
+  };
+}
+
 // hostLine is the state and what is running on it, which is the whole of what a
 // row has to say.
 export function hostLine(host: Host): string {

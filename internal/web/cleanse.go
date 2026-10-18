@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/cleanse"
@@ -21,16 +23,29 @@ func (s *Server) cleanse(msg ChatMessage) {
 	s.cleansing.Add(1)
 	go func() {
 		defer s.cleansing.Done()
-		s.cleansingOne.Lock()
-		defer s.cleansingOne.Unlock()
+		started := time.Now()
 		short, err := cleanse.Rewrite(context.Background(), s.cleanseRunner, msg.Body)
 		if err != nil {
-			slog.Debug("cleanse dropped", "id", msg.ID, "err", err)
+			// Warn: a drop that logs nothing looks like a feature switched off.
+			slog.Warn("cleanse dropped", append([]any{"id", msg.ID}, dropped(err, time.Since(started))...)...)
+			return
 		}
-		if short != "" {
-			s.amendShort(session, msg.ID, short)
-		}
+		s.amendShort(session, msg.ID, short)
 	}()
+}
+
+// dropped is what a drop logs: the gate, the elapsed time and what it lost.
+func dropped(err error, took time.Duration) []any {
+	drop := &cleanse.Drop{Why: cleanse.WhyFailed, Err: err}
+	errors.As(err, &drop)
+	out := []any{"why", drop.Why, "ms", took.Milliseconds()}
+	if drop.Lost != "" {
+		out = append(out, "lost", drop.Lost)
+	}
+	if drop.Err != nil {
+		out = append(out, "err", drop.Err)
+	}
+	return out
 }
 
 // cleansed is prose you read: never a review's, never a run's own output such as a commit message.

@@ -21,7 +21,8 @@
       "contribTitleBarMenu",
       "contribCommentsViewThreadMenus",
       "contribSourceControlInputBoxMenu",
-      "commentsDraftState"
+      "commentsDraftState",
+      "resolvers"
     ]
   }
 }

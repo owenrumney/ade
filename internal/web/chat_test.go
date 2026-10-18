@@ -852,6 +852,7 @@ type noRuntime struct{}
 func (noRuntime) Name() string                    { return "none" }
 func (noRuntime) Bin() string                     { return "/no/such/runtime" }
 func (noRuntime) Args(spec sandbox.Spec) []string { return spec.Argv }
+func (noRuntime) HasArgs(string) []string         { return []string{"true"} }
 
 func TestANewSessionCanTurnTheSandboxOnOrOff(t *testing.T) {
 	s := newTestServer(t)

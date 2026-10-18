@@ -298,6 +298,8 @@ func TestStartWorkerMountsAScanRootOutsideTheWorkRoot(t *testing.T) {
 	require.NotEmpty(t, run)
 	assert.Contains(t, run, "/Users/owen/code:/Users/owen/code")
 	assert.Contains(t, run, "ADE_SCAN_DIR=/Users/owen/code")
+	// The user's own checkouts are offered from, never cloned into.
+	assert.Contains(t, run, "ADE_WORK_DIR=/Users/owen/.ade/srv")
 }
 
 func TestStartWorkerDoesNotMountTheWorkRootTwice(t *testing.T) {

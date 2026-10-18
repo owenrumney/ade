@@ -35,9 +35,17 @@ why. Move it to VSCodium's current stable release.
    `go test ./internal/bridge`, then `make editor-package 2>&1 | tail -5`.
    The package must sign; a build that compiles but does not sign is not done.
 6. Commit on this branch as you go: the pin, then each patch you re-seated.
+7. Publish the server. A window on another machine runs an editor server
+   built from the same commit as the client, so a pin that moves without one
+   leaves every host refusing the next window with `Client refused: version
+   mismatch`. Once the pin is on `main`, `.github/workflows/editor-reh.yml`
+   runs itself; from this branch, start it by hand with
+   `gh workflow run editor-reh.yml -f release_version=<the new
+   RELEASE_VERSION>` and say in the report that it is 25 to 40 minutes per
+   arch and that no remote window will open until it is green.
 
 The report: the old and new pins, every patch you touched and what moved under
-it, anything you fell back on, and what failed. You cannot look at the editor,
-so end with what to look at after `make editor-dev`: the title bar bell and
-session pill, the omnibox on ⌘⇧Space, a comment thread's head, and the
-floating concierge.
+it, the editor server run and its state, anything you fell back on, and what
+failed. You cannot look at the editor, so end with what to look at after
+`make editor-dev`: the title bar bell and session pill, the omnibox on
+⌘⇧Space, a comment thread's head, and the floating concierge.

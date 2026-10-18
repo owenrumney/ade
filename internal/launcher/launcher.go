@@ -31,6 +31,7 @@ import (
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
+	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/reviewer"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
@@ -169,6 +170,8 @@ type Server struct {
 	hostCheckoutsAt time.Time
 	// hostErrors is what the last connect to each machine said, until it works.
 	hostErrors map[string]string
+	// editorLocks hold a machine's install-and-start to one window at a time.
+	editorLocks map[string]*sync.Mutex
 
 	// Both outlive the request that started the work.
 	workMu     sync.Mutex
@@ -228,10 +231,11 @@ func New(idle time.Duration, version string) (*Server, error) {
 		exposed:   map[int]bool{},
 		syncing:   map[string]bool{},
 
-		quietUntil: map[string]time.Time{},
-		hostErrors: map[string]string{},
-		hostWork:   map[string]string{},
-		workFailed: map[string]string{},
+		quietUntil:  map[string]time.Time{},
+		hostErrors:  map[string]string{},
+		editorLocks: map[string]*sync.Mutex{},
+		hostWork:    map[string]string{},
+		workFailed:  map[string]string{},
 	}
 	if config, err := settings.Load(); err == nil {
 		s.wiki = wiki.New(home, config.WikiRemote)
@@ -436,6 +440,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/hosts/{name}", s.guard(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/connect", s.guard(s.handleConnect))
 	mux.HandleFunc("POST /api/disconnect", s.guard(s.handleDisconnect))
+	mux.HandleFunc("POST /api/remote/editor-server", s.guard(s.handleEditorServer))
 	mux.HandleFunc("POST /api/worker/stop", s.guard(s.handleWorkerStop))
 	mux.HandleFunc("POST /api/worker/credentials", s.guard(s.handleWorkerCredentials))
 	mux.HandleFunc("POST /api/worker/update", s.guard(s.handleWorkerUpdate))
@@ -1045,16 +1050,17 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "that is not one of the repositories on this machine")
 		return
 	}
+	// A session clone has no worktrees, and is itself the row offered.
+	if _, cloned := provision.OwnedDir(repo.Path); cloned {
+		s.pruneClone(w, r, repo.Path, req.Paths, req.Force)
+		return
+	}
 	found, err := worktrees.Scan(r.Context(), repo.Path, req.Force)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	type kept struct {
-		Path string `json:"path"`
-		Why  string `json:"why"`
-	}
 	removed := []string{}
 	left := []kept{}
 	for _, path := range req.Paths {
@@ -1071,6 +1077,33 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(removed) > 0 {
 		_ = gitdiff.PruneWorktrees(r.Context(), repo.Path)
+		s.sweep.forget()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})
+}
+
+type kept struct {
+	Path string `json:"path"`
+	Why  string `json:"why"`
+}
+
+// pruneClone removes a session clone and the directory around it. Judged
+// again here: the sweep behind the panel's row stands for two minutes.
+func (s *Server) pruneClone(w http.ResponseWriter, r *http.Request, path string, paths []string, force bool) {
+	removed := []string{}
+	left := []kept{}
+	for _, want := range paths {
+		if !worktrees.SamePath(want, path) {
+			left = append(left, kept{Path: want, Why: "not that clone"})
+			continue
+		}
+		if err := worktrees.RemoveClone(r.Context(), worktrees.Clone(r.Context(), path, force)); err != nil {
+			left = append(left, kept{Path: want, Why: err.Error()})
+			continue
+		}
+		removed = append(removed, want)
+	}
+	if len(removed) > 0 {
 		s.sweep.forget()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})

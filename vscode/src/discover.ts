@@ -61,24 +61,44 @@ export function nearest(
   return [own, ...folders.filter((f) => f !== own)];
 }
 
+// Files is the disk a workspace path is on. In a window on another machine
+// that is the host's, not this laptop's; see filesOf in extension.ts.
+export interface Files {
+  directory(path: string): Promise<boolean | undefined>;
+  text(path: string): Promise<string | undefined>;
+}
+
+export const localFiles: Files = {
+  directory: async (path) => {
+    try {
+      const info: Stats = await stat(path);
+      return info.isDirectory();
+    } catch {
+      return undefined;
+    }
+  },
+  text: async (path) => {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      return undefined;
+    }
+  },
+};
+
 // gitDir is the folder's git directory. In a worktree `.git` is a file naming
 // the real one, and ade records into that, so a worktree is missed without this.
-export async function gitDir(folder: string): Promise<string | undefined> {
+export async function gitDir(
+  folder: string,
+  files: Files = localFiles,
+): Promise<string | undefined> {
   const dot = join(folder, ".git");
-  let info: Stats;
-  try {
-    info = await stat(dot);
-  } catch {
-    return undefined;
-  }
-  if (info.isDirectory()) return dot;
+  const directory = await files.directory(dot);
+  if (directory === undefined) return undefined;
+  if (directory) return dot;
 
-  let raw: string;
-  try {
-    raw = await readFile(dot, "utf8");
-  } catch {
-    return undefined;
-  }
+  const raw = await files.text(dot);
+  if (raw === undefined) return undefined;
   const named = /^gitdir:\s*(.+)$/m.exec(raw);
   if (!named) return undefined;
   const path = named[1].trim();
@@ -87,13 +107,12 @@ export async function gitDir(folder: string): Promise<string | undefined> {
 
 // read loads the record, or undefined when ade is not running for this checkout.
 // A missing file is the ordinary case and never an error.
-export async function read(path: string): Promise<Record | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch {
-    return undefined;
-  }
+export async function read(
+  path: string,
+  files: Files = localFiles,
+): Promise<Record | undefined> {
+  const raw = await files.text(path);
+  if (raw === undefined) return undefined;
   try {
     const rec = JSON.parse(raw) as Record;
     return rec.pid > 0 && rec.url ? rec : undefined;

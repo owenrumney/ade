@@ -174,3 +174,14 @@ func TestASavedScanRootStandsWithNoOverride(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/one", "/two"}, got.ScanDirs)
 }
+
+func TestAWorkerScansBothTheWorkRootAndItsOwnCheckouts(t *testing.T) {
+	t.Setenv("ADE_WORK_DIR", "/srv/ade")
+	t.Setenv("ADE_SCAN_DIR", "/home/owen/code")
+	// The clones are in one and the user's repositories in the other, so a
+	// worker that scanned only one would lose half of what it serves.
+	assert.Equal(t, []string{"/srv/ade", "/home/owen/code"}, Defaults().ScanDirs)
+
+	t.Setenv("ADE_SCAN_DIR", "/srv/ade")
+	assert.Equal(t, []string{"/srv/ade"}, Defaults().ScanDirs, "one root, named twice, is one root")
+}

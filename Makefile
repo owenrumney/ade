@@ -1,4 +1,4 @@
-.PHONY: private full editor-fetch editor-prepare editor-dev editor-sync editor-package editor-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
+.PHONY: private full editor-fetch editor-prepare editor-dev editor-sync editor-package editor-reh editor-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
 
 # What `ade --version` reports. A tag when there is one, the commit otherwise,
 # and -dirty for a working tree that is not the commit it claims to be.
@@ -164,6 +164,12 @@ editor-sync:
 
 editor-package:
 	tools/editor/package.sh
+
+# The editor server a window on another machine runs. Linux only, and the
+# server must be built from the same commit as the client, which is why CI
+# builds it from this tree: .github/workflows/editor-reh.yml.
+editor-reh:
+	tools/editor/reh.sh $(ARCH)
 
 # The packaged app into /Applications and its cli on PATH. A nightly is
 # make editor-package editor-install.

@@ -21,8 +21,12 @@ import (
 // sweptRepo is a repository under the fixture home's scan root, with one
 // commit, so a worktree can be added to it.
 func sweptRepo(t *testing.T, home, name string) string {
+	return repoAt(t, filepath.Join(home, "code", name))
+}
+
+// repoAt is one commit in a directory, so a worktree can be added to it.
+func repoAt(t *testing.T, dir string) string {
 	t.Helper()
-	dir := filepath.Join(home, "code", name)
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
@@ -179,4 +183,101 @@ func TestAPruneForgetsTheSweep(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	assert.Empty(t, swept(t, s, "").Repos, "what went is not still on the list")
+}
+
+// A worker clones each session into <work root>/<16 hex>/<repo>. Those have
+// no linked worktrees, so until now the sweep dropped them and the abandoned
+// ones were the part of a machine's disk nothing listed.
+func TestTheSweepListsAnAbandonedSessionClone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	work := filepath.Join(home, "work")
+	t.Setenv("ADE_WORK_DIR", work)
+	s := newTestLauncher(t)
+
+	origin := sweptRepo(t, t.TempDir(), "ade")
+	spare := clonedRepo(t, work, origin, "3ab3e90b3add1647", "ade")
+	held := clonedRepo(t, work, origin, "45e04b86dbab639b", "ade")
+	require.NoError(t, os.WriteFile(filepath.Join(held, "b.go"), []byte("package main\n"), 0o600))
+	run(t, held, "add", ".")
+
+	byPath := map[string]int{}
+	for _, repo := range swept(t, s, "").Repos {
+		for _, tree := range repo.Tree {
+			assert.Equal(t, "clone", tree.Kind)
+			byPath[tree.Path] = tree.Uncommitted
+			if tree.Path == spare {
+				assert.True(t, tree.Removable, "nothing would be lost")
+				assert.Empty(t, tree.Keep)
+			}
+			if tree.Path == held {
+				assert.False(t, tree.Removable, "there is work in it")
+				assert.Equal(t, "uncommitted", tree.Keep)
+			}
+		}
+	}
+	assert.Contains(t, byPath, spare)
+	assert.Contains(t, byPath, held)
+}
+
+// clonedRepo is a checkout where the provisioner puts one: a random session
+// directory under the work root, holding a clone of the repository. Cloned
+// rather than init'd, so it has an origin and its commits are pushed, which
+// is what a worker's checkout of a GitHub repository looks like.
+func clonedRepo(t *testing.T, work, origin, session, name string) string {
+	t.Helper()
+	dir := filepath.Join(work, session)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	run(t, dir, "clone", "-q", origin, name)
+	return filepath.Join(dir, name)
+}
+
+// Removing a clone takes the session directory around it, which is what
+// `ade done` does from inside one. The clone is a whole checkout, so the
+// panel's row is the repository itself.
+func TestPruningAnAbandonedCloneTakesItsSessionDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	work := filepath.Join(home, "work")
+	t.Setenv("ADE_WORK_DIR", work)
+	s := newTestLauncher(t)
+
+	origin := sweptRepo(t, t.TempDir(), "ade")
+	spare := clonedRepo(t, work, origin, "3ab3e90b3add1647", "ade")
+	held := clonedRepo(t, work, origin, "45e04b86dbab639b", "ade")
+	require.NoError(t, os.WriteFile(filepath.Join(held, "b.go"), []byte("package main\n"), 0o600))
+	run(t, held, "add", ".")
+
+	rec := do(t, s, http.MethodPost, "/api/prune",
+		`{"repo":"`+spare+`","paths":["`+spare+`"]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), spare)
+	assert.NoDirExists(t, filepath.Join(work, "3ab3e90b3add1647"), "the session directory goes with it")
+
+	// Work in it is work nobody asked to lose.
+	rec = do(t, s, http.MethodPost, "/api/prune",
+		`{"repo":"`+held+`","paths":["`+held+`"]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "uncommitted")
+	assert.DirExists(t, held)
+}
+
+// The panel names a path, and a request is not the panel.
+func TestPruningACloneRefusesAPathThatIsNotIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	work := filepath.Join(home, "work")
+	t.Setenv("ADE_WORK_DIR", work)
+	s := newTestLauncher(t)
+
+	origin := sweptRepo(t, t.TempDir(), "ade")
+	clone := clonedRepo(t, work, origin, "3ab3e90b3add1647", "ade")
+	other := clonedRepo(t, work, origin, "45e04b86dbab639b", "ade")
+
+	rec := do(t, s, http.MethodPost, "/api/prune",
+		`{"repo":"`+clone+`","paths":["`+other+`"]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not that clone")
+	assert.DirExists(t, other)
+	assert.DirExists(t, clone)
 }

@@ -153,3 +153,17 @@ func TestCloneRunsAsTheDefaultWhenTheRootCannotBeRead(t *testing.T) {
 	assert.NotContains(t, strings.Join(gotArgs, " "), "--user",
 		"no owner to copy is no worse than before")
 }
+
+// A worker that scans the user's own ~/code must not clone into it: the ten
+// stale `~/code/<16 hex>/ade` on bigboy were exactly that.
+func TestASessionClonesIntoTheWorkRootNotTheScanRoot(t *testing.T) {
+	t.Setenv("ADE_WORK_DIR", "/srv/ade")
+	t.Setenv("ADE_SCAN_DIR", "/home/owen/code")
+	assert.Equal(t, "/srv/ade", Root())
+
+	t.Setenv("ADE_WORK_DIR", "")
+	assert.Equal(t, "/home/owen/code", Root(), "an older worker still says where it works")
+
+	t.Setenv("ADE_SCAN_DIR", "")
+	assert.Equal(t, DefaultRoot, Root())
+}

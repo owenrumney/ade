@@ -102,6 +102,9 @@ func (h *Host) StartWorker(ctx context.Context, roots Roots, port int, github Lo
 		"-e", "DOCKER_CONFIG=" + dockerConfig(roots),
 		"-e", "ADE_BIND=0.0.0.0",
 		"-e", "HOME=" + workerHome(roots), "-e", "ADE_SCAN_DIR=" + roots.ScanRoot(),
+		// Where a session's clone lands. Not the scan root: on a machine with
+		// its own ~/code that is the user's, and clones pile up beside it.
+		"-e", "ADE_WORK_DIR=" + roots.Work,
 		"-e", "ADE_CREDENTIAL_ROOT=" + roots.Run + "/worker",
 		"-v", roots.Work + ":" + roots.Work, "-v", roots.Run + ":" + roots.Run,
 		"-v", roots.Socket + ":/var/run/docker.sock"}

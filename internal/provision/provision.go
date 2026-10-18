@@ -21,11 +21,13 @@ const (
 	Image       = "ghcr.io/owenrumney/ade-provisioner:latest"
 )
 
-// Root is the worker's checkout directory, which is not /srv anywhere the
-// filesystem forbids one. The laptop chose it and passed it in as ADE_SCAN_DIR.
+// Root is where a session's clone lands: the work root, not the scan root.
+// A worker that scans the user's own ~/code would otherwise clone into it.
 func Root() string {
-	if root := strings.TrimSpace(os.Getenv("ADE_SCAN_DIR")); root != "" {
-		return root
+	for _, name := range []string{"ADE_WORK_DIR", "ADE_SCAN_DIR"} {
+		if root := strings.TrimSpace(os.Getenv(name)); root != "" {
+			return root
+		}
 	}
 	return DefaultRoot
 }
