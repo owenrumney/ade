@@ -30,8 +30,9 @@ export SHOULD_BUILD_REH_WEB="no"
 
 cd "$vscode"
 export VSCODE_PUBLISH_COUNTER=1
-npm run gulp minify-vscode-reh
-npm run gulp "vscode-reh-linux-${VSCODE_ARCH}-min-ci"
+# The -ci variant only packages: it expects an out-build a desktop build left
+# behind. The plain task compiles first, then runs the same packaging.
+npm run gulp "vscode-reh-linux-${VSCODE_ARCH}-min"
 
 # The same name and shape prepare_assets.sh gives it: no wrapping directory,
 # because that is what the resolver's install unpacks.
