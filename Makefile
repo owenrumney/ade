@@ -24,7 +24,7 @@ killall:
 	@osascript -e 'quit app "ADE"' 2>/dev/null || true
 	killall ade || true
 
-install: killall
+install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/ade
 	@./tools/sign.sh "$(GOBIN)/ade"
 
@@ -43,7 +43,7 @@ ui: killall
 	go install -ldflags "$(LDFLAGS)" ./cmd/ade
 	@./tools/sign.sh "$(GOBIN)/ade"
 	@cd vscode && if [ -d node_modules ]; then npm run build; \
-		else echo "vscode: no node_modules — run make vscode once"; fi
+	else echo "vscode: no node_modules — run make vscode once"; fi
 
 version:
 	@echo $(VERSION)

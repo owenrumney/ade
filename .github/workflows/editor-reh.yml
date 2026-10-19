@@ -74,6 +74,10 @@ jobs:
 
       - run: tools/editor/fetch.sh
 
+      # A root npm ci builds every native module from source: native-keymap
+      # needs x11 and xkbfile, kerberos needs krb5. The list VS Code's linux CI uses.
+      - run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbfile-dev libkrb5-dev
+
       # VSCodium's patches, then ade's, then npm ci. About ten minutes.
       - run: tools/editor/prepare.sh
         env:
