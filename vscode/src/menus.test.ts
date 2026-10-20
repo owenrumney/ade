@@ -83,7 +83,7 @@ describe("the Diff view's title", () => {
   });
 
   // The toolbar reads left to right in group order, so the order is the test.
-  it("reads review, then the scopes, then refresh and commit", () => {
+  it("reads review, then the scopes, then refresh, commit and repository", () => {
     expect(strip.map((i) => i.command)).toEqual([
       "ade.reviewWithAgents",
       "ade.scopeBranch",
@@ -91,6 +91,7 @@ describe("the Diff view's title", () => {
       "ade.scopeUncommitted",
       "ade.refreshChanges",
       "ade.writeCommitMessage",
+      "ade.diffRoot",
     ]);
   });
 });

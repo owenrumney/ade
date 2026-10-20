@@ -169,6 +169,7 @@ func TestTheSpecMountsWhatClaudeNeedsAndNoMore(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "CLAUDE.md"), []byte("be brief"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "remote-settings.json"), []byte(`{"otel":{"enabled":true}}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "history.jsonl"), []byte("{}"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, ".i-have-adhd-always"), nil, 0o600))
 	box := Box(home)
 	require.NoError(t, os.MkdirAll(box, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(box, "settings.json"), []byte("stale"), 0o600))
@@ -216,6 +217,8 @@ func TestTheSpecMountsWhatClaudeNeedsAndNoMore(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"otel":{"enabled":true}}`, string(remote))
 	assert.NoFileExists(t, filepath.Join(box, "settings.json"), "a copy of what the host no longer has is taken out")
+	assert.FileExists(t, filepath.Join(box, ".i-have-adhd-always"),
+		"a plugin's opt-in flag follows you in, or it is on outside the box and off inside it")
 
 	assert.Equal(t, root, spec.Workdir)
 	assert.Equal(t, home, spec.Env["HOME"])
@@ -981,6 +984,12 @@ func TestACPULimitIsPassedToBothRuntimes(t *testing.T) {
 	assert.Equal(t, "run -i --rm --name agent --cpus 5 image", strings.Join(Docker{CPUs: 5}.Args(spec), " "))
 	assert.Equal(t, "run -i --rm --name agent --cpus 5 image", strings.Join(Apple{CPUs: 5}.Args(spec), " "))
 	assert.NotContains(t, Docker{}.Args(spec), "--cpus")
+}
+
+func TestAppleBoxesAreGivenMoreThanTheDefaultGigabyte(t *testing.T) {
+	spec := Spec{Image: "image", Name: "agent"}
+	assert.Equal(t, "run -i --rm --name agent --memory 4G image", strings.Join(Apple{Memory: "4G"}.Args(spec), " "))
+	assert.NotContains(t, Apple{}.Args(spec), "--memory")
 }
 
 // The two runtimes spell the question differently, and asking the wrong one

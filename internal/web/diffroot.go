@@ -95,8 +95,6 @@ func (s *Server) detached(ctx context.Context) context.Context {
 	return ctx
 }
 
-// rootsFrom reads the sandbox file and keeps the read-write mounts that are
-// git work trees, one entry per repository, the session's own first.
 func (s *Server) rootsFrom(ctx context.Context) []DiffRoot {
 	ws := s.space()
 	if ws.snapshot || ws.homeRoot == "" {
@@ -106,17 +104,23 @@ func (s *Server) rootsFrom(ctx context.Context) []DiffRoot {
 	roots := []DiffRoot{{Root: ws.homeRoot, Name: filepath.Base(ws.homeRoot), Home: true}}
 	seen := map[string]bool{home: true}
 
-	mounts, err := sandbox.LoadWorkspace(s.agent.workspace)
-	if err != nil {
+	var paths []string
+	if mounts, err := sandbox.LoadWorkspace(s.agent.workspace); err != nil {
 		slog.Debug("read the sandbox for diff roots", "err", err)
-		return nil
-	}
-	for _, path := range mounts.Paths {
-		// A read-only mount cannot have been edited, so it has nothing to show.
-		if !path.RW {
-			continue
+	} else {
+		for _, path := range mounts.Paths {
+			// A read-only mount cannot have been edited, so it has nothing to show.
+			if path.RW {
+				paths = append(paths, path.Path)
+			}
 		}
-		root, err := gitdiff.RepoRoot(ctx, resolveRoot(path.Path))
+	}
+	s.mu.RLock()
+	paths = append(paths, s.folders...)
+	s.mu.RUnlock()
+
+	for _, path := range paths {
+		root, err := gitdiff.RepoRoot(ctx, resolveRoot(path))
 		if err != nil {
 			continue
 		}
@@ -246,6 +250,27 @@ func (s *Server) handleDiffRoot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"root": s.space().viewRoot})
 }
 
+// handleDiffFolders grants the editor's folders; the token already grants mounts.
+func (s *Server) handleDiffFolders(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Folders []string `json:"folders"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	folders := make([]string, 0, len(req.Folders))
+	for _, folder := range req.Folders {
+		if filepath.IsAbs(folder) {
+			folders = append(folders, folder)
+		}
+	}
+	s.mu.Lock()
+	s.folders = folders
+	s.mu.Unlock()
+	s.snapshotRoots(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"roots": s.currentRoots(), "view": s.space().viewRoot})
+}
+
 // setViewRoot moves the diff, and only the diff, to another mounted repository;
 // "" goes home. guardHome is what stops anything acting from there.
 func (s *Server) setViewRoot(ctx context.Context, want string) error {
@@ -255,7 +280,7 @@ func (s *Server) setViewRoot(ctx context.Context, want string) error {
 	}
 	root, ok := s.grantedRoot(want)
 	if !ok {
-		return fmt.Errorf("%s is not a read-write root of this session's sandbox", want)
+		return fmt.Errorf("%s is not a repository this session's diff can show", want)
 	}
 	if root == current.viewRoot {
 		return nil

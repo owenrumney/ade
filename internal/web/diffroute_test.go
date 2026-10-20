@@ -28,6 +28,7 @@ var viewSafe = map[string]string{
 	"POST /api/threads/reset":               "the thread store follows the view",
 	"DELETE /api/threads":                   "the thread store follows the view",
 	"POST /api/diff/root":                   "this is the switch itself",
+	"PUT /api/diff/folders":                 "it changes what the switch may pick",
 	"POST /api/diagnose/net":                "asks the network, touches no checkout",
 	"POST /api/terminal/close":              "the shell is the machine's, not the diff's",
 	"POST /api/agent/terminal":              "the agent's own interface opens in the session's checkout, as the shell does",

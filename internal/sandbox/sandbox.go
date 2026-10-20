@@ -107,6 +107,8 @@ const envHubContainer = "ADE_HUB_CONTAINER"
 type Apple struct {
 	// CPUs is container run --cpus, the size of the VM. Zero is its default.
 	CPUs int
+	// Memory is container run --memory. Empty is its default, which is 1G.
+	Memory string
 	// Host is the machine's address on the container network; no name resolves
 	// to it the way host.docker.internal does.
 	Host string
@@ -124,6 +126,9 @@ const DefaultImage = "ghcr.io/owenrumney/ade-agent:latest"
 // daemon in the agent image.
 const DockerSocket = "/var/run/docker.sock"
 
+// appleMemory is per box: at Apple's 1G an agent thrashes re-reading files.
+const appleMemory = "4G"
+
 // stopGrace is how long a stop gets before the process is killed anyway.
 const stopGrace = 10 * time.Second
 
@@ -138,7 +143,7 @@ func Detect(ctx context.Context) (Runtime, error) {
 		return DockerRuntime(ctx), err
 	}
 	if _, ok := rt.(Apple); ok {
-		return Apple{CPUs: spawncap.Jobs(), Host: appleGateway(ctx)}, err
+		return Apple{CPUs: spawncap.Jobs(), Memory: appleMemory, Host: appleGateway(ctx)}, err
 	}
 	return rt, err
 }
@@ -324,6 +329,9 @@ func (Apple) HasArgs(image string) []string { return []string{"images", "inspect
 // Args is container run, which takes docker's flags for everything here.
 func (a Apple) Args(spec Spec) []string {
 	args := cpuArgs(runArgs(spec), a.CPUs)
+	if a.Memory != "" {
+		args = append(args, "--memory", a.Memory)
+	}
 	for _, m := range spec.Mounts {
 		mount := fmt.Sprintf("type=bind,source=%s,target=%s", m.Host, m.Guest)
 		if !m.RW {

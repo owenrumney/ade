@@ -66,7 +66,9 @@ func (c Claude) Spec(box string) (Spec, error) {
 	if err := os.MkdirAll(projects, 0o750); err != nil {
 		return Spec{}, err
 	}
-	for _, name := range []string{"CLAUDE.md", "settings.json", "remote-settings.json"} {
+	// i-have-adhd's opt-in is a bare file its SessionStart hook looks for. The
+	// plugin is mounted and enabled, so without this it is on outside and off in.
+	for _, name := range []string{"CLAUDE.md", "settings.json", "remote-settings.json", ".i-have-adhd-always"} {
 		if err := copyInto(filepath.Join(claudeDir, name), filepath.Join(box, name)); err != nil {
 			return Spec{}, err
 		}

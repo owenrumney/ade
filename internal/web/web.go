@@ -197,6 +197,7 @@ type Server struct {
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
+	folders  []string
 	homeOpts gitdiff.Options
 
 	worktree     *gitdiff.Status
@@ -788,6 +789,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/pr-create", s.guardHome(s.handlePRCreate))
 	mux.HandleFunc("POST /api/scope", s.guard(s.handleScope))
 	mux.HandleFunc("POST /api/diff/root", s.guard(s.handleDiffRoot))
+	mux.HandleFunc("PUT /api/diff/folders", s.guard(s.handleDiffFolders))
 	mux.HandleFunc("GET /api/repos", s.guard(s.handleRepos))
 	mux.HandleFunc("GET /api/graph", s.guard(s.handleGraph))
 	mux.HandleFunc("POST /api/graph/cancel", s.guard(s.handleGraphCancel))
