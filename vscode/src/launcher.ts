@@ -178,6 +178,35 @@ export async function reach(
   if (!res.ok) throw new Error((await res.text()) || `${path}: ${res.status}`);
 }
 
+// editorServer is one running on another machine, forwarded to a port here.
+// Minutes on a first install, one round trip on a reconnect.
+export async function editorServer(
+  server: Server,
+  host: string,
+  commit: string,
+  template: string,
+  unvalidated: boolean,
+): Promise<{ port: number; token: string; commit: string }> {
+  const res = await fetch(
+    `${server.base}/api/remote/editor-server?t=${encodeURIComponent(server.token)}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Ade-Token": server.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ host, commit, template, unvalidated }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(said(await res.text()) || `editor server: ${res.status}`);
+  return (await res.json()) as {
+    port: number;
+    token: string;
+    commit: string;
+  };
+}
+
 // hostLine is the state and what is running on it, which is the whole of what a
 // row has to say.
 export function hostLine(host: Host): string {
@@ -694,7 +723,7 @@ export async function worker(
 // in it. The reply names where it landed, which is the folder to open.
 export async function scratch(
   server: Server,
-  name: string,
+  start: Omit<Start, "dir" | "also" | "brief"> & { name: string },
 ): Promise<{ url: string; path: string }> {
   const res = await fetch(
     `${server.base}/api/scratch?t=${encodeURIComponent(server.token)}`,
@@ -704,7 +733,7 @@ export async function scratch(
         "X-Ade-Token": server.token,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(start),
     },
   );
   if (!res.ok)
@@ -822,6 +851,59 @@ export interface Target {
 
 export async function target(server: Server, machine: string): Promise<Target> {
   return tell<Target>(server, "/api/target", { machine });
+}
+
+// Start is everything /api/open takes from the new-session screen: the
+// defaults it shows, rather than the two the input chain asked for.
+export interface Start {
+  dir: string;
+  name?: string;
+  also?: string[];
+  agent?: string;
+  model?: string;
+  role?: string;
+  prompt?: string;
+  machine?: string;
+  sandbox?: boolean;
+  // brief is a document carried from this machine, written into the session
+  // once it is serving.
+  brief?: { name: string; body: string };
+}
+
+// begin returns a failure that still carries a url rather than throwing it:
+// the session is open, and this is the only address anybody will get for it.
+export async function begin(
+  server: Server,
+  start: Start,
+): Promise<{ url: string; path?: string; error?: string }> {
+  const res = await fetch(
+    `${server.base}/api/open?t=${encodeURIComponent(server.token)}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Ade-Token": server.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...start,
+        fresh: true,
+        // A machine's reply is proxied through this launcher, so only a session
+        // on this one is asked for its own address.
+        direct: !start.machine,
+      }),
+    },
+  );
+  const text = await res.text();
+  let body: { url?: string; path?: string } = {};
+  try {
+    body = JSON.parse(text) as { url?: string; path?: string };
+  } catch {
+    body = {};
+  }
+  if (res.ok) return { url: body.url ?? "", path: body.path };
+  const why = said(text) || `/api/open: ${res.status}`;
+  if (!body.url) throw new Error(why);
+  return { url: body.url, path: body.path, error: why };
 }
 
 // openOn starts a session in a checkout on another machine.

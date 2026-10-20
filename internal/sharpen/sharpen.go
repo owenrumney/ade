@@ -16,7 +16,8 @@ import (
 const Model = "claude-haiku-4-5-20251001"
 
 // Timeout is how long an answer is worth waiting for: a late one is dropped.
-const Timeout = 3 * time.Second
+// A cold claude costs five seconds to start, so three could never finish.
+const Timeout = 12 * time.Second
 
 const (
 	longPrompt   = 200

@@ -392,3 +392,9 @@ func TestSigningNamesTheFormatInWords(t *testing.T) {
 	assert.Equal(t, "GPG", Signing{On: true, Format: "openpgp"}.How())
 	assert.Equal(t, "X.509", Signing{On: true, Format: "x509"}.How())
 }
+
+func TestBranchesAreTheLocalOnes(t *testing.T) {
+	names, err := Branches(context.Background(), testRepo(t))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"main", "feature"}, names)
+}

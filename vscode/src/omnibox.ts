@@ -349,11 +349,17 @@ export function designRowsFor(query: string, files: readonly string[], limit = 3
     }));
 }
 
+// An archived design is a wiki page under a scope's designs/, and saying so is
+// what answers "where did my design document go" at the moment you ask it.
+function wikiKind(path: string): string {
+  return /(^|\/)designs\//.test(path) ? "Design (archived)" : "Wiki";
+}
+
 export function wikiRowsFor(hits: HitLike[], limit = 3): LauncherRow[] {
   const seen = new Set<string>();
   const pages = hits.filter((h) => !seen.has(h.path) && seen.add(h.path));
   return pages.slice(0, limit).map((h) => ({
-    label: `Wiki · ${h.path.replace(/\.md$/, "")}`,
+    label: `${wikiKind(h.path)} · ${h.path.replace(/\.md$/, "")}`,
     description: h.snippet.split("\n")[0].trim().slice(0, 90),
     icon: "library",
     command: "ade.omnibox.open",

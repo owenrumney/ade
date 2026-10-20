@@ -197,6 +197,7 @@ type Server struct {
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
+	folders  []string
 	homeOpts gitdiff.Options
 
 	worktree     *gitdiff.Status
@@ -240,8 +241,6 @@ type Server struct {
 	attaching sync.Mutex
 	// cleansing counts the rewrites in flight, so a test can wait for them.
 	cleansing sync.WaitGroup
-	// cleansingOne runs them one at a time: under a sandbox each is a cold slot a named agent needs.
-	cleansingOne sync.Mutex
 	// recording is the one commit-record publisher: a commit, an amend and a
 	// merge all write the same wiki draft.
 	recording sync.Mutex
@@ -412,7 +411,7 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 	s := &Server{
 		hub:             httpx.NewHub(),
 		token:           newToken(),
-		agent:           newProviderAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.CodexBin, cfg.Provider, cfg.Model, cfg.AutoCompact, sandboxConfig{On: cfg.Sandbox, Explicit: cfg.SandboxExplicit, GitDir: cfg.CommonGitDir, Workspace: sandbox.WorkspacePath(cfg.CommonGitDir)}, runlog.Open(runlog.Path(cfg.GitDir))),
+		agent:           newProviderAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.CodexBin, cfg.Provider, cfg.Model, cfg.AutoCompact, sandboxConfig{On: cfg.Sandbox, Explicit: cfg.SandboxExplicit, GitDir: cfg.CommonGitDir, Workspace: sandbox.WorkspacePath(cfg.CommonGitDir), Own: sandbox.SessionPath(cfg.GitDir)}, runlog.Open(runlog.Path(cfg.GitDir))),
 		ctx:             context.Background(),
 		idle:            cfg.Idle,
 		seedTicket:      cfg.SeedTicket,
@@ -790,6 +789,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/pr-create", s.guardHome(s.handlePRCreate))
 	mux.HandleFunc("POST /api/scope", s.guard(s.handleScope))
 	mux.HandleFunc("POST /api/diff/root", s.guard(s.handleDiffRoot))
+	mux.HandleFunc("PUT /api/diff/folders", s.guard(s.handleDiffFolders))
 	mux.HandleFunc("GET /api/repos", s.guard(s.handleRepos))
 	mux.HandleFunc("GET /api/graph", s.guard(s.handleGraph))
 	mux.HandleFunc("POST /api/graph/cancel", s.guard(s.handleGraphCancel))
@@ -840,6 +840,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/design", s.guard(s.handleDesignSave))
 	mux.HandleFunc("DELETE /api/design", s.guard(s.handleDesignClose))
 	mux.HandleFunc("DELETE /api/design/doc", s.guard(s.handleDesignDelete))
+	mux.HandleFunc("POST /api/design/archive", s.guard(s.handleDesignArchive))
 	mux.HandleFunc("POST /api/design/push", s.guard(s.handleDesignPush))
 	mux.HandleFunc("GET /api/hosts", s.guard(s.handleHosts))
 	mux.HandleFunc("POST /api/design/seed", s.guard(s.handleDesignSeed))

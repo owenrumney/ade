@@ -250,6 +250,13 @@ describe("what the box knows", () => {
     );
   });
 
+  it("says which archived design a wiki hit is", () => {
+    const rows = wikiRowsFor([
+      { path: "repos/owner/repo/designs/editor-fork.md", line: 3, snippet: "VSCodium's scripts over a pinned vscode" },
+    ]);
+    expect(rows[0].label).toBe("Design (archived) · repos/owner/repo/designs/editor-fork");
+  });
+
   it("takes /note as a line for the design doc", () => {
     expect(route("/note the pill should also say the branch", [])).toEqual({ kind: "note", text: "the pill should also say the branch" });
     expect(route("/note", [{ command: "ade.noteDesign", title: "ade: Note" }])).toEqual({ kind: "run", command: "ade.noteDesign" });

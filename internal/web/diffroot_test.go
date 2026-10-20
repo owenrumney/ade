@@ -291,6 +291,24 @@ func TestOnlyReadWriteGitRootsAreOffered(t *testing.T) {
 	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "ci"}, names)
 }
 
+func TestTheSessionsOwnRepositoriesAreDiffRootsToo(t *testing.T) {
+	repo := otherRepo(t, "worker")
+	s := newTestServer(t)
+	require.NotEmpty(t, s.agent.own, "the server should have a session file to read")
+	require.NoError(t, os.MkdirAll(filepath.Dir(s.agent.own), 0o750))
+	data, err := json.Marshal(sandbox.Workspace{Paths: []sandbox.Path{{Path: repo, RW: true}}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(s.agent.own, data, 0o600))
+
+	s.snapshotRoots(context.Background())
+
+	var names []string
+	for _, root := range s.currentRoots() {
+		names = append(names, root.Name)
+	}
+	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "worker"}, names)
+}
+
 func TestEachRootCarriesItsOwnCounts(t *testing.T) {
 	other := otherRepo(t, "ci")
 	s := withRoot(t, other)
@@ -414,4 +432,28 @@ func TestTheColdReviewerCarriesTheNote(t *testing.T) {
 	assert.Contains(t, got.SystemPrompt, other)
 	// The prompt has to keep starting with the slash command.
 	assert.True(t, strings.HasPrefix(got.Prompt, "/code-review"), got.Prompt[:40])
+}
+
+func TestAnEditorFolderBecomesARootTheDiffCanShow(t *testing.T) {
+	other := otherRepo(t, "web")
+	s := newTestServer(t)
+
+	refused := do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`)
+	assert.Equal(t, http.StatusBadRequest, refused.Code, "a folder the editor never named is not granted")
+
+	rec := do(t, s, "PUT", "/api/diff/folders", `{"folders":["`+other+`","relative/path"]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got struct {
+		Roots []DiffRoot `json:"roots"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Roots, 2)
+	assert.True(t, got.Roots[0].Home)
+	assert.Equal(t, other, got.Roots[1].Root)
+
+	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
+	assert.Equal(t, other, s.space().viewRoot)
+
+	require.Equal(t, http.StatusOK, do(t, s, "PUT", "/api/diff/folders", `{"folders":[]}`).Code)
+	assert.Empty(t, s.space().viewRoot, "a folder the window closed takes the diff back home")
 }

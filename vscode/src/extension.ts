@@ -63,6 +63,8 @@ async function pickReviewers(
 import * as vscode from "vscode";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { Client } from "./client";
 import type { BusOffer, BusWho, State } from "./client";
 import {
@@ -85,8 +87,10 @@ import {
 } from "./busreview";
 import { listed } from "./detail";
 import {
+  type Files,
   gitDir,
   label,
+  localFiles,
   nearest,
   probe,
   read,
@@ -129,10 +133,23 @@ import {
   folderURI,
   launcherAt,
   machineWide,
-  REMOTE_SSH,
   said,
   whyNotHere,
 } from "./remote";
+import {
+  AUTHORITY,
+  dispatch as publishRun,
+  Failed,
+  label as hostLabel,
+  noGh,
+  noServer,
+  published,
+  PUBLISH,
+  releaseVersion,
+  resolve as resolveAuthority,
+  serverURL,
+  UNVALIDATED,
+} from "./resolver";
 import { page as prPage } from "./prpage";
 import { blameWhen, combinable } from "./shape";
 import { choices, detail as ticketDetail } from "./ticketdir";
@@ -189,6 +206,7 @@ import {
   job as jobPost,
   run as runJobAt,
   openOn,
+  begin as beginSession,
   put as putLauncher,
   target,
   tell as tellLauncher,
@@ -225,6 +243,7 @@ import {
   type Asked,
   type Review,
   reach,
+  editorServer,
   removeHost,
   reason,
   tell,
@@ -352,6 +371,18 @@ import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
 import { RepoPage } from "./repoview";
+import {
+  NewSessionPage,
+  nothing as noOffer,
+  type Offer,
+} from "./newsessionview";
+import { plan as sessionPlan } from "./newsession/plan";
+import {
+  names as sessionNames,
+  type Chosen,
+  type Doc,
+} from "./newsession/view";
+import { multiRoot } from "./multiroot";
 import { PurgePage } from "./purgeview";
 import type { Sweep } from "./purgepanel/view";
 import { QuizPage } from "./quizview";
@@ -660,9 +691,10 @@ async function fixChecks(): Promise<void> {
     );
     return;
   }
-  // The tree may never have been opened, so what it holds is not yet an
-  // answer to "is anything failing".
-  await sessions.ready();
+  // Both layers are stale by default: the server polls GitHub, and the tree
+  // caches its first load forever. You looked at the checks a second ago.
+  await client.refreshChecks().catch(() => undefined);
+  await sessions.refresh();
   const bad = sessions.failing;
   if (bad === 0) {
     void vscode.window.showInformationMessage("ade: nothing is failing.");
@@ -741,6 +773,7 @@ function watchRecord(context: vscode.ExtensionContext): vscode.Disposable {
 
 let threads: Threads | undefined;
 let scm: Scm | undefined;
+let shownView = "";
 let lineage: Lineage | undefined;
 let stream: AbortController | undefined;
 let hubWatch: AbortController | undefined;
@@ -770,6 +803,7 @@ let settingsPage: Settings;
 let commitView: CommitView;
 let dashboard: Dashboard;
 let repoPage: RepoPage;
+let newSessionPage: NewSessionPage;
 let purgePage: PurgePage;
 let quizPage: QuizPage;
 let sessions: Sessions;
@@ -798,6 +832,8 @@ export async function activate(
     100,
   );
   status.command = "ade.reconnect";
+  // Before anything else: a remote window resolves on the way up.
+  registerResolver(context);
   run = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   run.command = "ade.openChat";
   ticker = setInterval(() => drawRun(), 1000);
@@ -839,6 +875,11 @@ export async function activate(
     ),
   );
   void tellBusHere(vscode.window.state.focused);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (client) void client.diffFolders(windowFolders()).catch(() => {});
+    }),
+  );
 
   // A window on another machine never starts ade: the panes have to say that
   // rather than offer a button that does nothing here.
@@ -858,11 +899,18 @@ export async function activate(
   boxContext = context;
   dashboard = new Dashboard(context, boardNow, boardAct);
   repoPage = new RepoPage(context, repoNow);
+  newSessionPage = new NewSessionPage(
+    context,
+    sessionOffer,
+    sessionDesigns,
+    startChosen,
+  );
   purgePage = new PurgePage(context, sweepNow, pruneIn);
   quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
     dashboard,
     repoPage,
+    newSessionPage,
     purgePage,
     quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
@@ -1058,8 +1106,7 @@ export async function activate(
     ),
     vscode.commands.registerCommand(
       "ade.showComments",
-      () =>
-        void vscode.commands.executeCommand("workbench.panel.comments.focus"),
+      () => void showComments(),
     ),
     vscode.commands.registerCommand(
       "ade.startLauncher",
@@ -1267,6 +1314,9 @@ export async function activate(
     ),
     vscode.commands.registerCommand("ade.deleteDoc", (node: unknown) =>
       deleteDoc(node),
+    ),
+    vscode.commands.registerCommand("ade.archiveDoc", (node: unknown) =>
+      archiveDoc(node),
     ),
     vscode.commands.registerCommand("ade.issues", () => void pickIssue()),
     vscode.commands.registerCommand("ade.pendingPRs", () => void pendingPRs()),
@@ -1591,6 +1641,7 @@ async function omnibox(
         "ade: nothing to run again yet.",
       );
   } else if (went.kind === "new") {
+    noteBox({ kind: "turn", text: went.message });
     await newSession(undefined, went.message);
   } else if (went.kind === "pick") {
     const chosen = await pick(
@@ -2973,6 +3024,23 @@ async function build(name?: string): Promise<void> {
   void chat.reveal(live);
 }
 
+// sessionOn gives the document a session of its own: the screen's Design row,
+// with the document already picked and every default still to be looked at.
+async function sessionOn(file: string): Promise<void> {
+  const dir = live?.root ?? openFolder();
+  if (!dir) {
+    void vscode.window.showErrorMessage(
+      "ade: no checkout is being served, so there is nowhere to branch from.",
+    );
+    return;
+  }
+  await newSessionPage.show({
+    mode: "design",
+    design: file,
+    repos: [await madeFrom(dir)],
+  });
+}
+
 // Which document, when the command did not come off a row. The tree's list is
 // the directory's, which is the same list the server would offer.
 // pickDesign is the design directory and what you can do with a document.
@@ -3022,12 +3090,16 @@ async function pickDesign(): Promise<void> {
       return discussDoc(uri);
     case "build":
       return build(picked.file);
+    case "session":
+      return sessionOn(picked.file);
     case "seed":
       return seedDesign(picked.file);
     case "grill":
       return grillDesign(picked.file);
     case "condense":
       return condenseDesign(picked.file);
+    case "archive":
+      return archiveDoc(picked.file);
     case "delete":
       return deleteDoc(picked.file);
   }
@@ -3660,6 +3732,42 @@ async function editOutgoing(arg: unknown): Promise<void> {
   }
 }
 
+// archiveDoc publishes a finished design to the wiki and deletes it here. It
+// takes a model call and a push, so the progress note is not optional.
+async function archiveDoc(node: unknown): Promise<void> {
+  const name = docName(node);
+  const c = client;
+  if (!name || !c) {
+    void vscode.window.showErrorMessage("ade: no document to archive.");
+    return;
+  }
+  const yes = await vscode.window.showWarningMessage(
+    `Archive ${name}?`,
+    {
+      modal: true,
+      detail:
+        "It is distilled onto the shared wiki and deleted here. The page is pushed first, so nothing is lost if that fails.",
+    },
+    "Archive",
+  );
+  if (yes !== "Archive") return;
+  try {
+    const out = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `ade: archiving ${name}`,
+      },
+      () => c.archiveDoc(name),
+    );
+    vscode.window.setStatusBarMessage(
+      `ade: archived ${name} to ${out.page}`,
+      5000,
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(`ade: ${String(err)}`);
+  }
+}
+
 // deleteDoc removes one design document, asked first: it lives under the git
 // directory, where no commit holds a copy.
 async function deleteDoc(node: unknown): Promise<void> {
@@ -3870,8 +3978,6 @@ async function pickDrift(): Promise<void> {
   await dismissDrift(picked.item, act.id === "dismiss");
 }
 
-// diffRoot points the Diff view at another repository the sandbox can write
-// to, or back at this checkout. The server refuses anything else.
 async function diffRoot(): Promise<void> {
   const c = client;
   if (!c) {
@@ -3881,24 +3987,32 @@ async function diffRoot(): Promise<void> {
     return;
   }
   try {
-    const mounts = (await c.sandboxFile()).paths ?? [];
+    const { roots, view } = await c.diffFolders(windowFolders());
+    if (!roots?.length) {
+      void vscode.window.showInformationMessage(
+        "ade: this checkout is the only repository the Diff view can show.",
+      );
+      return;
+    }
     const picked = await pick(
-      [
-        { label: "This checkout", description: c.root, root: "" },
-        ...mounts
-          .filter((mount) => mount.rw)
-          .map((mount) => ({
-            label: basename(mount.path),
-            description: mount.path,
-            root: mount.path,
-          })),
-      ],
+      roots.map((r) => ({
+        label:
+          (r.root === view || (r.home && !view) ? "$(check) " : "") + r.name,
+        description: [
+          r.home ? "this checkout" : "",
+          r.branch,
+          r.changes ? `${r.changes} changed` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        detail: r.root,
+        root: r.home ? "" : r.root,
+      })),
       { title: "ade: which repository the Diff view shows" },
     );
     if (!picked) return;
     await c.diffRoot(picked.root);
-    const root = picked.root || c.root;
-    scm?.use(await indexFor(c, root, picked.root !== ""), root);
+    await useView(c, picked.root);
     await refresh(c);
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
@@ -4192,7 +4306,7 @@ async function newScratch(): Promise<void> {
   });
   if (name === undefined) return;
   try {
-    const made = await scratch(launcher, name.trim());
+    const made = await scratch(launcher, { name: name.trim() });
     await want(memory, { path: made.path, chat: true });
     await switchTo(made.path);
   } catch (err) {
@@ -4795,28 +4909,201 @@ async function startElsewhere(): Promise<void> {
   }
 }
 
-// openThere offers a window on the machine the work is now on, which is where
-// its files are. Without Remote-SSH there is nothing to offer but the news.
+// product is the editor's own: the build's commit and its server download
+// url, neither of which the extension API reports.
+interface Product {
+  commit?: string;
+  serverDownloadUrlTemplate?: string;
+}
+
+function product(): Product {
+  try {
+    return JSON.parse(
+      readFileSync(join(vscode.env.appRoot, "product.json"), "utf8"),
+    ) as Product;
+  } catch {
+    return {};
+  }
+}
+
+// Cached for the session: a 404 does not become a 200 without a run.
+let serverPublished: boolean | undefined;
+
+// openThere offers a window where the work's files are. The only thing in
+// the way is a pin nothing was built a server for.
 async function openThere(
   name: string,
   label: string,
   dir: string,
   verb?: string,
 ): Promise<void> {
-  const can = Boolean(vscode.extensions.getExtension(REMOTE_SSH));
-  if (!can) {
-    void vscode.window.showInformationMessage(said(label, false, verb));
+  const template = product().serverDownloadUrlTemplate ?? "";
+  if (serverPublished === undefined)
+    serverPublished = await published(
+      serverURL(template),
+      async (at) => (await fetch(at, { method: "HEAD" })).status,
+    );
+  if (!serverPublished) {
+    await noServerYet(template, name, dir);
     return;
   }
   const open = await vscode.window.showInformationMessage(
-    said(label, true, verb),
+    said(label, verb),
     "Open a window there",
   );
   if (!open) return;
+  await openWindowOn(name, dir);
+}
+
+async function openWindowOn(name: string, dir: string): Promise<void> {
   await vscode.commands.executeCommand(
     "vscode.openFolder",
     vscode.Uri.parse(folderURI(name, dir)),
     { forceNewWindow: true },
+  );
+}
+
+// noServerYet offers the remedy rather than the diagnosis. No window opens:
+// publishing is 25 to 40 minutes. Ask again when the run is green.
+async function noServerYet(
+  template: string,
+  name: string,
+  dir: string,
+): Promise<void> {
+  const version = releaseVersion(template);
+  const press = await vscode.window.showWarningMessage(
+    noServer(version),
+    PUBLISH,
+    UNVALIDATED,
+  );
+  if (press === PUBLISH) {
+    await publishServer(version);
+    return;
+  }
+  if (press !== UNVALIDATED) return;
+  // One resolve, not a setting: a persisted flag is how a month goes by on
+  // an unvalidated server without anyone noticing.
+  await boxContext?.globalState.update(UNVALIDATED_ONCE, name);
+  await openWindowOn(name, dir);
+}
+
+async function publishServer(version: string): Promise<void> {
+  try {
+    const run = await gh(publishRun(version));
+    const url = await gh([
+      "run",
+      "list",
+      "--workflow=editor-reh.yml",
+      "--limit",
+      "1",
+      "--json",
+      "url",
+      "-q",
+      ".[0].url",
+    ]).catch(() => "");
+    void vscode.window.showInformationMessage(
+      `ade: building the editor server for ${version}. ${url.trim() || run.trim() || "25 to 40 minutes."}`,
+    );
+  } catch {
+    void vscode.window.showErrorMessage(noGh(version));
+  }
+}
+
+function gh(args: string[]): Promise<string> {
+  return new Promise((done, fail) => {
+    execFile("gh", args, (err, out) => (err ? fail(err) : done(out)));
+  });
+}
+
+// The resolve runs in the new window's extension host, not this one.
+const UNVALIDATED_ONCE = "ade.unvalidatedOnce";
+
+// remoteLog is each step of a resolve. resolve() has no progress channel of
+// its own, so a minutes-long install says so here and in a notification.
+let remoteLog: vscode.OutputChannel | undefined;
+
+function remoteOutput(): vscode.OutputChannel {
+  remoteLog ??= vscode.window.createOutputChannel("Remote - ade");
+  return remoteLog;
+}
+
+// registerResolver claims ade's own authority. Without the resolvers
+// proposal granted there is nothing to register.
+function registerResolver(context: vscode.ExtensionContext): void {
+  if (!vscode.workspace.registerRemoteAuthorityResolver) return;
+  context.subscriptions.push(
+    vscode.workspace.registerRemoteAuthorityResolver(AUTHORITY, {
+      resolve: (authority: string) => resolveHost(authority, context),
+    }),
+  );
+}
+
+async function resolveHost(
+  authority: string,
+  context: vscode.ExtensionContext,
+): Promise<vscode.ResolvedAuthority> {
+  const log = remoteOutput();
+  try {
+    const got = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:
+          "ade: starting the editor server (a first install downloads 120 MiB)",
+      },
+      () =>
+        resolveAuthority(authority, {
+          launcher: findLauncher,
+          editorServer: (server, host, unvalidated) => {
+            const info = product();
+            return editorServer(
+              server,
+              host,
+              info.commit ?? "",
+              info.serverDownloadUrlTemplate ?? "",
+              unvalidated,
+            );
+          },
+          unvalidated: async (host) => {
+            const asked = context.globalState.get<string>(UNVALIDATED_ONCE);
+            if (asked === undefined) return false;
+            await context.globalState.update(UNVALIDATED_ONCE, undefined);
+            return asked === host;
+          },
+          log: (line) => log.appendLine(line),
+        }),
+    );
+    nameTheHost(context, authority, got.host);
+    return new vscode.ResolvedAuthority("127.0.0.1", got.port, got.token);
+  } catch (err) {
+    log.appendLine(String(err));
+    const message = err instanceof Failed ? err.message : String(err);
+    // A hard error is for what retrying cannot fix. Everything else heals
+    // itself, and the workbench retries on its own backoff.
+    if (err instanceof Failed && !err.retry)
+      throw vscode.RemoteAuthorityResolverError.NotAvailable(message, true);
+    throw vscode.RemoteAuthorityResolverError.TemporarilyNotAvailable(message);
+  }
+}
+
+// nameTheHost makes the remote indicator read "ade: pi@pi5.local" rather
+// than the raw authority.
+function nameTheHost(
+  context: vscode.ExtensionContext,
+  authority: string,
+  host: string,
+): void {
+  if (!vscode.workspace.registerResourceLabelFormatter) return;
+  context.subscriptions.push(
+    vscode.workspace.registerResourceLabelFormatter({
+      scheme: "vscode-remote",
+      authority,
+      formatting: {
+        label: "${path}",
+        separator: "/",
+        tildify: true,
+        workspaceSuffix: hostLabel(host),
+      },
+    }),
   );
 }
 
@@ -5754,6 +6041,16 @@ async function newDesign(): Promise<void> {
   await vscode.window.showTextDocument(uri);
 }
 
+function windowFolders(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.path);
+}
+
+async function useView(c: Client, view: string): Promise<void> {
+  shownView = view;
+  const root = view || c.root;
+  scm?.use(await indexFor(c, root, view !== ""), root);
+}
+
 // openFolder is the checkout this window is on: the nearest to what you are
 // reading, as the discovery loop orders them.
 function openFolder(): string | undefined {
@@ -5770,6 +6067,10 @@ function openFolder(): string | undefined {
 // newSession starts a conversation in a checkout, from the tree. The launcher
 // owns this: it is the only thing that can start a server ade is not already in.
 async function newSession(node?: SessionNode, said?: string): Promise<void> {
+  // Nothing named and nothing said: the screen, where the defaults are on
+  // show before they are accepted. A tree row or /new already named one.
+  if (!node && said === undefined) return showNewSession();
+
   // The folder this window has open, when nothing is serving it yet: it is
   // the checkout you are looking at, and the one you meant.
   const dir =
@@ -5814,6 +6115,254 @@ async function newSession(node?: SessionNode, said?: string): Promise<void> {
   // another folder should land there too.
   await want(memory, { path: dir, chat: true });
   await switchTo(dir);
+}
+
+async function showNewSession(): Promise<void> {
+  const dir = live?.root ?? openFolder();
+  const home = dir ? await madeFrom(dir) : undefined;
+  await newSessionPage.show(home ? { repos: [home] } : {});
+}
+
+// sessionOffer is everything the new-session screen can pick from. Asking a
+// machine for its repositories connects it, which is how one gets woken up.
+async function sessionOffer(machine: string): Promise<Offer> {
+  const at = await ensureLauncher();
+  if (!at) throw new Error(noLauncher("session"));
+  launcher = at;
+  const [machines, named] = await Promise.all([
+    hosts(at)
+      .then((list) => list.filter((host) => !host.local))
+      .catch(() => [] as Host[]),
+    askLauncher<RolesView>(at, "/api/roles")
+      .then((view) => (view.roles ?? []).map((role) => role.name))
+      .catch(() => [] as string[]),
+  ]);
+  const found = machine ? await target(at, machine) : undefined;
+  // Both lists when a machine is chosen: the Design row carries a document
+  // from this machine's checkout to that machine's. A failed read is not none.
+  localRepos = await launcherRepos(at, true);
+  remoteRepos = found?.repos ?? [];
+  const list = found ? remoteRepos : localRepos;
+  const offered = found?.models ?? (await models(at).catch(() => []));
+  return {
+    ...noOffer,
+    machines: machines.map((host) => ({
+      name: host.name,
+      label: host.label || host.name,
+    })),
+    repos: list.map(mainCheckout),
+    agents: [
+      { id: "claude", label: "claude" },
+      { id: "codex", label: "codex" },
+    ],
+    models: offered.map((model) => ({ id: model.id, label: model.label })),
+    roles: named,
+    recent: recalled()
+      .filter((one) => one.kind === "turn")
+      .map((one) => one.text),
+  };
+}
+
+// sessionDesigns is what the Design row lists: the documents on the machine the
+// session runs on, and, when that is not this one, this machine's to carry over.
+async function sessionDesigns(machine: string, dir: string): Promise<Doc[]> {
+  const at = launcher ?? (await findLauncher());
+  if (!at) throw new Error(noLauncher("session"));
+  const there = (await documentsIn(at, machine, dir)).map((file) => ({
+    file,
+    ship: false,
+  }));
+  if (!machine) return there;
+  const here = localCounterpart(dir);
+  if (!here) return there;
+  // Not caught: an empty Here group has to mean there is nothing to carry.
+  const ship = (await documentsIn(at, "", here)).map((file) => ({
+    file,
+    ship: true,
+  }));
+  return [...ship, ...there];
+}
+
+async function documentsIn(
+  at: Server,
+  machine: string,
+  dir: string,
+): Promise<string[]> {
+  const query = machine ? `&machine=${encodeURIComponent(machine)}` : "";
+  const got = await askLauncher<{ designs: string[] | null }>(
+    at,
+    `/api/designs?dir=${encodeURIComponent(dir)}${query}`,
+  );
+  return got.designs ?? [];
+}
+
+// What each machine has, kept from the last offer so the Design row can match
+// a repository on another machine to this machine's checkout of it.
+let localRepos: Repo[] = [];
+let remoteRepos: Repo[] = [];
+
+// localCounterpart is this machine's checkout of the repository a path on
+// another machine names. Matched on owner and name: the disks differ.
+function localCounterpart(dir: string): string | undefined {
+  const there = remoteRepos.find((repo) => mainCheckout(repo).path === dir);
+  if (!there) return undefined;
+  const key = (repo: Repo) =>
+    `${repo.owner ?? ""}/${repo.name}`.toLowerCase();
+  const here = localRepos.find((repo) => key(repo) === key(there));
+  return here ? mainCheckout(here).path : undefined;
+}
+
+// The repository as one row: its main checkout, which is what a worktree is
+// made beside. A machine that has not got it yet names the clone instead.
+function mainCheckout(repo: Repo): Offer["repos"][number] {
+  const main = (repo.checkouts ?? [])[0];
+  return {
+    path: main?.path ?? repo.path,
+    name: repo.name,
+    owner: repo.owner,
+    branch: main?.branch,
+  };
+}
+
+// startChosen routes the screen to the way in it names. Nothing here is new
+// behaviour: every row is a door ade already had.
+async function startChosen(chosen: Chosen): Promise<void> {
+  const at = await ensureLauncher();
+  if (!at) throw new Error(noLauncher("session"));
+  launcher = at;
+
+  if (chosen.mode === "scratch") {
+    // Every default the row showed, not just the name: a choice on screen
+    // that Start does not send is a choice accepted without being made.
+    const made = await scratch(at, {
+      name: chosen.name.trim(),
+      agent: chosen.agent || undefined,
+      model: chosen.model || undefined,
+      role: chosen.role || undefined,
+      prompt: chosen.message.trim(),
+      machine: chosen.machine || undefined,
+      sandbox: chosen.sandbox,
+    });
+    // The path is that machine's, so it is a window over there and not a
+    // folder this disk has never had.
+    if (chosen.machine) {
+      await openThere(chosen.machine, await labelOf(at, chosen.machine), made.path);
+      return;
+    }
+    await want(memory, { path: made.path, chat: true });
+    await switchTo(made.path);
+    return;
+  }
+
+  const [home, ...also] = chosen.repos;
+  if (!home) throw new Error("tick a repository to start in");
+  // The document's own path is the name: ade create reuses a document that is
+  // already there, so a design row carries on with it rather than making one.
+  const name = sessionNames(chosen);
+  // Read before the session is asked for: a document that cannot be read is a
+  // plain error, not a session open somewhere with the wrong brief.
+  const brief = await carried(at, chosen, home);
+  const started = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `ade: starting ${name || basename(home)}…`,
+    },
+    () =>
+      beginSession(at, {
+        dir: home,
+        name: name || undefined,
+        brief,
+        also: also.length > 0 ? also : undefined,
+        agent: chosen.agent || undefined,
+        model: chosen.model || undefined,
+        role: chosen.role || undefined,
+        prompt: chosen.message.trim(),
+        machine: chosen.machine || undefined,
+        sandbox: chosen.sandbox,
+      }),
+  );
+
+  // begin reports a failure that still opened the session rather than throwing
+  // it: the window goes where it got to, and what failed is said.
+  if (started.error)
+    void vscode.window.showErrorMessage(`ade: ${started.error}`);
+
+  if (chosen.machine) {
+    await openThere(
+      chosen.machine,
+      await labelOf(at, chosen.machine),
+      started.path ?? home,
+    );
+    return;
+  }
+
+  // Plan and Design are the document first: the window lands on the worktree
+  // with the design open rather than on the conversation.
+  const path = started.path ?? home;
+  await want(memory, {
+    path,
+    chat: chosen.mode !== "plan" && chosen.mode !== "design",
+  });
+  await switchTo(await spanning(path, also));
+}
+
+// labelOf is what the machine is called on screen, or its name.
+async function labelOf(at: Server, machine: string): Promise<string> {
+  const found = (await hosts(at).catch(() => [] as Host[])).find(
+    (host) => host.name === machine,
+  );
+  return found?.label ?? machine;
+}
+
+// carried is the document to take with the session, read here and written in
+// once it is serving. Only when the machine it runs on has not got it already.
+async function carried(
+  at: Server,
+  chosen: Chosen,
+  home: string,
+): Promise<{ name: string; body: string } | undefined> {
+  // The plan decides, not the field: a document picked on the Design row and
+  // left behind by a switch to Work must not be shipped into a named session.
+  if (!sessionPlan(chosen).carried) return undefined;
+  const here = chosen.machine ? localCounterpart(home) : home;
+  if (!here) throw new Error(`no checkout here to read ${chosen.design} from`);
+  const got = await askLauncher<{ body: string }>(
+    at,
+    `/api/design?dir=${encodeURIComponent(here)}&file=${encodeURIComponent(chosen.design)}`,
+  );
+  return { name: chosen.design, body: got.body };
+}
+
+// spanning is what the window opens: the worktree, or a workspace file over
+// every repository the session was started across, home first.
+async function spanning(path: string, also: string[]): Promise<string> {
+  if (also.length === 0) return path;
+  try {
+    const dir = await gitDir(path);
+    if (!dir) return path;
+    // Where ade create put them, not where the screen predicted: a branch
+    // already checked out elsewhere is worked in where it is.
+    const made = await sessionMounts(join(dir, "ade", "session.json"));
+    if (made.length === 0) return path;
+    const file = join(dir, "ade", "session.code-workspace");
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(join(dir, "ade")));
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(file),
+      Buffer.from(multiRoot(path, made), "utf8"),
+    );
+    return file;
+  } catch {
+    return path;
+  }
+}
+
+// sessionMounts is the other checkouts this session may edit, as the session's
+// own mounts file records them.
+async function sessionMounts(file: string): Promise<string[]> {
+  const raw = await localFiles.text(file);
+  if (raw === undefined) return [];
+  const held = JSON.parse(raw) as { paths?: { path: string; rw?: boolean }[] };
+  return (held.paths ?? []).filter((one) => one.rw).map((one) => one.path);
 }
 
 // A name is a branch: the session gets a document and a worktree of its own.
@@ -5962,6 +6511,8 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
   threads = new Threads(client);
   lineage = new Lineage(client);
   scm = new Scm(client, server.root, await indexFor(client, server.root));
+  shownView = "";
+  void client.diffFolders(windowFolders()).catch(() => {});
   sessions.serving(server.root, client);
   queueTree.serving(client);
   commitView.serving(client);
@@ -6004,17 +6555,19 @@ async function find(): Promise<
 
   const tried: string[] = [];
   let checkout: string | undefined;
+  const where = new Map(folders.map((f) => [f.uri.path, f.uri]));
   const roots = nearest(
-    folders.map((f) => f.uri.fsPath),
-    vscode.window.activeTextEditor?.document.uri.fsPath,
+    folders.map((f) => f.uri.path),
+    vscode.window.activeTextEditor?.document.uri.path,
   );
   for (const root of roots) {
-    const dir = await gitDir(root);
+    const files = filesOf(where.get(root));
+    const dir = await gitDir(root, files);
     if (!dir) {
       tried.push(`${root}: not a git checkout`);
       continue;
     }
-    const rec = await read(recordPath(dir));
+    const rec = await read(recordPath(dir), files);
     if (!rec) {
       tried.push(`${root}: no ade running`);
       checkout ??= root;
@@ -6026,6 +6579,32 @@ async function find(): Promise<
     checkout ??= root;
   }
   return { why: tried.join("\n"), checkout };
+}
+
+// filesOf is the disk the folder is on. A ui extension runs here in a window
+// on another machine, so a host path goes through the window's file service.
+function filesOf(uri: vscode.Uri | undefined): Files {
+  if (!uri || uri.scheme === "file") return localFiles;
+  const at = (path: string) => uri.with({ path });
+  return {
+    directory: async (path) => {
+      try {
+        const info = await vscode.workspace.fs.stat(at(path));
+        return (info.type & vscode.FileType.Directory) !== 0;
+      } catch {
+        return undefined;
+      }
+    },
+    text: async (path) => {
+      try {
+        return new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(at(path)),
+        );
+      } catch {
+        return undefined;
+      }
+    },
+  };
 }
 
 // queued runs a row's verb and redraws, so the view shows the new order rather
@@ -6100,12 +6679,34 @@ async function openDesk(): Promise<void> {
   await floatDesk();
 }
 
+// COMMENTS_PANEL is how the Comments view is opened, best first.
+const COMMENTS_PANEL = [
+  "workbench.action.focusCommentsPanel",
+  "workbench.panel.comments.focus",
+];
+
+// The view names its own focus command, so the id every other view answers to
+// is not registered. It is also hideIfEmpty, hence the word when nothing shows.
+async function showComments(): Promise<void> {
+  for (const command of COMMENTS_PANEL) {
+    try {
+      await vscode.commands.executeCommand(command);
+      return;
+    } catch {
+      // Try the next; the last one failing is what is reported.
+    }
+  }
+  void vscode.window.showInformationMessage(
+    "ade: no comments to show. The panel appears once a review leaves one.",
+  );
+}
+
 // arrange lays the window out for a session: ade's views on the left, the
 // Comments panel below, the concierge on the right, the editor in the middle.
 async function arrange(): Promise<void> {
   for (const command of [
     "workbench.view.extension.ade",
-    "workbench.panel.comments.focus",
+    ...COMMENTS_PANEL,
     "workbench.action.focusActiveEditorGroup",
   ]) {
     try {
@@ -6831,6 +7432,8 @@ function drawBoxed(): void {
   }
   boxed.text = badge.text;
   boxed.tooltip = badge.tooltip;
+  // Filled, so a sandboxed session is visible without reading the words.
+  boxed.backgroundColor = new vscode.ThemeColor(badge.background);
   boxed.show();
 }
 
@@ -7041,7 +7644,9 @@ async function refresh(client: Client): Promise<void> {
     dashboard.stale();
     nudge(inbox.apply(state.bus));
     if (diffHeader)
-      diffHeader.description = label(state.meta?.project, live?.root);
+      diffHeader.description = state.meta?.view
+        ? basename(state.meta.view)
+        : label(state.meta?.project, live?.root);
     design.serving(state.design?.dir);
     drawRun();
     drawBoxed();
@@ -7050,6 +7655,14 @@ async function refresh(client: Client): Promise<void> {
     drawChecks(state.verify);
     if (state.verify?.offer?.length) void offerChecks(state.verify.offer);
     await drawScope(state.meta?.scope);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "ade.diffRoots",
+      (state.meta?.roots?.length ?? 0) > 1,
+    );
+    // The server takes the diff home when its folder leaves the window.
+    if ((state.meta?.view ?? "") !== shownView)
+      await useView(client, state.meta?.view ?? "");
     await changes.at(state.diffVersion);
     await lineage?.refresh();
   } catch (err) {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/gate"
+	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/httpx"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
@@ -120,9 +121,10 @@ type agentRunner struct {
 	// is the repository's, mounted too when dir is a worktree; runtime is
 	// found on first use and kept.
 	sandbox bool
-	// workspace is the repository's sandbox file: what else is mounted, and
-	// the variables inside.
+	// workspace is the repository's sandbox file; own is this session's, laid
+	// over it: the other repositories it was started across.
 	workspace string
+	own       string
 	gitDir    string
 	runtime   sandbox.Runtime
 	// docsDir answers where design documents live now. A function because it
@@ -316,7 +318,7 @@ func newProviderAgentRunner(dir, session, bin, codexBin, provider, model, autoCo
 		}
 	}
 	a := &agentRunner{dir: dir, session: session, bin: bin, codexBin: codexBin, provider: provider, model: model, autoCompact: autoCompact,
-		sandbox: box.On, gitDir: box.GitDir, workspace: box.Workspace, wakePoll: watchInterval, mem: mem}
+		sandbox: box.On, gitDir: box.GitDir, workspace: box.Workspace, own: box.Own, wakePoll: watchInterval, mem: mem}
 	// The remembered choice beats the flag default, which is on, but not a
 	// --sandbox the user typed: a checkout stays out across a restart, not a flag.
 	if on, known := mem.Sandbox(); known && !box.Explicit {
@@ -588,6 +590,8 @@ type sandboxConfig struct {
 	Explicit  bool
 	GitDir    string
 	Workspace string
+	// Own is this session's own mounts file, under its worktree's git dir.
+	Own string
 }
 
 // sandboxOn is whether this session's agent runs in a container.
@@ -745,6 +749,7 @@ type boxInputs struct {
 	dir       string
 	gitDir    string
 	workspace string
+	own       string
 	docs      string
 	wiki      *wiki.Store
 	wikiDraft string
@@ -781,7 +786,7 @@ func (a *agentRunner) boxFor(ctx context.Context, own bool) (boxInputs, error) {
 		}
 		a.runtime = rt
 	}
-	in := boxInputs{rt: a.runtime, dir: a.dir, gitDir: a.gitDir, workspace: a.workspace,
+	in := boxInputs{rt: a.runtime, dir: a.dir, gitDir: a.gitDir, workspace: a.workspace, own: a.own,
 		wiki: a.wiki, wikiDraft: a.wikiDraft, delegate: a.delegateURL}
 	if own {
 		in.provider = a.provider
@@ -805,11 +810,21 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 	if err != nil {
 		return nil, nil, err
 	}
+	own, err := sandbox.LoadWorkspace(in.own)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The agent can reach this file, so it is checked on the way in and not
+	// only where it is written.
+	own, err = sandbox.CheckWorkspace(home, own)
+	if err != nil {
+		return nil, nil, err
+	}
 	cfg, err := settings.Load()
 	if err != nil {
 		return nil, nil, err
 	}
-	ws = ws.Under(cfg.Sandbox)
+	ws = own.Under(ws.Under(cfg.Sandbox))
 	// The worker's session token, and only a worker's: an exported GH_TOKEN in
 	// the shell that started ade locally is the user's, not the session's.
 	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" && httpx.Wide() && ws.Env["GH_TOKEN"] == "" {
@@ -824,7 +839,7 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 	if dir := a.outboxDir(); dir != "" {
 		ws.Env[bridge.OutboxEnv] = dir
 	}
-	extra := ws.Mounts()
+	extra := append(ws.Mounts(), gitDirsFor(ctx, own)...)
 	var servers map[string]json.RawMessage
 	if draft, ok := wikiDraftFor(ctx, in.wiki, in.wikiDraft, in.dir); ok {
 		mounts, env := wikiMounts(draft)
@@ -845,15 +860,41 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 	if err != nil {
 		return nil, nil, err
 	}
-	mcpHost := ""
-	if docker, ok := in.rt.(sandbox.Docker); ok && docker.Network == "" {
-		mcpHost = "host.docker.internal"
-	}
-	spec, err := sandbox.Claude{Home: home, Root: in.dir, GitDir: in.gitDir, Docs: in.docs, Extra: extra, Env: ws.Env, MCPHost: mcpHost, Servers: servers}.Spec(filepath.Dir(creds))
+	spec, err := claudeSpec(in.rt, in, home, ws, extra, servers, creds)
 	if err != nil {
 		return nil, nil, err
 	}
 	return &spec, in.rt, nil
+}
+
+// gitDirsFor mounts the repository git directory behind each of this session's
+// other worktrees: their .git is a file pointing at it, so git needs it too.
+func gitDirsFor(ctx context.Context, own sandbox.Workspace) []sandbox.Mount {
+	var out []sandbox.Mount
+	for _, p := range own.Paths {
+		dir, err := gitdiff.CommonGitDir(ctx, p.Path)
+		if err != nil || dir == "" || strings.HasPrefix(dir, p.Path+string(os.PathSeparator)) {
+			continue
+		}
+		out = append(out, sandbox.Mount{Host: dir, Guest: dir, RW: true})
+	}
+	return out
+}
+
+// claudeSpec builds the container for one runtime; the caller may try another.
+func claudeSpec(rt sandbox.Runtime, in boxInputs, home string, ws sandbox.Workspace, extra []sandbox.Mount, servers map[string]json.RawMessage, creds string) (sandbox.Spec, error) {
+	mcpHost := ""
+	switch at := rt.(type) {
+	case sandbox.Docker:
+		if at.Network == "" {
+			mcpHost = "host.docker.internal"
+		}
+	case sandbox.Apple:
+		mcpHost = at.Host
+	}
+	_, apple := rt.(sandbox.Apple)
+	return sandbox.Claude{Home: home, Root: in.dir, GitDir: in.gitDir, Docs: in.docs,
+		Extra: extra, Env: ws.Env, MCPHost: mcpHost, Servers: servers, MakeMountPoints: apple}.Spec(filepath.Dir(creds))
 }
 
 // hostGitHubToken prefers ADE_GITHUB_TOKEN, a scoped token, over the whole gh login.
@@ -1668,7 +1709,7 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 			}
 		},
 	}
-	runtime := ""
+	runtime, held := "", false
 	if a.sandbox {
 		// a.mu is already held, so the spec is built from here rather than
 		// through sandboxOpts, which takes it.
@@ -1683,7 +1724,7 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
 		opts.Sandbox, opts.Runtime = spec, rt
-		runtime = rt.Name()
+		runtime, held = rt.Name(), sandbox.HasImage(ctx, rt, spec.Image)
 	}
 	if dir := a.outboxDir(); dir != "" {
 		opts.Env = append(opts.Env, bridge.OutboxEnv+"="+dir)
@@ -1729,12 +1770,22 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 	// is a long silence with nothing to show for it. Said here, and only here:
 	// every later turn on the same process replays nothing.
 	if runtime != "" {
-		a.step(provider + " is running in a container, via " + runtime)
+		a.step(containerStep(provider, runtime, held))
 	}
 	if replaying > 0 {
 		a.step(fmt.Sprintf("resuming a %.1fMB session transcript", float64(replaying)/(1<<20)))
 	}
 	return agent, nil
+}
+
+// containerStep is what to say as the agent starts. Said before the container
+// has proved it can run, so a missing image is a fetch and not a claim.
+func containerStep(provider, runtime string, held bool) string {
+	if held {
+		return provider + " is running in a container, via " + runtime
+	}
+	return provider + " is fetching the sandbox image, via " + runtime +
+		" — if it fails, build it here with make sandbox-image"
 }
 
 /* HTTP */

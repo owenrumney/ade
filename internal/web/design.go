@@ -16,6 +16,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/render"
 
+	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/design"
 	"github.com/owenrumney/ade/internal/docs"
@@ -132,6 +133,59 @@ func (s *Server) handleDesignDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Broadcast("state", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDesignArchive publishes a finished design to the wiki and deletes the
+// local file. A failure leaves the document where it was.
+func (s *Server) handleDesignArchive(w http.ResponseWriter, r *http.Request) {
+	file := strings.TrimSpace(r.URL.Query().Get("file"))
+	if file == "" {
+		writeError(w, http.StatusBadRequest, "name a document to archive")
+		return
+	}
+	dir, open := s.designPlace()
+	if dir == "" {
+		writeError(w, http.StatusBadRequest, "there is nowhere design documents live for this checkout")
+		return
+	}
+	if s.buildingDoc(file) {
+		writeError(w, http.StatusConflict, "the agent is building this document; wait for it or stop it first")
+		return
+	}
+	repo := s.project()
+	if repo == "" {
+		writeError(w, http.StatusBadRequest, "this checkout has no origin owner/repo, so there is no wiki scope to archive into")
+		return
+	}
+	if s.wiki == nil || !s.wiki.Enabled() {
+		writeError(w, http.StatusBadRequest, "wiki is disabled; run ade wiki init --remote <url>")
+		return
+	}
+	// Not the request's context: a closed tab must not cancel a publish
+	// half-way through, where the page is out and the document is still here.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), archiveTimeout)
+	defer cancel()
+	root := s.space().homeRoot
+	doc := archive.Doc{Dir: dir, File: file}
+	out, err := archive.One(ctx, s.wiki, repo, doc, archive.PRFor(ctx, root, file), s.archiveRunner)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if sameDoc(file, open) {
+		s.setDoc("")
+	}
+	s.hub.Broadcast("state", nil)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// archiveTimeout covers the distillation and the push: a clone, a rebase and a
+// retry each take their time.
+const archiveTimeout = 5 * time.Minute
+
+// archiveRunner is the distillation's one-shot, on the cheap model.
+func (s *Server) archiveRunner(ctx context.Context, prompt string) (string, error) {
+	return s.cheapRunner(ctx, archive.Model, "", prompt)
 }
 
 // sameDoc compares two document names allowing for a missing .md, which is what

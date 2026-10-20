@@ -151,6 +151,16 @@ const sessionRules = `You are in a session in ade, working on this repository wi
 var standing = settings.Instructions
 var activeRole = roles.Current
 
+// UseRole pins the role for this process, which is one session. Empty is the
+// machine's own choice, which is what every session had before.
+func UseRole(name string) {
+	if strings.TrimSpace(name) == "" {
+		activeRole = roles.Current
+		return
+	}
+	activeRole = func() string { return roles.Prompt(name) }
+}
+
 // MainSystemPrompt is the complete prompt for a main chat on drivers that do
 // not compose ade's system prompt themselves.
 func MainSystemPrompt(extra string) string { return systemPrompt(extra) }

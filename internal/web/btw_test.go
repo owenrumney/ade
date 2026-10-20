@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/chat"
+	"github.com/owenrumney/ade/internal/settings"
 )
 
 func TestBtwIsReadOffTheMessageAndNothingElse(t *testing.T) {
@@ -57,6 +58,12 @@ func TestABtwWithNothingToForkIsRefusedNotQueued(t *testing.T) {
 func TestABtwForksTheConversationAndKeepsTheAnswerFromTheMainAgent(t *testing.T) {
 	s := newTestServer(t)
 	t.Setenv("HOME", t.TempDir())
+	// Off, or the rewrite of the aside's answer runs the same fake claude and
+	// writes over the arguments this test is here to read.
+	require.NoError(t, settings.Update(func(into *settings.Settings) error {
+		into.CleanseOff = true
+		return nil
+	}))
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args")
 	bin := filepath.Join(dir, "claude")

@@ -49,7 +49,9 @@ func TestNothingSchedulesDistillationAnyMore(t *testing.T) {
 
 	mine := Job{Name: KindWikiDistill, Scope: ScopeUser}
 	list := WithBuiltins([]Job{mine}, on)
-	assert.Equal(t, []Job{mine}, list, "a job written by hand is the only way back to a schedule")
+	held, found := Find(list, KindWikiDistill)
+	assert.True(t, found, "a job written by hand is the only way back to a schedule")
+	assert.Equal(t, mine, held, "and nothing rewrites it")
 }
 
 func TestAnExpiredLoginEndsTheFireAndSaysWhatToDo(t *testing.T) {

@@ -110,6 +110,24 @@ func Current() string {
 	return ""
 }
 
+// Prompt is one role's text by name. A name no file matches is no role, so a
+// session asked for a deleted one still starts.
+func Prompt(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return ""
+	}
+	list, err := Load()
+	if err != nil {
+		return ""
+	}
+	for _, role := range list {
+		if role.Name == name {
+			return role.Prompt
+		}
+	}
+	return ""
+}
+
 // ViewOf reports what the settings page can manage.
 func ViewOf() (View, error) {
 	list, err := Load()

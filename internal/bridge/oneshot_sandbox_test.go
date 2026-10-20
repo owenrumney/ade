@@ -11,8 +11,9 @@ import (
 
 type fakeRuntime struct{}
 
-func (fakeRuntime) Name() string { return "fake" }
-func (fakeRuntime) Bin() string  { return "/bin/echo" }
+func (fakeRuntime) Name() string            { return "fake" }
+func (fakeRuntime) Bin() string             { return "/bin/echo" }
+func (fakeRuntime) HasArgs(string) []string { return []string{"true"} }
 
 // Args is the real runtimes' shape: the command, then what the spec carries.
 func (fakeRuntime) Args(spec sandbox.Spec) []string {

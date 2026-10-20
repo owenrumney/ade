@@ -186,6 +186,18 @@ func Tree(dir, current string) ([]render.FileEntry, error) {
 	return buildTree(files, current, made), nil
 }
 
+// List names the markdown files under dir, in the order the tree draws them.
+func List(dir string) ([]string, error) {
+	return markdownFiles(dir)
+}
+
+// Stem is a document's name without its directory or extension, which is what
+// a branch's last segment is matched against.
+func Stem(file string) string { return stem(file) }
+
+// LastSegment is the part of a branch name after the last slash.
+func LastSegment(branch string) string { return lastSegment(branch) }
+
 // Ensure returns the document for name, scaffolding it only if it is not already
 // there. Running the same create twice is asking to carry on with that design,
 // not an error.
@@ -266,6 +278,23 @@ func Read(dir, file string) (string, error) {
 		return "", fmt.Errorf("read %s: %w", file, err)
 	}
 	return string(body), nil
+}
+
+// ReadBounded is Read under the cap Save and Put enforce, for a document about
+// to be copied over the wire rather than opened here.
+func ReadBounded(dir, file string) (string, error) {
+	full, err := Resolve(dir, file)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", err
+	}
+	if info.Size() > maxDocBytes {
+		return "", fmt.Errorf("%s is too large to carry", file)
+	}
+	return Read(dir, file)
 }
 
 // Version fingerprints a document's contents, so a watcher can tell that the

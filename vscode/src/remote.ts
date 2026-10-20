@@ -1,11 +1,12 @@
 // A session on another machine is looked at in a window on that machine: the
 // checkout is a real directory there, so the editor gets its files for free.
-export const REMOTE_SSH = "ms-vscode-remote.remote-ssh";
+// ade resolves that window's authority itself; see resolver.ts.
+import { AUTHORITY } from "./resolver";
 
 // authority is what VS Code calls the far side of an ssh connection. The host
 // is an ssh destination, which is what ade bookmarks and what ssh takes.
 export function authority(host: string): string {
-  return `ssh-remote+${host}`;
+  return `${AUTHORITY}+${host}`;
 }
 
 // folderURI addresses a directory on that machine. The path is absolute and
@@ -14,33 +15,25 @@ export function folderURI(host: string, dir: string): string {
   return `vscode-remote://${authority(host)}${dir}`;
 }
 
-// said is what to tell someone who has just started work on another machine,
-// given whether this editor can open a window there.
-export function said(
-  machine: string,
-  canRemote: boolean,
-  verb = "started",
-): string {
-  const start = `ade: ${verb} on ${machine}.`;
-  return canRemote
-    ? start
-    : `${start} Install the Remote-SSH extension to open a window there.`;
+// said is what to tell someone who has just started work elsewhere.
+export function said(machine: string, verb = "started"): string {
+  return `ade: ${verb} on ${machine}.`;
 }
 
-// machineWide is whether this window can talk to a launcher: a Remote-SSH
-// window is about one session, not the machine you are sitting at.
+// machineWide is whether this window can talk to a launcher: a window on
+// another machine is about one session, not the machine you are sitting at.
 export function machineWide(remoteName: string | undefined): boolean {
   return remoteName === undefined;
 }
 
 // whyNotHere is what to say instead of offering a machine-wide surface. The
-// second sentence is the part worth saying: where the thing you wanted is.
+// launcher is here and owns the host, so "there is none" is not the reason.
 export function whyNotHere(what: "session" | "surface"): string {
   const where =
     what === "session"
       ? "Start one from the window on your own machine, with ade: Start work on another machine."
       : "Machines, jobs and disk are in the window on your own machine.";
-  return `ade: this window is on another machine, where there is no launcher. ${where}`;
+  return `ade: this window is one session on another machine. ${where}`;
 }
 
 // launcherAt is the launcher a session was reached through: the proxied

@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -285,7 +286,11 @@ func (s *Server) busStatus() string {
 	case at.Running:
 		return "an agent is working"
 	}
-	return "here"
+	if n := s.bus.running(); n > 1 {
+		return fmt.Sprintf("%d agents", n)
+	}
+
+	return "ade"
 }
 
 func (s *Server) busLabel() string {
