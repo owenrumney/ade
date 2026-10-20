@@ -415,7 +415,8 @@
       },
       {
         "command": "ade.diffRoot",
-        "title": "ade: Choose which repository the Diff view shows"
+        "title": "ade: Choose which repository the Diff view shows",
+        "icon": "$(repo)"
       },
       {
         "command": "ade.previewURL",
@@ -1556,6 +1557,11 @@
           "command": "ade.writeCommitMessage",
           "group": "navigation@5",
           "when": "view == ade.diff"
+        },
+        {
+          "command": "ade.diffRoot",
+          "group": "navigation@6",
+          "when": "view == ade.diff && ade.diffRoots"
         },
         {
           "command": "ade.stageAll",

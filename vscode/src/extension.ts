@@ -765,6 +765,7 @@ function watchRecord(context: vscode.ExtensionContext): vscode.Disposable {
 
 let threads: Threads | undefined;
 let scm: Scm | undefined;
+let shownView = "";
 let lineage: Lineage | undefined;
 let stream: AbortController | undefined;
 let hubWatch: AbortController | undefined;
@@ -865,6 +866,11 @@ export async function activate(
     ),
   );
   void tellBusHere(vscode.window.state.focused);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (client) void client.diffFolders(windowFolders()).catch(() => {});
+    }),
+  );
 
   // A window on another machine never starts ade: the panes have to say that
   // rather than offer a button that does nothing here.
@@ -3964,8 +3970,6 @@ async function pickDrift(): Promise<void> {
   await dismissDrift(picked.item, act.id === "dismiss");
 }
 
-// diffRoot points the Diff view at another repository the sandbox can write
-// to, or back at this checkout. The server refuses anything else.
 async function diffRoot(): Promise<void> {
   const c = client;
   if (!c) {
@@ -3975,24 +3979,32 @@ async function diffRoot(): Promise<void> {
     return;
   }
   try {
-    const mounts = (await c.sandboxFile()).paths ?? [];
+    const { roots, view } = await c.diffFolders(windowFolders());
+    if (!roots?.length) {
+      void vscode.window.showInformationMessage(
+        "ade: this checkout is the only repository the Diff view can show.",
+      );
+      return;
+    }
     const picked = await pick(
-      [
-        { label: "This checkout", description: c.root, root: "" },
-        ...mounts
-          .filter((mount) => mount.rw)
-          .map((mount) => ({
-            label: basename(mount.path),
-            description: mount.path,
-            root: mount.path,
-          })),
-      ],
+      roots.map((r) => ({
+        label:
+          (r.root === view || (r.home && !view) ? "$(check) " : "") + r.name,
+        description: [
+          r.home ? "this checkout" : "",
+          r.branch,
+          r.changes ? `${r.changes} changed` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        detail: r.root,
+        root: r.home ? "" : r.root,
+      })),
       { title: "ade: which repository the Diff view shows" },
     );
     if (!picked) return;
     await c.diffRoot(picked.root);
-    const root = picked.root || c.root;
-    scm?.use(await indexFor(c, root, picked.root !== ""), root);
+    await useView(c, picked.root);
     await refresh(c);
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
@@ -6021,6 +6033,16 @@ async function newDesign(): Promise<void> {
   await vscode.window.showTextDocument(uri);
 }
 
+function windowFolders(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.path);
+}
+
+async function useView(c: Client, view: string): Promise<void> {
+  shownView = view;
+  const root = view || c.root;
+  scm?.use(await indexFor(c, root, view !== ""), root);
+}
+
 // openFolder is the checkout this window is on: the nearest to what you are
 // reading, as the discovery loop orders them.
 function openFolder(): string | undefined {
@@ -6229,6 +6251,8 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
   threads = new Threads(client);
   lineage = new Lineage(client);
   scm = new Scm(client, server.root, await indexFor(client, server.root));
+  shownView = "";
+  void client.diffFolders(windowFolders()).catch(() => {});
   sessions.serving(server.root, client);
   queueTree.serving(client);
   commitView.serving(client);
@@ -7360,7 +7384,9 @@ async function refresh(client: Client): Promise<void> {
     dashboard.stale();
     nudge(inbox.apply(state.bus));
     if (diffHeader)
-      diffHeader.description = label(state.meta?.project, live?.root);
+      diffHeader.description = state.meta?.view
+        ? basename(state.meta.view)
+        : label(state.meta?.project, live?.root);
     design.serving(state.design?.dir);
     drawRun();
     drawBoxed();
@@ -7369,6 +7395,14 @@ async function refresh(client: Client): Promise<void> {
     drawChecks(state.verify);
     if (state.verify?.offer?.length) void offerChecks(state.verify.offer);
     await drawScope(state.meta?.scope);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "ade.diffRoots",
+      (state.meta?.roots?.length ?? 0) > 1,
+    );
+    // The server takes the diff home when its folder leaves the window.
+    if ((state.meta?.view ?? "") !== shownView)
+      await useView(client, state.meta?.view ?? "");
     await changes.at(state.diffVersion);
     await lineage?.refresh();
   } catch (err) {

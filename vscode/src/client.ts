@@ -258,6 +258,17 @@ export interface Meta {
   mode?: string;
   scope?: string;
   files?: number;
+  roots?: DiffRoot[];
+  view?: string;
+}
+
+export interface DiffRoot {
+  root: string;
+  name: string;
+  branch: string;
+  home?: boolean;
+  changes: number;
+  threads: number;
 }
 
 // Issue is a Linear ticket assigned to you.
@@ -1117,10 +1128,14 @@ export class Client {
     return this.post("/api/drift/dismiss", { id, dismissed });
   }
 
-  // diffRoot points the Diff view at another read-write root of the sandbox,
-  // or back at this checkout when root is empty.
   diffRoot(root: string): Promise<unknown> {
     return this.post("/api/diff/root", { root });
+  }
+
+  diffFolders(
+    folders: string[],
+  ): Promise<{ roots: DiffRoot[] | null; view: string }> {
+    return this.put("/api/diff/folders", { folders });
   }
 
   seedDesign(): Promise<{ started: boolean; reason?: string }> {
