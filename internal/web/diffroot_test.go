@@ -291,6 +291,24 @@ func TestOnlyReadWriteGitRootsAreOffered(t *testing.T) {
 	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "ci"}, names)
 }
 
+func TestTheSessionsOwnRepositoriesAreDiffRootsToo(t *testing.T) {
+	repo := otherRepo(t, "worker")
+	s := newTestServer(t)
+	require.NotEmpty(t, s.agent.own, "the server should have a session file to read")
+	require.NoError(t, os.MkdirAll(filepath.Dir(s.agent.own), 0o750))
+	data, err := json.Marshal(sandbox.Workspace{Paths: []sandbox.Path{{Path: repo, RW: true}}})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(s.agent.own, data, 0o600))
+
+	s.snapshotRoots(context.Background())
+
+	var names []string
+	for _, root := range s.currentRoots() {
+		names = append(names, root.Name)
+	}
+	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "worker"}, names)
+}
+
 func TestEachRootCarriesItsOwnCounts(t *testing.T) {
 	other := otherRepo(t, "ci")
 	s := withRoot(t, other)

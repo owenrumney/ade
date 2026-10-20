@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,12 +173,32 @@ func OpenAgentIn(ctx context.Context, dir, agent, sessionID string) (string, err
 
 // OpenOn is that, on a named model. Empty model leaves the CLI's own default.
 func OpenOn(ctx context.Context, dir, agent, model, sessionID string) (string, error) {
+	return OpenAs(ctx, dir, agent, model, sessionID, "")
+}
+
+// OpenAs is OpenOn in a named role. A session can only be started in one: a
+// role picked afterwards has already missed the first message.
+func OpenAs(ctx context.Context, dir, agent, model, sessionID, role string) (string, error) {
+	return OpenWith(ctx, dir, Start{Agent: agent, Model: model, Session: sessionID, Role: role})
+}
+
+// Start is what a session begins on, beyond the checkout it is in.
+type Start struct {
+	Agent   string
+	Model   string
+	Session string
+	Role    string
+	// Sandbox, when set, is the container said rather than remembered.
+	Sandbox *bool
+}
+
+func OpenWith(ctx context.Context, dir string, st Start) (string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("find the ade binary: %w", err)
 	}
 
-	args := openArgs(agent, model, sessionID)
+	args := append(openArgs(st.Agent, st.Model, st.Session), startArgs(st.Role, st.Sandbox)...)
 
 	cmd := exec.CommandContext(ctx, self, args...) // #nosec G204 -- this binary, in a directory the scan found
 	cmd.Dir = dir
@@ -245,22 +266,62 @@ func CreateIn(ctx context.Context, dir, ticket string) (string, error) {
 	return url, nil
 }
 
+// startArgs is the part of a start the flags spell out: the role, and the
+// container when it was said rather than left to what the checkout chose.
+func startArgs(role string, sandbox *bool) []string {
+	var args []string
+	if role != "" {
+		args = append(args, "--role", role)
+	}
+	if sandbox != nil {
+		args = append(args, "--sandbox="+strconv.FormatBool(*sandbox))
+	}
+	return args
+}
+
+// Work is what `ade create` is asked for beyond the name: what the session
+// starts on, and the other checkouts it may edit.
+type Work struct {
+	Name  string
+	Agent string
+	Model string
+	// Base branches the worktree from this ref rather than a fetched main.
+	Base string
+	// Role is the machine-wide prompt this session starts under.
+	Role string
+	// Also are checkouts that get a worktree each on the same branch.
+	Also []string
+	// Sandbox, when set, is the container said rather than remembered.
+	Sandbox *bool
+}
+
 // CreateNamed runs `ade create <name>` in a checkout: the document, the
 // worktree on its branch and the session. It returns the URL and the worktree.
 func CreateNamed(ctx context.Context, dir, name, agent, model string) (string, string, error) {
-	return CreateNamedFrom(ctx, dir, name, agent, model, "")
+	return CreateWork(ctx, dir, Work{Name: name, Agent: agent, Model: model})
 }
 
 // CreateNamedFrom is CreateNamed with the worktree branched from base rather
 // than a freshly fetched main; HEAD is the checkout as it stands.
 func CreateNamedFrom(ctx context.Context, dir, name, agent, model, base string) (string, string, error) {
+	return CreateWork(ctx, dir, Work{Name: name, Agent: agent, Model: model, Base: base})
+}
+
+// CreateWork is CreateNamed with everything the new-session screen can ask
+// for. It returns the URL and the home worktree.
+func CreateWork(ctx context.Context, dir string, w Work) (string, string, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return "", "", fmt.Errorf("find the ade binary: %w", err)
 	}
-	args := append([]string{"create"}, openArgs(agent, model, "")...)
-	if base != "" {
-		args = append(args, "--base", base)
+	name := w.Name
+	args := append([]string{"create"}, openArgs(w.Agent, w.Model, "")...)
+	if w.Base != "" {
+		args = append(args, "--base", w.Base)
+	}
+	args = append(args, startArgs(w.Role, w.Sandbox)...)
+	for _, also := range w.Also {
+		args = append(args, "--also", also)
 	}
 	// After --, so a name cannot be read as a flag.
 	args = append(args, "--", name)
@@ -332,7 +393,9 @@ func AskFor(ctx context.Context, recURL, method, path, body string, wait time.Du
 		return nil, err
 	}
 	defer func() { _ = res.Body.Close() }()
-	answer, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	// 4 MB because a design document is relayed through here, and that is the
+	// size docs allows one; a lower cap truncates it into a parse error.
+	answer, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		if msg := errorIn(answer); msg != "" {
 			return answer, fmt.Errorf("%s", msg)

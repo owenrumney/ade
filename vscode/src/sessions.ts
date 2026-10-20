@@ -97,8 +97,9 @@ export class Sessions implements vscode.TreeDataProvider<Node> {
     return this.loading;
   }
 
-  // ready is the load the view would do, for a command that has to know what
-  // is in the tree before anyone has opened it.
+  // ready is the load the view would do, once, for a command that has to know
+  // what is in the tree before anyone has opened it. It is not a re-read: the
+  // promise is kept, so a caller that needs what is true now wants refresh().
   ready(): Promise<void> {
     return this.loading ?? this.refresh();
   }

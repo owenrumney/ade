@@ -40,6 +40,15 @@ func WorkspacePath(gitDir string) string {
 	return filepath.Join(statedir.Git(gitDir), "sandbox.json")
 }
 
+// SessionPath is one session's own file, under its worktree's git directory:
+// the other checkouts it may edit, which are not every worktree's business.
+func SessionPath(gitDir string) string {
+	if gitDir == "" {
+		return ""
+	}
+	return filepath.Join(statedir.Git(gitDir), "session.json")
+}
+
 // LoadWorkspace reads the file; none is an empty workspace.
 func LoadWorkspace(file string) (Workspace, error) {
 	ws := Workspace{Paths: []Path{}, Env: map[string]string{}}

@@ -199,16 +199,23 @@ describe("a session of the document's own", () => {
     expect(ids.indexOf("session")).toBe(ids.indexOf("build") + 1);
   });
 
-  it("creates under the document, so the document is the session's", () => {
+  it("hands the document to the screen rather than starting on defaults", () => {
     const fn = extension.slice(extension.indexOf("async function sessionOn"));
     const body = fn.slice(0, fn.indexOf("\n}\n"));
     expect(
       body,
-      "a name of its own would scaffold a second document",
-    ).toContain("newWorkspace(launcher, dir, file, message)");
+      "the machine, agent, model, role and sandbox are all still to be seen",
+    ).toContain("newSessionPage.show(");
+    expect(body, "with the document already picked").toContain("design: file");
+    expect(body).toContain('mode: "design"');
+  });
+
+  it("starts under the document's own name, not one of its own", () => {
+    const fn = extension.slice(extension.indexOf("async function startChosen"));
+    const body = fn.slice(0, fn.indexOf("\n}\n"));
     expect(
       body,
-      "the branch and worktree it makes, before it makes them",
-    ).toContain("worktreeFor(root, branch)");
+      "a name of its own would scaffold a second, empty document",
+    ).toContain("sessionNames(chosen)");
   });
 });

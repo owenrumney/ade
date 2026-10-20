@@ -25,6 +25,7 @@ import (
 	"github.com/owenrumney/ade/internal/render"
 
 	"github.com/owenrumney/ade/internal/agents"
+	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/docsave"
@@ -40,6 +41,7 @@ import (
 	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/roles"
 	"github.com/owenrumney/ade/internal/said"
+	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -165,6 +167,7 @@ func rootCmd() *cobra.Command {
 		noLauncher     bool
 		skillName      string
 		investigate    string
+		role           string
 	)
 
 	cmd := &cobra.Command{
@@ -255,6 +258,7 @@ uncommitted edits and new files are included.
 				skillName:        skillName,
 				investigate:      investigate,
 				noLauncher:       noLauncher,
+				role:             role,
 			})
 		},
 	}
@@ -280,6 +284,7 @@ uncommitted edits and new files are included.
 Defaults to the one this checkout was last in, so a restart lands back in the
 conversation. Pass an id for a specific one, or "none" to start fresh.`)
 	shared.StringVar(&docsDir, "docs", "", "directory holding design documents (default: .scratch, else inside the git dir)")
+	shared.StringVar(&role, "role", "", "role from ~/.ade/roles this session starts under (default: the one Settings selects)")
 	shared.BoolVar(&sandboxed, "sandbox", true,
 		`run the agent in a container (Apple's container or Docker) with the checkout mounted.
 The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
@@ -309,7 +314,7 @@ The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
 	_ = shared.MarkHidden("detach")
 	shared.DurationVar(&idle, "idle", 30*time.Minute, "exit after this long with no browser attached (0 to stay up)")
 
-	cmd.AddCommand(newCreateCommand(&sessionID, &agent, &provider, &model, &autoCompact, &noOpen, &sandboxed, &foreground, &docsDir, &idle))
+	cmd.AddCommand(newCreateCommand(&sessionID, &agent, &provider, &model, &autoCompact, &role, &noOpen, &sandboxed, &foreground, &docsDir, &idle))
 	cmd.AddCommand(newInvestigateCommand(&sessionID, &agent, &provider, &model, &autoCompact, &noOpen, &sandboxed, &foreground, &idle))
 	cmd.AddCommand(newLaunchCommand(&noOpen, &foreground, &idle))
 	cmd.AddCommand(newStartCommand(&foreground, &idle))
@@ -670,8 +675,9 @@ func checkoutOn(ctx context.Context, remoteURL, host, want string) (string, erro
 
 // newCreateCommand starts a new design document and opens on it, which is the
 // front of the design, build, review loop.
-func newCreateCommand(sessionID, agent, provider, model, autoCompact *string, noOpen, sandboxed, foreground *bool, docsDir *string, idle *time.Duration) *cobra.Command {
+func newCreateCommand(sessionID, agent, provider, model, autoCompact, role *string, noOpen, sandboxed, foreground *bool, docsDir *string, idle *time.Duration) *cobra.Command {
 	var title, linear, base string
+	var also []string
 	var issue int
 
 	cmd := &cobra.Command{
@@ -730,6 +736,8 @@ after the ticket and drafted from it.`,
 				createName:       name,
 				createTitle:      title,
 				createBase:       base,
+				createAlso:       also,
+				role:             *role,
 				linearTicket:     strings.TrimSpace(linear),
 				createIssue:      issue,
 			})
@@ -742,6 +750,8 @@ after the ticket and drafted from it.`,
 		"start work on a GitHub issue of this repository, by number: reads it, names the document after it, and checks the repo out beside itself on its own branch")
 	cmd.Flags().StringVar(&base, "base", "",
 		"branch the new worktree from this ref rather than a freshly fetched main; HEAD is this checkout as it stands")
+	cmd.Flags().StringArrayVar(&also, "also", nil,
+		"another checkout to work in, given a worktree on the same branch; repeatable. The first is home: the agent runs there and the document goes there")
 	return cmd
 }
 
@@ -857,6 +867,13 @@ type settings struct {
 	createTitle string
 	// createBase is the ref a new worktree branches from; empty fetches main.
 	createBase string
+	// createAlso are other checkouts that get a worktree on the same branch,
+	// so one session can read and edit more than one repository.
+	createAlso []string
+
+	// role is the machine-wide prompt this session starts under, rather than
+	// whichever one Settings has selected.
+	role string
 
 	// skillName is a skill to run the main chat under, investigate the ticket
 	// it opens on. Both set by `ade investigate`.
@@ -909,6 +926,10 @@ func run(ctx context.Context, cfg settings) error {
 		}
 		cfg.seedIssue = issue.Number
 	}
+
+	// Before anything composes a prompt: a role named here is this session's,
+	// whatever Settings has selected machine-wide.
+	bridge.UseRole(cfg.role)
 
 	// Before the server starts, so a missing skill is a CLI error.
 	var skill skills.Skill
@@ -995,6 +1016,12 @@ func run(ctx context.Context, cfg settings) error {
 		// The worktree may already have its own server from last time.
 		if reuse(ctx, session.Path(gitDir), cfg.openBrowser, cfg.sessionID, cfg.provider, cfg.model, cfg.providerExplicit, cfg.sandboxed) {
 			return nil
+		}
+
+		// After reuse: a session already serving is handed back even when a
+		// repository it spans has moved since.
+		if err := alongside(ctx, gitDir, branch, cfg.createAlso); err != nil {
+			return err
 		}
 	}
 
@@ -1277,6 +1304,79 @@ func intoWorktree(ctx context.Context, root, docFile, base string) (string, stri
 	return path, gitDir, gitdiff.Branch(ctx, path), added, nil
 }
 
+// alongside gives every other repository a worktree on the same branch and
+// records them as this session's own mounts, read-write.
+func alongside(ctx context.Context, gitDir, branch string, also []string) error {
+	if len(also) == 0 {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	// Every path resolved before anything is made: the common failure is a
+	// name that is not a checkout, and that must not cost half a session.
+	repos := make([]string, 0, len(also))
+	for _, dir := range also {
+		repo, err := gitdiff.RepoRoot(ctx, dir)
+		if err != nil {
+			return fmt.Errorf("%s is not a checkout, so it cannot have a worktree: %w", dir, err)
+		}
+		repos = append(repos, repo)
+	}
+
+	paths := make([]sandbox.Path, 0, len(repos))
+	var made []worktreeMade
+	for _, repo := range repos {
+		path, added, err := ensureAlso(ctx, repo, branch)
+		if err != nil {
+			unmake(ctx, made)
+			return err
+		}
+		if added {
+			made = append(made, worktreeMade{repo: repo, path: path})
+			sow(ctx, repo, path)
+		}
+		fmt.Printf("also     %s\n", labelled(path, added))
+		paths = append(paths, sandbox.Path{Path: path, RW: true})
+	}
+	if _, err = sandbox.SaveWorkspace(sandbox.SessionPath(gitDir), home, sandbox.Workspace{Paths: paths}); err != nil {
+		unmake(ctx, made)
+		return err
+	}
+	return nil
+}
+
+type worktreeMade struct{ repo, path string }
+
+// unmake removes the worktrees this run made before a later repository failed.
+// The branches stay: a branch costs nothing and losing one is not recoverable.
+func unmake(ctx context.Context, made []worktreeMade) {
+	for _, one := range made {
+		if err := gitdiff.RemoveWorktreeForce(ctx, one.repo, one.path); err != nil {
+			fmt.Fprintf(os.Stderr, "left %s behind: %v\n", one.path, err)
+		}
+	}
+}
+
+// ensureAlso is EnsureWorktreeFrom for a branch another repository named, and
+// reports where it put it. The base ref is home's, so it is not used here.
+func ensureAlso(ctx context.Context, repo, branch string) (string, bool, error) {
+	// Git refuses a second checkout of a branch it already has out, so the one
+	// it has out is the one this session works in.
+	if at := gitdiff.WorktreeOn(ctx, repo, branch); at != "" {
+		return at, false, nil
+	}
+	path := gitdiff.WorktreePath(repo, branch)
+	if _, err := os.Stat(path); err == nil || !gitdiff.HasBranch(ctx, repo, branch) {
+		added, err := gitdiff.EnsureWorktreeFrom(ctx, repo, path, branch, func() string {
+			return freshBase(ctx, repo)
+		})
+		return path, added, err
+	}
+	return path, true, gitdiff.AddWorktreeOn(ctx, repo, path, branch)
+}
+
 // freshBase is gitdiff.FreshBase with the fallback said out loud, since the
 // worktree it makes is not the one the command was asked for.
 func freshBase(ctx context.Context, root string) string {
@@ -1411,6 +1511,9 @@ func childArgs(cfg settings, docFile string) []string {
 	}
 	if cfg.docsDir != "" {
 		args = append(args, "--docs", cfg.docsDir)
+	}
+	if cfg.role != "" {
+		args = append(args, "--role", cfg.role)
 	}
 	// Passed when typed even if it is the default, so the child knows it was
 	// typed and does not take the checkout's remembered choice over it.

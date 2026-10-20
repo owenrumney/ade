@@ -6,6 +6,12 @@
 # the change is about: a reply carries four pictures, so a full run buries them.
 set -euo pipefail
 
+# Fixture commits must not want this machine's signing key. Appended, since the
+# count is absolute: setting it to 1 would drop CI's own git config.
+keys=${GIT_CONFIG_COUNT:-0}
+export "GIT_CONFIG_KEY_$keys=commit.gpgsign" "GIT_CONFIG_VALUE_$keys=false"
+export GIT_CONFIG_COUNT=$((keys + 1))
+
 # A leftover fixture server holds the port the next run needs.
 pkill -f '/tmp/ade-shots/ade' 2>/dev/null || true
 pkill -f '/tmp/ade-shots/code' 2>/dev/null || true

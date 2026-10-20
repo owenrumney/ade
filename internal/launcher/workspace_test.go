@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/provision"
+	"github.com/owenrumney/ade/internal/sessions"
 )
 
 func stubProvision(t *testing.T, branchErr error) *[]string {
@@ -104,8 +105,8 @@ func TestANamedSessionIsCreatedAsAWorkspace(t *testing.T) {
 		return "", nil
 	}
 	var in, named string
-	s.create = func(_ context.Context, dir, name, _, _ string) (string, string, error) {
-		in, named = dir, name
+	s.create = func(_ context.Context, dir string, work sessions.Work) (string, string, error) {
+		in, named = dir, work.Name
 		return "http://127.0.0.1:27431/?t=tok", repo + "-cancel-button", nil
 	}
 
@@ -121,4 +122,143 @@ func TestANamedSessionIsCreatedAsAWorkspace(t *testing.T) {
 	// The name does not widen where a process may be started.
 	refused := do(t, s, http.MethodPost, "/api/open", `{"dir":"/etc","name":"cancel-button"}`)
 	assert.Equal(t, http.StatusBadRequest, refused.Code)
+}
+
+func TestASessionAcrossRepositoriesPassesTheOthersToCreate(t *testing.T) {
+	m := newFixture(t)
+	home := filepath.Join(m.home, "elsewhere", "home")
+	other := filepath.Join(m.home, "elsewhere", "other")
+	for _, dir := range []string{home, other} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	}
+
+	s := newLauncherOn(t, m)
+	var work sessions.Work
+	s.create = func(_ context.Context, _ string, w sessions.Work) (string, string, error) {
+		work = w
+		return "http://127.0.0.1:27431/?t=tok", home + "-cancel-button", nil
+	}
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+home+`","fresh":true,"name":"cancel-button","also":["`+other+`"],"role":"oss-dev"}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, []string{other}, work.Also)
+	assert.Equal(t, "oss-dev", work.Role, "a role is only chosen as the session starts")
+}
+
+func TestASecondRepositoryThatIsNotACheckoutIsRefused(t *testing.T) {
+	m := newFixture(t)
+	home := filepath.Join(m.home, "elsewhere", "home")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".git"), 0o700))
+
+	s := newLauncherOn(t, m)
+	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
+		t.Fatal("nothing is started when one of the repositories cannot be found")
+		return "", "", nil
+	}
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+home+`","fresh":true,"name":"cancel-button","also":["/etc"]}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not a checkout")
+}
+
+func TestASessionOnAnotherMachineIsRefusedASecondRepository(t *testing.T) {
+	m := newFixture(t)
+	home := filepath.Join(m.home, "elsewhere", "home")
+	other := filepath.Join(m.home, "elsewhere", "other")
+	for _, dir := range []string{home, other} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	}
+
+	s := newLauncherOn(t, m)
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"machine":"pc","dir":"`+home+`","fresh":true,"name":"cancel-button","also":["`+other+`"]}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "one repository")
+}
+
+func TestMoreThanOneRepositoryNeedsAName(t *testing.T) {
+	m := newFixture(t)
+	home := filepath.Join(m.home, "elsewhere", "home")
+	other := filepath.Join(m.home, "elsewhere", "other")
+	for _, dir := range []string{home, other} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	}
+
+	s := newLauncherOn(t, m)
+	s.open = func(context.Context, string, string, string, string) (string, error) {
+		t.Fatal("a session with no branch has nothing to check the others out on")
+		return "", nil
+	}
+
+	rec := do(t, s, http.MethodPost, "/api/open", `{"dir":"`+home+`","fresh":true,"also":["`+other+`"]}`)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "needs a name")
+}
+
+// A named session is how every branching row starts, and the brief was
+// dropped on that path: a document could be picked here and never arrive.
+func TestANamedSessionIsHandedItsDocumentBeforeTheFirstMessage(t *testing.T) {
+	m := newFixture(t)
+	repo := filepath.Join(m.home, "elsewhere", "coast")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o700))
+
+	s := newLauncherOn(t, m)
+	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
+		return "http://127.0.0.1:27431/?t=tok", repo + "-cart", nil
+	}
+	was, wasFirst := askSession, sendFirst
+	var calls []string
+	var pushed string
+	askSession = func(_ context.Context, _, path, body string) error {
+		calls = append(calls, path)
+		pushed = body
+		return nil
+	}
+	sendFirst = func(context.Context, string, string) error {
+		calls = append(calls, "/api/chat")
+		return nil
+	}
+	t.Cleanup(func() { askSession, sendFirst = was, wasFirst })
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+repo+`","fresh":true,"name":"cart.md","prompt":"build it",`+
+			`"brief":{"name":"cart.md","body":"# Cart\n\nCache it.\n"}}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, []string{"/api/design/push", "/api/chat"}, calls,
+		"the document is what the session is for, so it lands before the message")
+	assert.Contains(t, pushed, "Cache it.")
+}
+
+func TestANamedSessionWhoseDocumentNeverLandedIsNotToldToStart(t *testing.T) {
+	m := newFixture(t)
+	repo := filepath.Join(m.home, "elsewhere", "coast")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o700))
+
+	s := newLauncherOn(t, m)
+	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
+		return "http://127.0.0.1:27431/?t=tok", repo + "-cart", nil
+	}
+	was, wasFirst := askSession, sendFirst
+	askSession = func(context.Context, string, string, string) error {
+		return errors.New("the session refused it")
+	}
+	sendFirst = func(context.Context, string, string) error {
+		t.Fatal("a message answered without its document is answered against a skeleton")
+		return nil
+	}
+	t.Cleanup(func() { askSession, sendFirst = was, wasFirst })
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+repo+`","fresh":true,"name":"cart.md","prompt":"build it",`+
+			`"brief":{"name":"cart.md","body":"# Cart\n"}}`)
+
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Contains(t, rec.Body.String(), repo+"-cart", "the session is open either way, so the failure says where")
 }

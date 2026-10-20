@@ -195,11 +195,11 @@ func TestTheRootCommandRefusesTwoThingsToDraftFrom(t *testing.T) {
 
 func TestCreateRefusesTwoStartingPoints(t *testing.T) {
 	newCreate := func() *cobra.Command {
-		var s, provider, model, compact, docsDir string
+		var s, provider, model, compact, role, docsDir string
 		agent := "claude"
 		var noOpen, sandboxed, foreground bool
 		var idle time.Duration
-		return newCreateCommand(&s, &agent, &provider, &model, &compact, &noOpen, &sandboxed, &foreground, &docsDir, &idle)
+		return newCreateCommand(&s, &agent, &provider, &model, &compact, &role, &noOpen, &sandboxed, &foreground, &docsDir, &idle)
 	}
 	for _, tc := range []struct {
 		name, wants string

@@ -36,6 +36,7 @@ const THEME = {
   "keybindingTable-headerBackground": "#2a2a2a",
   "keybindingTable-rowsBackground": "#242424",
   "charts-green": "#89d185",
+  "terminal-ansiGreen": "#23d18b",
   "editorWarning-foreground": "#cca700",
   "gitDecoration-addedResourceForeground": "#81b88b",
   "gitDecoration-deletedResourceForeground": "#c74e39",
@@ -482,6 +483,140 @@ export async function buildPurge(page, repoRoot) {
   await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/purge.css`, "utf8") });
   await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/purge.js`, "utf8") });
   await page.waitForSelector(".rows tbody tr", { timeout: 15000 });
+}
+
+// buildNewSession runs the shipped new-session screen over a fixture offer.
+// elsewhere is the same screen pointed at a machine that has no documents.
+export async function buildNewSession(page, repoRoot, elsewhere = false) {
+  const offer = {
+    machines: [
+      { name: "pc", label: "pc" },
+      { name: "mini", label: "the mini" },
+    ],
+    repos: [
+      { path: "/Users/owen/code/owenrumney/ade", name: "ade", owner: "owenrumney" },
+      { path: "/Users/owen/code/infracost/coast", name: "coast", owner: "infracost" },
+      { path: "/Users/owen/code/infracost/worker", name: "worker", owner: "infracost" },
+      { path: "/Users/owen/code/infracost/cloud-pricing-api", name: "cloud-pricing-api", owner: "infracost" },
+      { path: "/Users/owen/code/infracost/infracost", name: "infracost", owner: "infracost" },
+    ],
+    agents: [
+      { id: "claude", label: "claude" },
+      { id: "codex", label: "codex" },
+    ],
+    models: [
+      { id: "claude-opus-5-5", label: "Opus 5.5" },
+      { id: "claude-sonnet-5-5", label: "Sonnet 5.5" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    ],
+    roles: ["infracost", "oss-dev"],
+    designs: elsewhere
+      ? [
+          { file: "FIX-623-cancel-the-running-process.md", ship: true },
+          { file: "cart-redesign.md", ship: true },
+          { file: "trk-1044.md", ship: false },
+        ]
+      : [
+          { file: "cart-redesign.md", ship: false },
+          { file: "FIX-623-cancel-the-running-process.md", ship: false },
+          { file: "worker-pool-sizing.md", ship: false },
+        ],
+    recent: [
+      "the commit panel loses the message when the window reloads",
+      "why does the diff tab show no changes after a bind?",
+    ],
+  };
+  const chosen = {
+    mode: "work",
+    name: "cancel the running process",
+    design: "FIX-623-cancel-the-running-process.md",
+    ship: elsewhere,
+    message:
+      "Stopping a turn leaves the container up. Make Stop tear it down, and say so in the chat.",
+    machine: elsewhere ? "pc" : "",
+    agent: "claude",
+    model: "claude-opus-5-5",
+    role: "infracost",
+    sandbox: true,
+    repos: ["/Users/owen/code/infracost/coast", "/Users/owen/code/infracost/worker"],
+  };
+  const made = elsewhere
+    ? {
+        branch: "fix-623-cancel-the-running-process",
+        doc: "FIX-623-cancel-the-running-process.md",
+        written: true,
+        carried: true,
+        makes: [
+          { repo: "coast", path: "/home/ade/code/coast-fix-623-cancel-the-running-process", home: true },
+        ],
+      }
+    : {
+        branch: "cancel-the-running-process",
+        doc: "cancel-the-running-process.md",
+        written: false,
+        carried: false,
+        makes: [
+          { repo: "coast", path: "~/code/infracost/coast-cancel-the-running-process", home: true },
+          { repo: "worker", path: "~/code/infracost/worker-cancel-the-running-process", home: false },
+        ],
+      };
+
+  await page.evaluate(
+    (vars, state) => {
+      for (const [name, value] of Object.entries(vars))
+        document.documentElement.style.setProperty(`--vscode-${name}`, value);
+      document.body.innerHTML = '<main id="newsession"></main>';
+      // The host recomputes the plan on every keystroke and every tick, so
+      // the stub does too: a stale list is what the screen exists to avoid.
+      const replan = (chosen) => {
+        const written = chosen.mode === "design";
+        const from = written
+          ? chosen.design
+          : ["work", "plan"].includes(chosen.mode)
+            ? chosen.name
+            : "";
+        const branch = from
+          .replace(/\.[^.]*$/, "")
+          .replace(/[^a-zA-Z0-9._-]+/g, "-")
+          .replace(/^[-.]+|[-.]+$/g, "")
+          .toLowerCase();
+        return {
+          branch,
+          doc: written ? from : branch ? `${branch}.md` : "",
+          written,
+          carried: written && chosen.ship,
+          makes: ["work", "plan", "design", "direct"].includes(chosen.mode)
+            ? chosen.repos.map((path, i) => ({
+                repo: path.split("/").pop(),
+                path: (branch ? `${path}-${branch}` : path).replace("/Users/owen", "~"),
+                home: i === 0,
+              }))
+            : [],
+        };
+      };
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          if (message?.kind === "ready")
+            window.dispatchEvent(new MessageEvent("message", { data: state }));
+          if (message?.kind === "change")
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: { kind: "plan", plan: replan(message.chosen) },
+              }),
+            );
+        },
+      });
+    },
+    THEME,
+    { kind: "state", chosen, plan: made, offer },
+  );
+  await page.addStyleTag({
+    content: await readFile(`${repoRoot}/vscode/media/newsession.css`, "utf8"),
+  });
+  await page.addScriptTag({
+    content: await readFile(`${repoRoot}/vscode/dist/newsession.js`, "utf8"),
+  });
+  await page.waitForSelector(elsewhere ? ".field" : ".make", { timeout: 15000 });
 }
 
 // buildQuiz runs the shipped quiz panel over a fixture set of questions: the

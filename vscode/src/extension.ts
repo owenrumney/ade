@@ -99,8 +99,8 @@ import {
 } from "./discover";
 import { Chat } from "./chat";
 import { Settings } from "./settings";
-import { Design, base as docBase } from "./design";
-import { nameProblem, title as docTitle } from "./docs";
+import { Design } from "./design";
+import { nameProblem } from "./docs";
 import { diagnose, netReport } from "./diagnose";
 import {
   type Detail as DiskDetail,
@@ -206,6 +206,7 @@ import {
   job as jobPost,
   run as runJobAt,
   openOn,
+  begin as beginSession,
   put as putLauncher,
   target,
   tell as tellLauncher,
@@ -370,6 +371,18 @@ import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
 import { RepoPage } from "./repoview";
+import {
+  NewSessionPage,
+  nothing as noOffer,
+  type Offer,
+} from "./newsessionview";
+import { plan as sessionPlan } from "./newsession/plan";
+import {
+  names as sessionNames,
+  type Chosen,
+  type Doc,
+} from "./newsession/view";
+import { multiRoot } from "./multiroot";
 import { PurgePage } from "./purgeview";
 import type { Sweep } from "./purgepanel/view";
 import { QuizPage } from "./quizview";
@@ -398,13 +411,7 @@ import { AdeIndex, GitIndex, type Index, Scm } from "./scm";
 import { gitRepository } from "./gitapi";
 import { picked } from "./picked";
 import { input, inputBox, pick, quickPick } from "./pick";
-import {
-  branchFor,
-  madeFrom,
-  tilde,
-  worktreeFor,
-  wouldMake,
-} from "./wouldmake";
+import { madeFrom, wouldMake } from "./wouldmake";
 import { AGENTS, models as modelsFor, says, wheres } from "./build";
 import {
   forceable as canForce,
@@ -684,9 +691,10 @@ async function fixChecks(): Promise<void> {
     );
     return;
   }
-  // The tree may never have been opened, so what it holds is not yet an
-  // answer to "is anything failing".
-  await sessions.ready();
+  // Both layers are stale by default: the server polls GitHub, and the tree
+  // caches its first load forever. You looked at the checks a second ago.
+  await client.refreshChecks().catch(() => undefined);
+  await sessions.refresh();
   const bad = sessions.failing;
   if (bad === 0) {
     void vscode.window.showInformationMessage("ade: nothing is failing.");
@@ -795,6 +803,7 @@ let settingsPage: Settings;
 let commitView: CommitView;
 let dashboard: Dashboard;
 let repoPage: RepoPage;
+let newSessionPage: NewSessionPage;
 let purgePage: PurgePage;
 let quizPage: QuizPage;
 let sessions: Sessions;
@@ -890,11 +899,18 @@ export async function activate(
   boxContext = context;
   dashboard = new Dashboard(context, boardNow, boardAct);
   repoPage = new RepoPage(context, repoNow);
+  newSessionPage = new NewSessionPage(
+    context,
+    sessionOffer,
+    sessionDesigns,
+    startChosen,
+  );
   purgePage = new PurgePage(context, sweepNow, pruneIn);
   quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
     dashboard,
     repoPage,
+    newSessionPage,
     purgePage,
     quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
@@ -1625,6 +1641,7 @@ async function omnibox(
         "ade: nothing to run again yet.",
       );
   } else if (went.kind === "new") {
+    noteBox({ kind: "turn", text: went.message });
     await newSession(undefined, went.message);
   } else if (went.kind === "pick") {
     const chosen = await pick(
@@ -3007,8 +3024,8 @@ async function build(name?: string): Promise<void> {
   void chat.reveal(live);
 }
 
-// sessionOn gives the document a session of its own. The name it is created
-// under is the document's, so `ade create` reuses it rather than scaffolding one.
+// sessionOn gives the document a session of its own: the screen's Design row,
+// with the document already picked and every default still to be looked at.
 async function sessionOn(file: string): Promise<void> {
   const dir = live?.root ?? openFolder();
   if (!dir) {
@@ -3017,20 +3034,11 @@ async function sessionOn(file: string): Promise<void> {
     );
     return;
   }
-  launcher = await ensureLauncher();
-  if (!launcher) {
-    void vscode.window.showErrorMessage(noLauncher("session"));
-    return;
-  }
-  const root = await madeFrom(dir);
-  const branch = branchFor(file);
-  const message = await input({
-    title: `New session on ${docTitle(docBase(file))}`,
-    prompt: `Branch ${branch} · worktree ${tilde(worktreeFor(root, branch))}. What do you want to do?`,
-    placeHolder: "Work through what the document describes.",
+  await newSessionPage.show({
+    mode: "design",
+    design: file,
+    repos: [await madeFrom(dir)],
   });
-  if (!message) return;
-  await newWorkspace(launcher, dir, file, message);
 }
 
 // Which document, when the command did not come off a row. The tree's list is
@@ -4298,7 +4306,7 @@ async function newScratch(): Promise<void> {
   });
   if (name === undefined) return;
   try {
-    const made = await scratch(launcher, name.trim());
+    const made = await scratch(launcher, { name: name.trim() });
     await want(memory, { path: made.path, chat: true });
     await switchTo(made.path);
   } catch (err) {
@@ -6059,6 +6067,10 @@ function openFolder(): string | undefined {
 // newSession starts a conversation in a checkout, from the tree. The launcher
 // owns this: it is the only thing that can start a server ade is not already in.
 async function newSession(node?: SessionNode, said?: string): Promise<void> {
+  // Nothing named and nothing said: the screen, where the defaults are on
+  // show before they are accepted. A tree row or /new already named one.
+  if (!node && said === undefined) return showNewSession();
+
   // The folder this window has open, when nothing is serving it yet: it is
   // the checkout you are looking at, and the one you meant.
   const dir =
@@ -6103,6 +6115,254 @@ async function newSession(node?: SessionNode, said?: string): Promise<void> {
   // another folder should land there too.
   await want(memory, { path: dir, chat: true });
   await switchTo(dir);
+}
+
+async function showNewSession(): Promise<void> {
+  const dir = live?.root ?? openFolder();
+  const home = dir ? await madeFrom(dir) : undefined;
+  await newSessionPage.show(home ? { repos: [home] } : {});
+}
+
+// sessionOffer is everything the new-session screen can pick from. Asking a
+// machine for its repositories connects it, which is how one gets woken up.
+async function sessionOffer(machine: string): Promise<Offer> {
+  const at = await ensureLauncher();
+  if (!at) throw new Error(noLauncher("session"));
+  launcher = at;
+  const [machines, named] = await Promise.all([
+    hosts(at)
+      .then((list) => list.filter((host) => !host.local))
+      .catch(() => [] as Host[]),
+    askLauncher<RolesView>(at, "/api/roles")
+      .then((view) => (view.roles ?? []).map((role) => role.name))
+      .catch(() => [] as string[]),
+  ]);
+  const found = machine ? await target(at, machine) : undefined;
+  // Both lists when a machine is chosen: the Design row carries a document
+  // from this machine's checkout to that machine's. A failed read is not none.
+  localRepos = await launcherRepos(at, true);
+  remoteRepos = found?.repos ?? [];
+  const list = found ? remoteRepos : localRepos;
+  const offered = found?.models ?? (await models(at).catch(() => []));
+  return {
+    ...noOffer,
+    machines: machines.map((host) => ({
+      name: host.name,
+      label: host.label || host.name,
+    })),
+    repos: list.map(mainCheckout),
+    agents: [
+      { id: "claude", label: "claude" },
+      { id: "codex", label: "codex" },
+    ],
+    models: offered.map((model) => ({ id: model.id, label: model.label })),
+    roles: named,
+    recent: recalled()
+      .filter((one) => one.kind === "turn")
+      .map((one) => one.text),
+  };
+}
+
+// sessionDesigns is what the Design row lists: the documents on the machine the
+// session runs on, and, when that is not this one, this machine's to carry over.
+async function sessionDesigns(machine: string, dir: string): Promise<Doc[]> {
+  const at = launcher ?? (await findLauncher());
+  if (!at) throw new Error(noLauncher("session"));
+  const there = (await documentsIn(at, machine, dir)).map((file) => ({
+    file,
+    ship: false,
+  }));
+  if (!machine) return there;
+  const here = localCounterpart(dir);
+  if (!here) return there;
+  // Not caught: an empty Here group has to mean there is nothing to carry.
+  const ship = (await documentsIn(at, "", here)).map((file) => ({
+    file,
+    ship: true,
+  }));
+  return [...ship, ...there];
+}
+
+async function documentsIn(
+  at: Server,
+  machine: string,
+  dir: string,
+): Promise<string[]> {
+  const query = machine ? `&machine=${encodeURIComponent(machine)}` : "";
+  const got = await askLauncher<{ designs: string[] | null }>(
+    at,
+    `/api/designs?dir=${encodeURIComponent(dir)}${query}`,
+  );
+  return got.designs ?? [];
+}
+
+// What each machine has, kept from the last offer so the Design row can match
+// a repository on another machine to this machine's checkout of it.
+let localRepos: Repo[] = [];
+let remoteRepos: Repo[] = [];
+
+// localCounterpart is this machine's checkout of the repository a path on
+// another machine names. Matched on owner and name: the disks differ.
+function localCounterpart(dir: string): string | undefined {
+  const there = remoteRepos.find((repo) => mainCheckout(repo).path === dir);
+  if (!there) return undefined;
+  const key = (repo: Repo) =>
+    `${repo.owner ?? ""}/${repo.name}`.toLowerCase();
+  const here = localRepos.find((repo) => key(repo) === key(there));
+  return here ? mainCheckout(here).path : undefined;
+}
+
+// The repository as one row: its main checkout, which is what a worktree is
+// made beside. A machine that has not got it yet names the clone instead.
+function mainCheckout(repo: Repo): Offer["repos"][number] {
+  const main = (repo.checkouts ?? [])[0];
+  return {
+    path: main?.path ?? repo.path,
+    name: repo.name,
+    owner: repo.owner,
+    branch: main?.branch,
+  };
+}
+
+// startChosen routes the screen to the way in it names. Nothing here is new
+// behaviour: every row is a door ade already had.
+async function startChosen(chosen: Chosen): Promise<void> {
+  const at = await ensureLauncher();
+  if (!at) throw new Error(noLauncher("session"));
+  launcher = at;
+
+  if (chosen.mode === "scratch") {
+    // Every default the row showed, not just the name: a choice on screen
+    // that Start does not send is a choice accepted without being made.
+    const made = await scratch(at, {
+      name: chosen.name.trim(),
+      agent: chosen.agent || undefined,
+      model: chosen.model || undefined,
+      role: chosen.role || undefined,
+      prompt: chosen.message.trim(),
+      machine: chosen.machine || undefined,
+      sandbox: chosen.sandbox,
+    });
+    // The path is that machine's, so it is a window over there and not a
+    // folder this disk has never had.
+    if (chosen.machine) {
+      await openThere(chosen.machine, await labelOf(at, chosen.machine), made.path);
+      return;
+    }
+    await want(memory, { path: made.path, chat: true });
+    await switchTo(made.path);
+    return;
+  }
+
+  const [home, ...also] = chosen.repos;
+  if (!home) throw new Error("tick a repository to start in");
+  // The document's own path is the name: ade create reuses a document that is
+  // already there, so a design row carries on with it rather than making one.
+  const name = sessionNames(chosen);
+  // Read before the session is asked for: a document that cannot be read is a
+  // plain error, not a session open somewhere with the wrong brief.
+  const brief = await carried(at, chosen, home);
+  const started = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `ade: starting ${name || basename(home)}…`,
+    },
+    () =>
+      beginSession(at, {
+        dir: home,
+        name: name || undefined,
+        brief,
+        also: also.length > 0 ? also : undefined,
+        agent: chosen.agent || undefined,
+        model: chosen.model || undefined,
+        role: chosen.role || undefined,
+        prompt: chosen.message.trim(),
+        machine: chosen.machine || undefined,
+        sandbox: chosen.sandbox,
+      }),
+  );
+
+  // begin reports a failure that still opened the session rather than throwing
+  // it: the window goes where it got to, and what failed is said.
+  if (started.error)
+    void vscode.window.showErrorMessage(`ade: ${started.error}`);
+
+  if (chosen.machine) {
+    await openThere(
+      chosen.machine,
+      await labelOf(at, chosen.machine),
+      started.path ?? home,
+    );
+    return;
+  }
+
+  // Plan and Design are the document first: the window lands on the worktree
+  // with the design open rather than on the conversation.
+  const path = started.path ?? home;
+  await want(memory, {
+    path,
+    chat: chosen.mode !== "plan" && chosen.mode !== "design",
+  });
+  await switchTo(await spanning(path, also));
+}
+
+// labelOf is what the machine is called on screen, or its name.
+async function labelOf(at: Server, machine: string): Promise<string> {
+  const found = (await hosts(at).catch(() => [] as Host[])).find(
+    (host) => host.name === machine,
+  );
+  return found?.label ?? machine;
+}
+
+// carried is the document to take with the session, read here and written in
+// once it is serving. Only when the machine it runs on has not got it already.
+async function carried(
+  at: Server,
+  chosen: Chosen,
+  home: string,
+): Promise<{ name: string; body: string } | undefined> {
+  // The plan decides, not the field: a document picked on the Design row and
+  // left behind by a switch to Work must not be shipped into a named session.
+  if (!sessionPlan(chosen).carried) return undefined;
+  const here = chosen.machine ? localCounterpart(home) : home;
+  if (!here) throw new Error(`no checkout here to read ${chosen.design} from`);
+  const got = await askLauncher<{ body: string }>(
+    at,
+    `/api/design?dir=${encodeURIComponent(here)}&file=${encodeURIComponent(chosen.design)}`,
+  );
+  return { name: chosen.design, body: got.body };
+}
+
+// spanning is what the window opens: the worktree, or a workspace file over
+// every repository the session was started across, home first.
+async function spanning(path: string, also: string[]): Promise<string> {
+  if (also.length === 0) return path;
+  try {
+    const dir = await gitDir(path);
+    if (!dir) return path;
+    // Where ade create put them, not where the screen predicted: a branch
+    // already checked out elsewhere is worked in where it is.
+    const made = await sessionMounts(join(dir, "ade", "session.json"));
+    if (made.length === 0) return path;
+    const file = join(dir, "ade", "session.code-workspace");
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(join(dir, "ade")));
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(file),
+      Buffer.from(multiRoot(path, made), "utf8"),
+    );
+    return file;
+  } catch {
+    return path;
+  }
+}
+
+// sessionMounts is the other checkouts this session may edit, as the session's
+// own mounts file records them.
+async function sessionMounts(file: string): Promise<string[]> {
+  const raw = await localFiles.text(file);
+  if (raw === undefined) return [];
+  const held = JSON.parse(raw) as { paths?: { path: string; rw?: boolean }[] };
+  return (held.paths ?? []).filter((one) => one.rw).map((one) => one.path);
 }
 
 // A name is a branch: the session gets a document and a worktree of its own.

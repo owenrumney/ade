@@ -399,6 +399,46 @@ func AddWorktree(ctx context.Context, root, path, branch string) error {
 	return nil
 }
 
+// HasBranch reports whether the repository already has this branch.
+func HasBranch(ctx context.Context, root, branch string) bool {
+	_, err := run(ctx, root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+// WorktreeOn is where this repository has branch checked out, or empty. Git
+// refuses a second checkout of a branch, so the caller reuses what it names.
+func WorktreeOn(ctx context.Context, root, branch string) string {
+	out, err := run(ctx, root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return ""
+	}
+	at := ""
+	for _, line := range strings.Split(out, "\n") {
+		if after, ok := strings.CutPrefix(line, "worktree "); ok {
+			at = strings.TrimSpace(after)
+		}
+		if after, ok := strings.CutPrefix(line, "branch "); ok && strings.TrimSpace(after) == "refs/heads/"+branch {
+			return at
+		}
+	}
+	return ""
+}
+
+// AddWorktreeOn checks a branch the repository already has out at path: the
+// second repository to get a session's branch is not creating it.
+func AddWorktreeOn(ctx context.Context, root, path, branch string) error {
+	if path == "" || branch == "" {
+		return fmt.Errorf("a worktree needs a path and a branch")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	}
+	if _, err := run(ctx, root, "worktree", "add", path, branch); err != nil {
+		return fmt.Errorf("git worktree add failed: %w", err)
+	}
+	return nil
+}
+
 // BaseBranch is the first of the usual base branches the repository has, or
 // empty when it has none of them.
 func BaseBranch(ctx context.Context, root string) string {

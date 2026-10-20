@@ -59,7 +59,7 @@ type Server struct {
 	// in so it can watch what happens around it without spawning a process.
 	open func(ctx context.Context, dir, agent, model, sessionID string) (string, error)
 	// create stands in for `ade create <name>`, as open does for a plain start.
-	create func(ctx context.Context, dir, name, agent, model string) (string, string, error)
+	create func(ctx context.Context, dir string, work sessions.Work) (string, string, error)
 	// locate resolves a session id to the checkout and port serving it, for
 	// the proxy. nil is the real scan.
 	locate func(ctx context.Context, id string) (string, int, bool)
@@ -385,6 +385,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/limits/window", s.guard(s.handleWindowSpend))
 	mux.HandleFunc("GET /api/stats", s.guard(s.handleStats))
 	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
+	mux.HandleFunc("GET /api/designs", s.guard(s.handleDesigns))
+	mux.HandleFunc("GET /api/design", s.guard(s.handleDesign))
 	mux.HandleFunc("GET /api/disk", s.guard(s.handleDisk))
 	mux.HandleFunc("GET /api/disk/detail", s.guard(s.handleDiskDetail))
 	mux.HandleFunc("POST /api/disk/purge", s.guard(s.handleDiskPurge))
@@ -601,43 +603,65 @@ func (s *Server) openIn(ctx context.Context, dir, agent, sessionID string) (stri
 }
 
 func (s *Server) openOn(ctx context.Context, dir, agent, model, sessionID string) (string, error) {
+	return s.openWith(ctx, dir, sessions.Start{Agent: agent, Model: model, Session: sessionID})
+}
+
+// openWith is openOn with everything the screen can ask for. The stand-in
+// takes the four it always did: it starts no process for the rest to reach.
+func (s *Server) openWith(ctx context.Context, dir string, st sessions.Start) (string, error) {
 	if s.open != nil {
-		return s.open(ctx, dir, agent, model, sessionID)
+		return s.open(ctx, dir, st.Agent, st.Model, st.Session)
 	}
-	return sessions.OpenOn(ctx, dir, agent, model, sessionID)
+	return sessions.OpenWith(ctx, dir, st)
+}
+
+// openRequest is what every door to a session asks for. Named because the
+// machine case hands the whole thing on to that machine's launcher.
+type openRequest struct {
+	Dir string `json:"dir"`
+	ID  string `json:"id"`
+	// Direct is the session's own address rather than this launcher's
+	// proxy. A browser wants one origin and does not send it.
+	Direct bool `json:"direct"`
+	// Machine is the launcher that can read that checkout's token.
+	Machine string `json:"machine"`
+	// Agent and Model are what a new session starts on. Both empty is the
+	// configured default, which is what every other door here asks for.
+	Agent string `json:"agent"`
+	Model string `json:"model"`
+	// Fresh starts a conversation rather than reopening the last one. An
+	// empty id means "whatever this was last in", which New session is not.
+	Fresh bool `json:"fresh,omitempty"`
+	// Prompt is the first message, sent once the session is serving.
+	Prompt string `json:"prompt,omitempty"`
+	// Brief is a design document to write into the session, and whether to
+	// build from it. How a build reaches a machine that has no copy of it.
+	Brief *Brief `json:"brief,omitempty"`
+	// Name makes a workspace for the session rather than using this
+	// checkout: a document, and a worktree on the branch it names.
+	Name string `json:"name,omitempty"`
+	// Also are other checkouts the session works in, a worktree each on the
+	// same branch. Dir is home: the agent and the document go there.
+	Also []string `json:"also,omitempty"`
+	// Role is the prompt from ~/.ade/roles this session starts under.
+	Role string `json:"role,omitempty"`
+	// Sandbox, when sent, is the container said rather than whatever the
+	// checkout remembered. The screen shows the toggle, so it is said.
+	Sandbox *bool `json:"sandbox,omitempty"`
 }
 
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Dir string `json:"dir"`
-		ID  string `json:"id"`
-		// Direct is the session's own address rather than this launcher's
-		// proxy. A browser wants one origin and does not send it.
-		Direct bool `json:"direct"`
-		// Machine is the launcher that can read that checkout's token.
-		Machine string `json:"machine"`
-		// Agent and Model are what a new session starts on. Both empty is the
-		// configured default, which is what every other door here asks for.
-		Agent string `json:"agent"`
-		Model string `json:"model"`
-		// Fresh starts a conversation rather than reopening the last one. An
-		// empty id means "whatever this was last in", which New session is not.
-		Fresh bool `json:"fresh,omitempty"`
-		// Prompt is the first message, sent once the session is serving.
-		Prompt string `json:"prompt,omitempty"`
-		// Brief is a design document to write into the session, and whether to
-		// build from it. How a build reaches a machine that has no copy of it.
-		Brief *Brief `json:"brief,omitempty"`
-		// Name makes a workspace for the session rather than using this
-		// checkout: a document, and a worktree on the branch it names.
-		Name string `json:"name,omitempty"`
-	}
+	var req openRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "could not read that request")
 		return
 	}
 	if req.Machine != "" {
-		s.openOnHost(w, r, req.Machine, req.Dir, req.ID, req.Agent, req.Model, req.Direct, req.Fresh, req.Prompt, req.Brief)
+		if len(req.Also) > 0 {
+			writeError(w, http.StatusBadRequest, "a session on another machine works in one repository")
+			return
+		}
+		s.openOnHost(w, r, req)
 		return
 	}
 
@@ -661,7 +685,18 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		dir = found
 	}
 	if name := strings.TrimSpace(req.Name); name != "" {
-		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), name, req.Agent, req.Model, req.Prompt)
+		also, err := s.checkouts(all, req.Also)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), req.Prompt,
+			sessions.Work{Name: name, Agent: req.Agent, Model: req.Model, Role: req.Role, Also: also, Sandbox: req.Sandbox},
+			req.Brief)
+		return
+	}
+	if len(req.Also) > 0 {
+		writeError(w, http.StatusBadRequest, "more than one repository needs a name: the branch is what the others are checked out on")
 		return
 	}
 
@@ -707,7 +742,9 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	// One server per checkout. ade itself finds the one already serving this
 	// directory and hands the session to it, so this is the same either way.
-	url, err := s.openOn(s.ctx, dir.Path, agent, model, id)
+	url, err := s.openWith(s.ctx, dir.Path, sessions.Start{
+		Agent: agent, Model: model, Session: id, Role: req.Role, Sandbox: req.Sandbox,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -763,39 +800,59 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 
 // openWorkspace is `ade create <name>` from the tree: the document, the
 // worktree on its branch, and the session, which is told what to start on.
-func (s *Server) openWorkspace(w http.ResponseWriter, dir, name, agent, model, prompt string) {
-	agent, model, err := picked(agent, model)
+func (s *Server) openWorkspace(w http.ResponseWriter, dir, prompt string, work sessions.Work, brief *Brief) {
+	agent, model, err := picked(work.Agent, work.Model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	work.Agent, work.Model = agent, model
 	create := s.create
 	if create == nil {
-		create = sessions.CreateNamed
+		create = sessions.CreateWork
 	}
-	url, path, err := create(s.ctx, dir, name, agent, model)
+	url, path, err := create(s.ctx, dir, work)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	sendFirstMessage(s.ctx, url, prompt)
+	// Before the first message, as the plain open does: a message answered
+	// without the brief is answered against the skeleton create just wrote.
+	briefErr := sendBrief(s.ctx, url, brief)
+	if briefErr == nil {
+		sendFirstMessage(s.ctx, url, prompt)
+	}
 	s.hub.Broadcast("repos", nil)
 	s.notifyPorts()
+	if briefErr != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"url": url, "path": path, "error": briefErr.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
+}
+
+// scratchRequest is what the new-session screen's Scratch row asks for. Every
+// default it shows is on it: a row that displays a choice must send it.
+type scratchRequest struct {
+	Name    string `json:"name"`
+	Machine string `json:"machine"`
+	// Agent and Model are what the new session starts on, as /api/open takes
+	// them. Both empty is the configured default.
+	Agent string `json:"agent"`
+	Model string `json:"model"`
+	// Role is the prompt from ~/.ade/roles this session starts under.
+	Role string `json:"role,omitempty"`
+	// Sandbox, when sent, is the container said rather than remembered.
+	Sandbox *bool `json:"sandbox,omitempty"`
+	// Prompt is the first message, sent once the session is serving.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // handleScratch makes a checkout for work with nowhere to live yet and opens
 // a ade in it. Everywhere else here starts a session in a directory you named;
 // this is the one that has none to name.
 func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name    string `json:"name"`
-		Machine string `json:"machine"`
-		// Agent and Model are what the new session starts on, as /api/open
-		// takes them. Both empty is the configured default.
-		Agent string `json:"agent"`
-		Model string `json:"model"`
-	}
+	var req scratchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "could not read that request")
 		return
@@ -805,8 +862,9 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if machine := strings.TrimSpace(req.Machine); machine != "" {
-		s.scratchOnHost(w, r, machine, req.Name, agent, model)
+	req.Agent, req.Model = agent, model
+	if strings.TrimSpace(req.Machine) != "" {
+		s.scratchOnHost(w, r, req)
 		return
 	}
 
@@ -816,11 +874,15 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url, err := s.openOn(s.ctx, dir, agent, model, "")
+	url, err := s.openWith(s.ctx, dir, sessions.Start{
+		Agent: agent, Model: model, Role: req.Role, Sandbox: req.Sandbox,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Before the proxy rewrite: the session answers on its own address.
+	sendFirstMessage(s.ctx, url, req.Prompt)
 	if httpx.Wide() {
 		via, ok := s.proxyURL(r, s.announcedFor(dir))
 		if !ok {
@@ -1180,6 +1242,31 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, view)
 }
+
+// checkouts resolves the other repositories a session spans, as the one it
+// starts in is resolved. Not a checkout is an error: dropping it says nothing.
+func (s *Server) checkouts(all []sessions.Repo, paths []string) ([]string, error) {
+	if len(paths) > maxAlso {
+		return nil, fmt.Errorf("a session spans at most %d other repositories", maxAlso)
+	}
+	out := make([]string, 0, len(paths))
+	for _, want := range paths {
+		dir, listed := sessions.FindCheckout(all, want)
+		if !listed {
+			found, ok := browsed(want)
+			if !ok {
+				return nil, fmt.Errorf("%s is not a checkout on this machine", want)
+			}
+			dir = found
+		}
+		out = append(out, cmp.Or(dir.Main, dir.Path))
+	}
+	return out, nil
+}
+
+// maxAlso bounds the extra repositories: each is a worktree and, when the
+// branch is new, a fetch, all inside the one request the caller waits on.
+const maxAlso = 8
 
 // browsed is a checkout named by the picker rather than found by the scan. An
 // absolute path that really holds a repository, and nothing else.

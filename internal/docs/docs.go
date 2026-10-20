@@ -280,6 +280,23 @@ func Read(dir, file string) (string, error) {
 	return string(body), nil
 }
 
+// ReadBounded is Read under the cap Save and Put enforce, for a document about
+// to be copied over the wire rather than opened here.
+func ReadBounded(dir, file string) (string, error) {
+	full, err := Resolve(dir, file)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", err
+	}
+	if info.Size() > maxDocBytes {
+		return "", fmt.Errorf("%s is too large to carry", file)
+	}
+	return Read(dir, file)
+}
+
 // Version fingerprints a document's contents, so a watcher can tell that the
 // agent has rewritten it. Empty when there is nothing to read, which reads as
 // "no document" rather than as a change.
