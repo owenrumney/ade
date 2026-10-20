@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import puppeteer from "puppeteer-core";
-import { build as buildEditorChat, buildCommit as buildEditorCommit, buildNewSession as buildEditorNewSession, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
+import { build as buildEditorChat, buildCommit as buildEditorCommit, buildDesignPrune as buildEditorDesignPrune, buildNewSession as buildEditorNewSession, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
 import { address, run as runCommand, settle } from "./workbench.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -628,6 +628,13 @@ const EDITOR_VIEWS = [
     viewport: { width: 1100, height: 720 },
     steps: [{ find: ".row.free .pick input" }, { waitFor: ".bar .remove" }],
   },
+  // The design prune panel: one repository swept, one that could not be, and
+  // one still going.
+  {
+    name: "editor-designprune",
+    viewport: { width: 1100, height: 720 },
+    steps: [{ waitFor: ".bar .go" }],
+  },
   // The quiz: a question just marked, and the scorecard it ends on.
   {
     name: "editor-quiz",
@@ -1164,7 +1171,7 @@ try {
     // Each of these has a builder of its own, so none of them wants the
     // chat harness. The worktree views are matched by prefix: there are three.
     const own = (name) =>
-      ["editor-settings", "editor-commit", "editor-purge"].includes(name) ||
+      ["editor-settings", "editor-commit", "editor-purge", "editor-designprune"].includes(name) ||
       name.startsWith("editor-worktrees") ||
       name.startsWith("editor-newsession") ||
       name.startsWith("editor-quiz");
@@ -1182,6 +1189,9 @@ try {
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-purge")), (p) =>
       buildEditorPurge(p, repoRoot),
+    );
+    await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-designprune")), (p) =>
+      buildEditorDesignPrune(p, repoRoot),
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name.startsWith("editor-newsession") && view.name !== "editor-newsession-elsewhere")), (p) =>
       buildEditorNewSession(p, repoRoot),

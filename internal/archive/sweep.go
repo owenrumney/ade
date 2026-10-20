@@ -3,9 +3,11 @@ package archive
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/ghpr"
@@ -140,4 +142,42 @@ func Find(root, commonGitDir, override, name string) (Doc, error) {
 		return Doc{Dir: dir, File: filepath.ToSlash(rel)}, nil
 	}
 	return Doc{}, fmt.Errorf("no document called %s", name)
+}
+
+// Stale is a design document whose name no branch and no pull request ever
+// matched, with when the file was last written.
+type Stale struct {
+	Doc
+	Stem string `json:"stem"`
+	// Touched is the file's mtime: these documents are never in a commit, so
+	// git has no date for them.
+	Touched time.Time `json:"touched"`
+}
+
+// Unmatched is every document the sweep cannot see: no branch, open or gone,
+// and no pull request shares its name. Most of what accumulates is these.
+func Unmatched(st State) []Stale {
+	known := map[string]bool{}
+	for _, branch := range st.Branches {
+		known[strings.ToLower(docs.LastSegment(branch))] = true
+	}
+	for _, head := range st.Heads {
+		known[strings.ToLower(docs.LastSegment(head.Branch))] = true
+	}
+	out := []Stale{}
+	for _, doc := range st.Docs {
+		stem := docs.Stem(doc.File)
+		if known[strings.ToLower(stem)] {
+			continue
+		}
+		stale := Stale{Doc: doc, Stem: stem}
+		if full, err := docs.Resolve(doc.Dir, doc.File); err == nil {
+			if info, err := os.Stat(full); err == nil {
+				stale.Touched = info.ModTime()
+			}
+		}
+		out = append(out, stale)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out
 }

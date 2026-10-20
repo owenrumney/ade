@@ -3,6 +3,7 @@
 # result as one baseline commit so `git diff` in the tree is an ade patch.
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
+editor_lock
 
 cd "$vscode"
 git reset -q --hard "$MS_COMMIT"
@@ -23,4 +24,5 @@ mv product.json.ade product.json
 grep -qx 'extensions/ade/' .git/info/exclude || echo 'extensions/ade/' >> .git/info/exclude
 git add -A
 git -c user.email=ade@local -c user.name=ade commit --no-verify -qm "ADE BASELINE: vscodium patches, ade patches, product overlay"
-echo "prepared: $(git rev-parse --short HEAD)"
+editor_record
+echo "prepared: $(git rev-parse --short HEAD) in $codium"

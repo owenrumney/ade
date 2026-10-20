@@ -25,10 +25,12 @@ import (
 	"github.com/owenrumney/ade/internal/httpx"
 	"github.com/owenrumney/ade/internal/netcheck"
 
+	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/concierge"
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/hub"
+	"github.com/owenrumney/ade/internal/jobs"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
 	"github.com/owenrumney/ade/internal/provision"
@@ -60,6 +62,12 @@ type Server struct {
 	open func(ctx context.Context, dir, agent, model, sessionID string) (string, error)
 	// create stands in for `ade create <name>`, as open does for a plain start.
 	create func(ctx context.Context, dir string, work sessions.Work) (string, string, error)
+	// look reads one checkout's design state for the prune panel. nil is
+	// archive.Look; a test stands one in so no `gh` is run.
+	look func(ctx context.Context, target jobs.ArchiveTarget) (archive.State, error)
+	// archiving is the archive gate, one deep: the prune panel and the
+	// design-archive job must not take the same document at once.
+	archiving chan struct{}
 	// locate resolves a session id to the checkout and port serving it, for
 	// the proxy. nil is the real scan.
 	locate func(ctx context.Context, id string) (string, int, bool)
@@ -206,6 +214,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 	}
 	s := &Server{
 		token:     newToken(),
+		archiving: make(chan struct{}, 1),
 		home:      home,
 		idle:      idle,
 		every:     idleCheck,
@@ -387,6 +396,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
 	mux.HandleFunc("GET /api/designs", s.guard(s.handleDesigns))
 	mux.HandleFunc("GET /api/design", s.guard(s.handleDesign))
+	mux.HandleFunc("GET /api/designs/repos", s.guard(s.handleDesignRepos))
+	mux.HandleFunc("GET /api/designs/prunable", s.guard(s.handleDesignsPrunable))
+	mux.HandleFunc("POST /api/designs/archive", s.guard(s.handleDesignArchive))
 	mux.HandleFunc("GET /api/disk", s.guard(s.handleDisk))
 	mux.HandleFunc("GET /api/disk/detail", s.guard(s.handleDiskDetail))
 	mux.HandleFunc("POST /api/disk/purge", s.guard(s.handleDiskPurge))

@@ -209,7 +209,13 @@ ade is its own editor: VSCodium's scripts over a pinned vscode, ade's patches
 in `editor/patches`, the extension built in. The plan and the reasoning are in
 `.git/ade/docs/editor-fork.md`; the ignored build tree is `editor/vscodium`.
 
-- `make editor-fetch` once; `make editor-prepare` after a patch or pin change
+**The build tree is shared by every worktree**, beside the main checkout, so a
+worktree never fetches or `npm ci`s its own. It holds one branch's patches at a
+time: `editor-dev`, `editor-package` and `editor-reh` refuse when the tree was
+prepared from another checkout, and the answer is `make editor-prepare` here.
+See `.git/ade/docs/shared-editor-build-tree.md`.
+
+- `make editor-fetch` once per machine; `make editor-prepare` after a patch or pin change
   (ten minutes, it is `npm ci`); `make editor-dev` runs from source,
   `COMPILE=1` after a source change; `make editor-package` builds `ADE.app`.
 - The vscode tree holds one `ADE BASELINE` commit. Edit source, then

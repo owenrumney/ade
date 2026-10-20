@@ -4,6 +4,8 @@
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
 
+editor_check
+
 compile=no
 if [ "${1:-}" = "-c" ]; then compile=yes; shift; fi
 cd "$vscode"

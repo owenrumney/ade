@@ -94,6 +94,7 @@ export class EventEmitter<T> {
 }
 
 export const workspace = {
+  openTextDocument: async (..._args: unknown[]): Promise<unknown> => ({}),
   getConfiguration: (_section?: string) => ({
     get: <T>(_key: string, fallback?: T): T | undefined => fallback,
   }),
@@ -125,6 +126,11 @@ export const window = {
   }),
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> =>
     undefined,
+  tabGroups: {
+    all: [] as { tabs: { input?: unknown }[] }[],
+    close: async (_tabs: unknown): Promise<boolean> => true,
+  },
+  showTextDocument: async (..._args: unknown[]): Promise<unknown> => undefined,
   setStatusBarMessage: (_text: string, _hide?: number) => ({ dispose() {} }),
   withProgress: <R>(_options: unknown, work: () => Promise<R>): Promise<R> =>
     work(),

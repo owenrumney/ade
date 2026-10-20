@@ -147,6 +147,13 @@ func (s *Server) archiveDesigns(ctx context.Context) jobs.Outcome {
 		}
 		model = jobs.ArchiveModel("", dir)
 	}
+	// The same gate the prune panel takes: the two must not reach for the
+	// same document at once.
+	release, err := s.holdArchive(ctx)
+	if err != nil {
+		return jobs.Outcome{FiredAt: started, Error: err.Error()}
+	}
+	defer release()
 	out := jobs.FireArchive(ctx, s.distillStore(), jobs.ArchiveTargets(ctx, repos), model)
 	s.refreshWiki()
 	return out
