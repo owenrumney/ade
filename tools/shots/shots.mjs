@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import puppeteer from "puppeteer-core";
-import { build as buildEditorChat, buildCommit as buildEditorCommit, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
+import { build as buildEditorChat, buildCommit as buildEditorCommit, buildNewSession as buildEditorNewSession, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
 import { address, run as runCommand, settle } from "./workbench.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -649,6 +649,26 @@ const EDITOR_VIEWS = [
       { waitFor: ".tally" },
     ],
   },
+  // The new-session screen: the five ways in, two repositories ticked, and
+  // what it would make listed before you press Start.
+  { name: "editor-newsession", viewport: { width: 1100, height: 820 }, steps: [] },
+  {
+    name: "editor-newsession-design",
+    viewport: { width: 1100, height: 780 },
+    steps: [{ click: ".mode-label", text: "Design" }, { waitFor: ".make" }],
+  },
+  // Starting on another machine: the documents here are offered too, and the
+  // one picked is copied over when it starts.
+  {
+    name: "editor-newsession-elsewhere",
+    viewport: { width: 1100, height: 720 },
+    steps: [{ click: ".mode-label", text: "Design" }, { waitFor: ".make" }],
+  },
+  {
+    name: "editor-newsession-direct",
+    viewport: { width: 1100, height: 760 },
+    steps: [{ click: ".mode-label", text: "Direct" }, { waitFor: ".make" }],
+  },
   { name: "editor-chat", viewport: { width: 900, height: 900 }, steps: [] },
   { name: "editor-chat-wide", viewport: { width: 1800, height: 900 }, steps: [] },
   // A failing check's verdict, folded open: the note and its output.
@@ -1146,6 +1166,7 @@ try {
     const own = (name) =>
       ["editor-settings", "editor-commit", "editor-purge"].includes(name) ||
       name.startsWith("editor-worktrees") ||
+      name.startsWith("editor-newsession") ||
       name.startsWith("editor-quiz");
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => !own(view.name))), (p) =>
       buildEditorChat(p, repoRoot),
@@ -1161,6 +1182,12 @@ try {
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-purge")), (p) =>
       buildEditorPurge(p, repoRoot),
+    );
+    await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name.startsWith("editor-newsession") && view.name !== "editor-newsession-elsewhere")), (p) =>
+      buildEditorNewSession(p, repoRoot),
+    );
+    await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-newsession-elsewhere")), (p) =>
+      buildEditorNewSession(p, repoRoot, true),
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name.startsWith("editor-quiz"))), (p) =>
       buildEditorQuiz(p, repoRoot),

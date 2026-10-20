@@ -411,7 +411,7 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 	s := &Server{
 		hub:             httpx.NewHub(),
 		token:           newToken(),
-		agent:           newProviderAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.CodexBin, cfg.Provider, cfg.Model, cfg.AutoCompact, sandboxConfig{On: cfg.Sandbox, Explicit: cfg.SandboxExplicit, GitDir: cfg.CommonGitDir, Workspace: sandbox.WorkspacePath(cfg.CommonGitDir)}, runlog.Open(runlog.Path(cfg.GitDir))),
+		agent:           newProviderAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.CodexBin, cfg.Provider, cfg.Model, cfg.AutoCompact, sandboxConfig{On: cfg.Sandbox, Explicit: cfg.SandboxExplicit, GitDir: cfg.CommonGitDir, Workspace: sandbox.WorkspacePath(cfg.CommonGitDir), Own: sandbox.SessionPath(cfg.GitDir)}, runlog.Open(runlog.Path(cfg.GitDir))),
 		ctx:             context.Background(),
 		idle:            cfg.Idle,
 		seedTicket:      cfg.SeedTicket,

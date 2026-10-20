@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/owenrumney/ade/internal/roles"
 )
 
 // after returns the value following flag, or "" if the flag is absent.
@@ -366,4 +368,21 @@ func TestTheCliClaimsItsOwnIdentifier(t *testing.T) {
 	found := regexp.MustCompile(`(?m)^bundle_id="([^"]+)"`).FindAllSubmatch(sign, -1)
 	require.Len(t, found, 1, "tools/sign.sh sets bundle_id once")
 	assert.Equal(t, "uk.co.owenrumney.ade-cli", string(found[0][1]))
+}
+
+func TestASessionStartsInTheRoleItWasAskedFor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, roles.Create("oss-dev", "no employer, no internal conventions"))
+	require.NoError(t, roles.SetDefault("oss-dev"))
+	require.NoError(t, roles.Create("infracost", "pricing is the product"))
+
+	was := activeRole
+	t.Cleanup(func() { activeRole = was })
+
+	UseRole("infracost")
+	assert.Contains(t, after(claudeArgs(Opts{}), "--append-system-prompt"), "pricing is the product")
+
+	// Empty is the machine's own choice, which is what every session had.
+	UseRole("")
+	assert.Contains(t, after(claudeArgs(Opts{}), "--append-system-prompt"), "no employer")
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { badge, summary } from "./checks";
 
 describe("the checks badge", () => {
@@ -69,5 +71,33 @@ describe("the one-line summary", () => {
   it("names the checks, or says there are none", () => {
     expect(summary([])).toBe("no checks configured");
     expect(summary([{ name: "build" }, { name: "vet" }])).toBe("build, vet");
+  });
+});
+
+// GitHub went red, the server polls, and the tree keeps its first load for the
+// life of the window. Asked "is anything failing", both have to be re-read.
+describe("asking whether anything is failing", () => {
+  const extension = readFileSync(join(__dirname, "extension.ts"), "utf8");
+  const body = (() => {
+    const fn = extension.slice(extension.indexOf("async function fixChecks"));
+    return fn.slice(0, fn.indexOf("\n}\n"));
+  })();
+
+  it("asks the server to re-read the pull request first", () => {
+    expect(body).toContain("client.refreshChecks()");
+  });
+
+  it("re-loads the tree rather than taking whatever it loaded once", () => {
+    expect(body).toContain("sessions.refresh()");
+    expect(
+      body,
+      "ready() keeps its promise, so it answers with the load that already happened",
+    ).not.toContain("sessions.ready()");
+  });
+
+  it("re-reads before it decides, not after", () => {
+    expect(body.indexOf("sessions.refresh()")).toBeLessThan(
+      body.indexOf("sessions.failing"),
+    );
   });
 });

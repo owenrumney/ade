@@ -82,6 +82,17 @@ func TestLoadSkipsAHandWrittenOversizedRole(t *testing.T) {
 	assert.Empty(t, list)
 }
 
+func TestASessionsOwnRoleIsReadByNameNotBySelection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, Create("solo", "keep the change small"))
+	require.NoError(t, Create("paired", "use explicit profiles"))
+	require.NoError(t, SetDefault("paired"))
+
+	assert.Equal(t, "keep the change small", Prompt("solo"), "the session's own role, not the selected one")
+	assert.Empty(t, Prompt("gone"), "a deleted role is no role, not a failure to start")
+	assert.Empty(t, Prompt(""))
+}
+
 func stateFor(done []Installed, name string) string {
 	for _, item := range done {
 		if item.Name == name {

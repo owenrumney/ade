@@ -122,7 +122,8 @@ var readGitHubUser = func(ctx context.Context) string {
 
 // openOnHost asks the machine the session is on: only that launcher can read
 // that checkout's token, and the port it names is open here too.
-func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, machine, dir, id, agent, model string, direct, fresh bool, prompt string, brief *Brief) {
+func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, req openRequest) {
+	machine, dir, brief := req.Machine, req.Dir, req.Brief
 	live := s.connection(machine)
 	if live == nil {
 		writeError(w, http.StatusBadRequest, "not connected to "+machine)
@@ -155,7 +156,9 @@ func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, machine, dir
 		}
 		dir, branch = cloned.Path, cloned.Branch
 	}
-	body, err := json.Marshal(map[string]any{"dir": dir, "id": id, "agent": agent, "model": model, "direct": direct, "fresh": fresh, "prompt": prompt, "brief": brief})
+	on := req
+	on.Machine, on.Dir = "", dir
+	body, err := json.Marshal(on)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -171,19 +174,30 @@ func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, machine, dir
 		// It may have opened the session before it failed, and that address is
 		// the only one the caller will get for it.
 		failed := map[string]any{"error": err.Error()}
-		if at := openedURL(answer); at != "" {
+		// The worktree is made before the brief is pushed, so a failed brief
+		// still names the folder a window opens on.
+		if at, made := openedAt(answer); at != "" {
 			waitForward(r.Context(), at)
 			failed["url"] = at
+			if made != "" {
+				failed["path"] = made
+			}
 		}
 		writeJSON(w, http.StatusBadGateway, failed)
 		return
 	}
 	var res struct {
-		URL string `json:"url"`
+		URL  string `json:"url"`
+		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(answer, &res); err != nil || res.URL == "" {
 		writeError(w, http.StatusBadGateway, machine+" did not say where it got to")
 		return
+	}
+	// A named session is a worktree over there, and that is the folder a window
+	// opens on. Only the plain open has nothing to report but the checkout.
+	if res.Path != "" {
+		dir = res.Path
 	}
 	// A forwarded port or nothing: the caller turns this into an origin, and a
 	// machine naming anywhere else is not naming a forward.
@@ -201,13 +215,18 @@ func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, machine, dir
 }
 
 // scratchOnHost asks the selected backend to create its own scratch checkout.
-func (s *Server) scratchOnHost(w http.ResponseWriter, r *http.Request, machine, name, agent, model string) {
+func (s *Server) scratchOnHost(w http.ResponseWriter, r *http.Request, req scratchRequest) {
+	machine := req.Machine
 	live := s.connection(machine)
 	if live == nil {
 		writeError(w, http.StatusBadRequest, "not connected to "+machine)
 		return
 	}
-	body, err := json.Marshal(map[string]string{"name": name, "agent": agent, "model": model})
+	// The whole request, machine cleared so it cannot loop: every default the
+	// screen showed has to reach the machine that acts on it.
+	on := req
+	on.Machine = ""
+	body, err := json.Marshal(on)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -233,15 +252,17 @@ func (s *Server) scratchOnHost(w http.ResponseWriter, r *http.Request, machine, 
 	writeJSON(w, http.StatusOK, map[string]any{"url": res.URL, "path": res.Path})
 }
 
-// openedURL is the session address in an answer: a forwarded port or nothing.
-func openedURL(answer []byte) string {
+// openedAt is the session address in an answer, and the worktree it got to: a
+// forwarded port or nothing.
+func openedAt(answer []byte) (string, string) {
 	var res struct {
-		URL string `json:"url"`
+		URL  string `json:"url"`
+		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(answer, &res); err != nil || res.URL == "" || !loopbackURL(res.URL) {
-		return ""
+		return "", ""
 	}
-	return res.URL
+	return res.URL, res.Path
 }
 
 func loopbackURL(address string) bool {
