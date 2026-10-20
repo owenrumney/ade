@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Package the editor the way VSCodium's build.sh does on macOS, minus the rust
-# cli. Leaves editor/vscodium/VSCode-darwin-arm64/ADE.app.
+# cli. Leaves VSCode-darwin-arm64/ADE.app in the shared build tree.
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
 
+editor_check
 "$root/tools/editor/sync.sh"
 cd "$vscode"
 export VSCODE_PUBLISH_COUNTER=1

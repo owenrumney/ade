@@ -25,6 +25,8 @@ export SHOULD_BUILD_REH_WEB="no"
 
 . "$(dirname "$0")/common.sh"
 
+editor_check
+
 # ade's own extension goes in as a builtin, so the server carries it.
 "$root/tools/editor/sync.sh"
 

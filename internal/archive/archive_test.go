@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,4 +167,32 @@ func TestOpenWinsOverAnEarlierPullRequestOfTheSameName(t *testing.T) {
 	merged, abandoned := Sweep(st)
 	assert.Empty(t, merged)
 	assert.Empty(t, abandoned, "work in flight is neither")
+}
+
+func TestUnmatchedIsEveryDocumentNoBranchEverMatched(t *testing.T) {
+	st := State{
+		Docs: []Doc{
+			{Dir: "/d", File: "purge-design-docs.md"},
+			{Dir: "/d", File: "quiz.md"},
+			{Dir: "/d", File: "my-notes.md"},
+		},
+		Branches: []string{"main", "feat/quiz"},
+		Heads: []ghpr.Head{
+			{Number: 8, Branch: "feat/purge-design-docs", State: "MERGED"},
+		},
+	}
+
+	stale := Unmatched(st)
+	require.Len(t, stale, 1, "the swept two are in their own groups")
+	assert.Equal(t, "my-notes.md", stale[0].File)
+	assert.Equal(t, "my-notes", stale[0].Stem)
+	assert.True(t, stale[0].Touched.IsZero(), "no such file, so no date rather than the epoch")
+}
+
+func TestUnmatchedDatesTheDocumentFromItsFile(t *testing.T) {
+	d := doc(t, "# X\n")
+	stale := Unmatched(State{Docs: []Doc{d}})
+	require.Len(t, stale, 1)
+	assert.WithinDuration(t, time.Now(), stale[0].Touched, time.Minute,
+		"these files are never in a commit, so the mtime is the only date")
 }

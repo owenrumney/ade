@@ -385,6 +385,8 @@ import {
 import { multiRoot } from "./multiroot";
 import { PurgePage } from "./purgeview";
 import type { Sweep } from "./purgepanel/view";
+import { DesignPrunePage, type Archived } from "./designpruneview";
+import type { Prunable, WikiState } from "./designprunepanel/view";
 import { QuizPage } from "./quizview";
 import type { Repo as RepoStats } from "./repo/view";
 import type { Board, Do } from "./dashboard/view";
@@ -805,6 +807,7 @@ let dashboard: Dashboard;
 let repoPage: RepoPage;
 let newSessionPage: NewSessionPage;
 let purgePage: PurgePage;
+let designPrunePage: DesignPrunePage;
 let quizPage: QuizPage;
 let sessions: Sessions;
 let design: Design;
@@ -906,12 +909,19 @@ export async function activate(
     startChosen,
   );
   purgePage = new PurgePage(context, sweepNow, pruneIn);
+  designPrunePage = new DesignPrunePage(
+    context,
+    designRepos,
+    prunableIn,
+    archiveDesign,
+  );
   quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
     dashboard,
     repoPage,
     newSessionPage,
     purgePage,
+    designPrunePage,
     quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
       deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
@@ -1212,6 +1222,10 @@ export async function activate(
     vscode.commands.registerCommand(
       "ade.purgeWorktrees",
       () => void purgePage.show(),
+    ),
+    vscode.commands.registerCommand(
+      "ade.purgeDesigns",
+      () => void designPrunePage.show(),
     ),
     vscode.commands.registerCommand("ade.quizMe", () => void quizPage.show()),
     vscode.commands.registerCommand("ade.showGraph", () => void showGraph()),
@@ -4336,6 +4350,41 @@ async function sweepNow(fresh: boolean): Promise<Sweep> {
     launcher,
     `/api/worktrees/all${fresh ? "?fresh=1" : ""}`,
   );
+}
+
+// designRepos is every repository the launcher holds designs for, and the
+// wiki state. A session server only knows the checkout it started in.
+async function designRepos(): Promise<{
+  repos: { repo: string }[];
+  wiki?: WikiState;
+}> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<{ repos: { repo: string }[]; wiki?: WikiState }>(
+    launcher,
+    "/api/designs/repos",
+  );
+}
+
+// prunableIn is one repository's read-only sweep. One call per repository,
+// because each is a `gh pr list`: a repo that hangs hangs its own row.
+async function prunableIn(repo: string): Promise<Prunable> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return askLauncher<Prunable>(
+    launcher,
+    `/api/designs/prunable?repo=${encodeURIComponent(repo)}`,
+  );
+}
+
+// archiveDesign publishes one document and deletes the local file.
+async function archiveDesign(repo: string, file: string): Promise<Archived> {
+  launcher = await findLauncher();
+  if (!launcher) throw new Error("the launcher is not running");
+  return tellLauncher<Archived>(launcher, "/api/designs/archive", {
+    repo,
+    file,
+  });
 }
 
 // pruneIn removes one repository's worktrees, through the launcher: a server

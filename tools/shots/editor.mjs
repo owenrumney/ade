@@ -485,6 +485,61 @@ export async function buildPurge(page, repoRoot) {
   await page.waitForSelector(".rows tbody tr", { timeout: 15000 });
 }
 
+// buildDesignPrune runs the shipped design prune panel over a fixture sweep,
+// drawn from one posted message as the purge panel is.
+export async function buildDesignPrune(page, repoRoot) {
+  const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
+  const docs = "/code/ade/.git/ade/docs";
+  const groups = [
+    {
+      repo: "owenrumney/ade",
+      pending: false,
+      answer: {
+        repo: "owenrumney/ade",
+        merged: [
+          { dir: docs, file: "purge-worktrees.md", stem: "purge-worktrees", number: 11 },
+          { dir: docs, file: "new-session-screen.md", stem: "new-session-screen", number: 16 },
+        ],
+        abandoned: [{ dir: docs, file: "chat-revive.md", stem: "chat-revive", number: 9 }],
+        unmatched: [
+          { dir: docs, file: "old-notes.md", stem: "old-notes", touched: ago(94) },
+          { dir: docs, file: "editor-fork.md", stem: "editor-fork", touched: ago(12) },
+        ],
+        wiki: { enabled: true },
+      },
+    },
+    {
+      repo: "infracost/coast",
+      pending: false,
+      answer: { repo: "infracost/coast", error: "gh: not authenticated" },
+    },
+    { repo: "infracost/worker", pending: true },
+  ];
+
+  await page.evaluate(
+    (vars, state) => {
+      for (const [name, value] of Object.entries(vars))
+        document.documentElement.style.setProperty(`--vscode-${name}`, value);
+      document.body.innerHTML = '<main id="prune"></main>';
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          if (message?.kind !== "ready") return;
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { kind: "state", groups: state, wiki: { enabled: true } },
+            }),
+          );
+        },
+      });
+    },
+    THEME,
+    groups,
+  );
+  await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/designprune.css`, "utf8") });
+  await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/designprune.js`, "utf8") });
+  await page.waitForSelector(".rows tbody tr", { timeout: 15000 });
+}
+
 // buildNewSession runs the shipped new-session screen over a fixture offer.
 // elsewhere is the same screen pointed at a machine that has no documents.
 export async function buildNewSession(page, repoRoot, elsewhere = false) {

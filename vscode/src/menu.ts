@@ -106,6 +106,7 @@ export const GROUPS: { title: string; commands: string[] }[] = [
       "ade.design",
       "ade.grillDesign",
       "ade.condenseDesign",
+      "ade.purgeDesigns",
       "ade.build",
       "ade.newJob",
       "ade.jobs",

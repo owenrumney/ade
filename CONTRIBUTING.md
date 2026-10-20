@@ -286,9 +286,12 @@ licence — there is no separate CLA to sign.
 
 ade ships as its own editor, built from vscode with VSCodium's scripts and
 ade's own patches under `editor/patches`. `make editor-fetch` pulls the
-sources once, `make editor-prepare` applies the patches and installs (about
-ten minutes), `make editor-dev` runs it from source, and `make editor-package`
-builds `ADE.app`. The design doc, `.git/ade/docs/editor-fork.md`, says why and
+sources once per machine, `make editor-prepare` applies the patches and
+installs (about ten minutes), `make editor-dev` runs it from source, and `make
+editor-package` builds `ADE.app`. The build tree is shared by every worktree,
+beside the main checkout, and holds one branch's patches at a time: a build
+refuses and asks for `make editor-prepare` when the patches in it are not
+yours. The design doc, `.git/ade/docs/editor-fork.md`, says why and
 what each patch is for. The extension under `vscode/` is built in, so a change
 there reaches the editor through `make editor-dev`, and the installed `ADE.app`
 through `make editor-package editor-install`.
