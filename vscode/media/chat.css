@@ -16,6 +16,9 @@ body {
   /* What the person typed, in the theme's own terminal green. One property,
      so a theme that wants another voice is one line. */
   --said: var(--vscode-terminal-ansiGreen, var(--vscode-charts-green));
+  /* What the agent says, in the terminal's cyan: a second voice beside the
+     green, and apart from the grey a tool row wears. */
+  --heard: var(--vscode-terminal-ansiBrightCyan, var(--vscode-terminal-ansiCyan));
 }
 
 #list {
@@ -44,6 +47,12 @@ body {
 .msg.you .folded-msg {
   color: var(--said);
 }
+
+.msg.agent .body { color: var(--heard); }
+
+/* Code is quoted, not spoken, so it keeps the editor's own foreground. */
+.msg.agent .body pre,
+.msg.agent .body code { color: var(--vscode-foreground); }
 
 /* The avatar keeps its width while the prose takes the rest; min-width on the
    column is what stops a long unbroken token pushing the circle off. */
