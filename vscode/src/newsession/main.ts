@@ -1,3 +1,5 @@
+import { control } from "../mounts/control";
+import { added } from "../mounts/view";
 import {
   ROWS,
   fresh,
@@ -172,6 +174,23 @@ function defaults(): HTMLElement {
   const toggle = el("label", "toggle");
   toggle.append(sandbox, el("span", "", "Sandboxed"));
   box.append(toggle);
+  return box;
+}
+
+// The container's own section, under the grid: a path is long, and the
+// columns are not. The file is the repository's, so every worktree gets it.
+function mounts(): HTMLElement {
+  const box = el("section", "sandbox");
+  box.append(el("h2", "", "What the container gets"));
+  box.append(
+    control(
+      { paths: state.chosen.mounts, env: state.chosen.env },
+      {
+        change: (draft) => set({ mounts: draft.paths, env: draft.env }),
+        browse: () => host.postMessage({ kind: "browse" }),
+      },
+    ),
+  );
   return box;
 }
 
@@ -387,13 +406,25 @@ function draw(): void {
   if (rowFor(state.chosen.mode).picks) right.append(repos());
   right.append(willMake());
   grid.append(left, right);
-  root.append(grid, foot());
+  root.append(grid);
+  if (state.chosen.sandbox) root.append(mounts());
+  root.append(foot());
 }
 
 window.addEventListener(
   "message",
-  (event: MessageEvent<{ kind?: string } & Partial<Shown>>) => {
+  (event: MessageEvent<{ kind?: string; path?: string } & Partial<Shown>>) => {
     const said = event.data;
+    // A folder the host's dialog answered with: the same add as the row.
+    if (said?.kind === "mounted" && said.path) {
+      const next = added(
+        { paths: state.chosen.mounts, env: state.chosen.env },
+        said.path,
+        false,
+      );
+      if ("draft" in next) set({ mounts: next.draft.paths, env: next.draft.env });
+      return;
+    }
     if (said?.kind === "state") {
       state = { ...state, ...said } as Shown;
       draw();

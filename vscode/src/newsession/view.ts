@@ -1,5 +1,6 @@
 // The new-session screen's shaping: the rows, what each still needs, and the
 // summary of what Start would do. No vscode and no node, so it bundles.
+import type { Mount } from "../sandboxfile";
 
 export type Mode = "work" | "plan" | "design" | "direct" | "scratch";
 
@@ -80,6 +81,10 @@ export interface Chosen {
   model: string;
   role: string;
   sandbox: boolean;
+  // mounts and env are the repository's sandbox, written before the session
+  // starts. Every worktree of it gets them: the file is the repository's.
+  mounts: Mount[];
+  env: { [key: string]: string };
   // repos are ticked in the order they were ticked. The first is home.
   repos: string[];
 }
@@ -127,6 +132,8 @@ export const fresh: Chosen = {
   model: "",
   role: "",
   sandbox: true,
+  mounts: [],
+  env: {},
   repos: [],
 };
 

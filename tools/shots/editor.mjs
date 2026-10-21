@@ -593,6 +593,8 @@ export async function buildNewSession(page, repoRoot, elsewhere = false) {
     model: "claude-opus-5-5",
     role: "infracost",
     sandbox: true,
+    mounts: [{ path: "/Users/owen/go/pkg/mod" }, { path: "/Users/owen/code/infracost/terraform", rw: true }],
+    env: { NPM_TOKEN: "••••••••", TF_PLUGIN_CACHE_DIR: "••••••••" },
     repos: ["/Users/owen/code/infracost/coast", "/Users/owen/code/infracost/worker"],
   };
   const made = elsewhere
@@ -668,10 +670,48 @@ export async function buildNewSession(page, repoRoot, elsewhere = false) {
   await page.addStyleTag({
     content: await readFile(`${repoRoot}/vscode/media/newsession.css`, "utf8"),
   });
+  await page.addStyleTag({
+    content: await readFile(`${repoRoot}/vscode/media/mounts.css`, "utf8"),
+  });
   await page.addScriptTag({
     content: await readFile(`${repoRoot}/vscode/dist/newsession.js`, "utf8"),
   });
   await page.waitForSelector(elsewhere ? ".field" : ".make", { timeout: 15000 });
+}
+
+// buildSandbox runs the shipped sandbox panel over a fixture file: the mounts
+// and the variables as the server hands them over, markers and all.
+export async function buildSandbox(page, repoRoot) {
+  const file = {
+    on: true,
+    runtime: "container-use",
+    path: "/Users/owen/code/infracost/coast",
+    paths: [
+      { path: "/Users/owen/go/pkg/mod" },
+      { path: "/Users/owen/code/infracost/terraform", rw: true },
+      { path: "/Users/owen/.cache/golangci-lint", rw: true },
+    ],
+    env: { NPM_TOKEN: "••••••••", TF_PLUGIN_CACHE_DIR: "••••••••" },
+  };
+  await page.evaluate(
+    (vars, state) => {
+      for (const [name, value] of Object.entries(vars))
+        document.documentElement.style.setProperty(`--vscode-${name}`, value);
+      document.body.innerHTML = '<main id="sandbox"></main>';
+      window.acquireVsCodeApi = () => ({
+        postMessage(message) {
+          if (message?.kind === "ready")
+            window.dispatchEvent(new MessageEvent("message", { data: state }));
+        },
+      });
+    },
+    THEME,
+    { kind: "state", file },
+  );
+  await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/sandbox.css`, "utf8") });
+  await page.addStyleTag({ content: await readFile(`${repoRoot}/vscode/media/mounts.css`, "utf8") });
+  await page.addScriptTag({ content: await readFile(`${repoRoot}/vscode/dist/sandbox.js`, "utf8") });
+  await page.waitForSelector(".mount-row", { timeout: 15000 });
 }
 
 // buildQuiz runs the shipped quiz panel over a fixture set of questions: the

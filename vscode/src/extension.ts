@@ -371,6 +371,7 @@ import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
 import { Dashboard } from "./dashview";
 import { RepoPage } from "./repoview";
+import { SandboxPage } from "./sandboxview";
 import {
   NewSessionPage,
   nothing as noOffer,
@@ -807,6 +808,7 @@ let dashboard: Dashboard;
 let repoPage: RepoPage;
 let newSessionPage: NewSessionPage;
 let purgePage: PurgePage;
+let sandboxPage: SandboxPage;
 let designPrunePage: DesignPrunePage;
 let quizPage: QuizPage;
 let sessions: Sessions;
@@ -909,6 +911,11 @@ export async function activate(
     startChosen,
   );
   purgePage = new PurgePage(context, sweepNow, pruneIn);
+  sandboxPage = new SandboxPage(
+    context,
+    () => serving().sandboxFile(),
+    (body) => serving().saveSandboxFile(body),
+  );
   designPrunePage = new DesignPrunePage(
     context,
     designRepos,
@@ -921,6 +928,7 @@ export async function activate(
     repoPage,
     newSessionPage,
     purgePage,
+    sandboxPage,
     designPrunePage,
     quizPage,
     vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
@@ -1315,6 +1323,7 @@ export async function activate(
       "ade.sandboxFile",
       () => void sandboxFile(),
     ),
+    vscode.commands.registerCommand("ade.sandboxPanel", () => void openSandbox()),
     vscode.commands.registerCommand(
       "ade.refreshTeam",
       () => void refreshTeam(),
@@ -3817,6 +3826,25 @@ function docName(node: unknown): string | undefined {
   return basename(uri.fsPath);
 }
 
+// openSandbox is the panel on its own, for when the list is the point rather
+// than one row of it.
+async function openSandbox(): Promise<void> {
+  if (!client) {
+    void vscode.window.showErrorMessage(
+      "ade: nothing is running for this folder yet.",
+    );
+    return;
+  }
+  await sandboxPage.show();
+}
+
+// serving is the session's own server, for a panel that reads it whenever it
+// is revealed rather than once at activation.
+function serving(): Client {
+  if (!client) throw new Error("nothing is running for this folder yet");
+  return client;
+}
+
 // sandboxFile edits what the repository's sandbox mounts and sets. A run of
 // picks rather than the file: the file holds secrets the server never shows.
 async function sandboxFile(): Promise<void> {
@@ -3831,11 +3859,18 @@ async function sandboxFile(): Promise<void> {
     for (;;) {
       const file = await c.sandboxFile();
       const picked = await pick(
-        sandboxRows(file).map((row) => ({
-          label: row.label,
-          description: row.description,
-          row,
-        })),
+        [
+          {
+            label: "Open the panel…",
+            description: "every mount and variable at once",
+            row: undefined as SandboxRow | undefined,
+          },
+          ...sandboxRows(file).map((row) => ({
+            label: row.label,
+            description: row.description,
+            row: row as SandboxRow | undefined,
+          })),
+        ],
         {
           title: "ade: sandbox mounts and environment",
           placeHolder:
@@ -3843,6 +3878,10 @@ async function sandboxFile(): Promise<void> {
         },
       );
       if (!picked) return;
+      if (!picked.row) {
+        await sandboxPage.show();
+        return;
+      }
       const edit = await sandboxEdit(picked.row);
       if (edit) await c.saveSandboxFile(applySandbox(file, edit));
     }
@@ -6291,6 +6330,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
       prompt: chosen.message.trim(),
       machine: chosen.machine || undefined,
       sandbox: chosen.sandbox,
+      ...sandboxAsked(chosen),
     });
     // The path is that machine's, so it is a window over there and not a
     // folder this disk has never had.
@@ -6328,6 +6368,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
         prompt: chosen.message.trim(),
         machine: chosen.machine || undefined,
         sandbox: chosen.sandbox,
+        ...sandboxAsked(chosen),
       }),
   );
 
@@ -6353,6 +6394,19 @@ async function startChosen(chosen: Chosen): Promise<void> {
     chat: chosen.mode !== "plan" && chosen.mode !== "design",
   });
   await switchTo(await spanning(path, also));
+}
+
+// sandboxAsked is what the screen's mounts control chose, or nothing. Sent
+// only with the container: an unsandboxed session has nothing to let in.
+function sandboxAsked(chosen: Chosen): {
+  mounts?: { path: string; rw?: boolean }[];
+  env?: { [key: string]: string };
+} {
+  if (!chosen.sandbox) return {};
+  const asked: { mounts?: { path: string; rw?: boolean }[]; env?: { [key: string]: string } } = {};
+  if (chosen.mounts.length > 0) asked.mounts = chosen.mounts;
+  if (Object.keys(chosen.env).length > 0) asked.env = chosen.env;
+  return asked;
 }
 
 // labelOf is what the machine is called on screen, or its name.

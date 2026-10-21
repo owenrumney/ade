@@ -35,6 +35,7 @@ import (
 	"github.com/owenrumney/ade/internal/models"
 	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/reviewer"
+	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -660,6 +661,10 @@ type openRequest struct {
 	// Sandbox, when sent, is the container said rather than whatever the
 	// checkout remembered. The screen shows the toggle, so it is said.
 	Sandbox *bool `json:"sandbox,omitempty"`
+	// Mounts and Env go into the repository's sandbox file before the session
+	// starts, over what it already allowed.
+	Mounts []sandbox.Path    `json:"mounts,omitempty"`
+	Env    map[string]string `json:"env,omitempty"`
 }
 
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
@@ -695,6 +700,12 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dir = found
+	}
+	// Before anything starts: a container is built with the mounts the file
+	// had when the turn began, so one written afterwards is a turn too late.
+	if err := writeSandbox(r.Context(), cmp.Or(dir.Main, dir.Path), req.Mounts, req.Env); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if name := strings.TrimSpace(req.Name); name != "" {
 		also, err := s.checkouts(all, req.Also)
@@ -858,6 +869,10 @@ type scratchRequest struct {
 	Sandbox *bool `json:"sandbox,omitempty"`
 	// Prompt is the first message, sent once the session is serving.
 	Prompt string `json:"prompt,omitempty"`
+	// Mounts and Env go into the scratch checkout's sandbox file once it is
+	// made, which is the only repository it will ever be.
+	Mounts []sandbox.Path    `json:"mounts,omitempty"`
+	Env    map[string]string `json:"env,omitempty"`
 }
 
 // handleScratch makes a checkout for work with nowhere to live yet and opens
@@ -883,6 +898,10 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 	dir, err := scratch.New(s.ctx, req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := writeSandbox(r.Context(), dir, req.Mounts, req.Env); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

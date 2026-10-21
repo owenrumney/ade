@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import puppeteer from "puppeteer-core";
-import { build as buildEditorChat, buildCommit as buildEditorCommit, buildDesignPrune as buildEditorDesignPrune, buildNewSession as buildEditorNewSession, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
+import { build as buildEditorChat, buildCommit as buildEditorCommit, buildDesignPrune as buildEditorDesignPrune, buildNewSession as buildEditorNewSession, buildPurge as buildEditorPurge, buildQuiz as buildEditorQuiz, buildSandbox as buildEditorSandbox, buildSettings as buildEditorSettings, buildWorktrees as buildEditorWorktrees } from "./editor.mjs";
 import { address, run as runCommand, settle } from "./workbench.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -656,6 +656,9 @@ const EDITOR_VIEWS = [
       { waitFor: ".tally" },
     ],
   },
+  // The sandbox panel: every mount with its read-only or read-write box, and
+  // the variables, which are keys and never values.
+  { name: "editor-sandbox", viewport: { width: 1000, height: 720 }, steps: [] },
   // The new-session screen: the five ways in, two repositories ticked, and
   // what it would make listed before you press Start.
   { name: "editor-newsession", viewport: { width: 1100, height: 820 }, steps: [] },
@@ -881,6 +884,17 @@ const CODE_VIEWS = [
     name: "code-sandbox",
     viewport: CODE_VIEWPORT,
     steps: [{ run: "ade" }, { type: "Sandbox mounts" }, { pause: 600 }, { press: "Enter" }, { pause: 2000 }],
+  },
+  {
+    name: "code-sandbox-panel",
+    viewport: CODE_VIEWPORT,
+    steps: [
+      { run: "ade" },
+      { type: "environment (panel)" },
+      { pause: 600 },
+      { press: "Enter" },
+      { pause: 3000 },
+    ],
   },
   {
     name: "code-diffroot",
@@ -1171,7 +1185,7 @@ try {
     // Each of these has a builder of its own, so none of them wants the
     // chat harness. The worktree views are matched by prefix: there are three.
     const own = (name) =>
-      ["editor-settings", "editor-commit", "editor-purge", "editor-designprune"].includes(name) ||
+      ["editor-settings", "editor-commit", "editor-purge", "editor-designprune", "editor-sandbox"].includes(name) ||
       name.startsWith("editor-worktrees") ||
       name.startsWith("editor-newsession") ||
       name.startsWith("editor-quiz");
@@ -1198,6 +1212,9 @@ try {
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-newsession-elsewhere")), (p) =>
       buildEditorNewSession(p, repoRoot, true),
+    );
+    await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name === "editor-sandbox")), (p) =>
+      buildEditorSandbox(p, repoRoot),
     );
     await capture(page, serverURL, only(EDITOR_VIEWS.filter((view) => view.name.startsWith("editor-quiz"))), (p) =>
       buildEditorQuiz(p, repoRoot),

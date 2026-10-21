@@ -1,0 +1,77 @@
+/* The mounts control, shared by the sandbox panel and the New session screen.
+   Colours come from the theme, never named here. */
+
+.mounts {
+  max-width: 820px;
+}
+
+.mounts h3 {
+  font-size: var(--vscode-font-size);
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+
+.mounts-summary,
+.mount-value,
+.mount-why {
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 8px;
+}
+
+.mount-row,
+.mount-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.mount-path {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.mount-value {
+  margin: 0;
+}
+
+.mount-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+}
+
+.mount-how {
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  font: inherit;
+}
+
+.mount-do,
+.mount-browse,
+.mount-drop {
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mount-do {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.mount-why:empty {
+  display: none;
+}
