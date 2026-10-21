@@ -1,0 +1,29 @@
+/* The sandbox panel's own chrome. The control it draws is in mounts.css. */
+
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.sub {
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 8px;
+}
+
+.note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-infoBackground);
+  border: 1px solid var(--vscode-inputValidation-infoBorder);
+}

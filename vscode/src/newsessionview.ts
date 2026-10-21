@@ -118,12 +118,30 @@ export class NewSessionPage implements vscode.Disposable {
             plan: plan(this.chosen),
           });
         }
+        if (said.kind === "browse") void this.browse();
         if (said.kind === "start" && said.chosen) {
           this.chosen = said.chosen;
           void this.run();
         }
       },
     );
+  }
+
+  // browse is the folder dialog a webview cannot open for itself. The path
+  // is this machine's; a session elsewhere mounts the path over there.
+  private async browse(): Promise<void> {
+    const [folder] =
+      (await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: "Mount",
+      })) ?? [];
+    if (!folder) return;
+    void this.panel?.webview.postMessage({
+      kind: "mounted",
+      path: folder.fsPath,
+    });
   }
 
   private async run(): Promise<void> {
@@ -179,6 +197,7 @@ export class NewSessionPage implements vscode.Disposable {
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}';" />
     <link rel="stylesheet" href="${asset("media", "newsession.css")}" />
+    <link rel="stylesheet" href="${asset("media", "mounts.css")}" />
   </head>
   <body><main id="newsession"></main>
     <script nonce="${nonce}" src="${asset("dist", "newsession.js")}"></script>

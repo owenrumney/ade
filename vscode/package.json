@@ -404,6 +404,10 @@
         "title": "ade: Sandbox mounts and environment…"
       },
       {
+        "command": "ade.sandboxPanel",
+        "title": "ade: Sandbox mounts and environment (panel)"
+      },
+      {
         "command": "ade.distilMemory",
         "title": "ade: Read the new transcripts for things worth remembering",
         "icon": "$(sparkle)"
@@ -1068,6 +1072,10 @@
         },
         {
           "command": "ade.sandboxFile",
+          "when": "false"
+        },
+        {
+          "command": "ade.sandboxPanel",
           "when": "false"
         },
         {
@@ -2125,7 +2133,7 @@
     ]
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/dashboard/main.ts --bundle --outfile=dist/dashboard.js --format=iife --platform=browser && esbuild src/repo/main.ts --bundle --outfile=dist/repo.js --format=iife --platform=browser && esbuild src/purgepanel/main.ts --bundle --outfile=dist/purge.js --format=iife --platform=browser && esbuild src/designprunepanel/main.ts --bundle --outfile=dist/designprune.js --format=iife --platform=browser && esbuild src/quizpanel/main.ts --bundle --outfile=dist/quiz.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && esbuild src/newsession/main.ts --bundle --outfile=dist/newsession.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/dashboard/main.ts --bundle --outfile=dist/dashboard.js --format=iife --platform=browser && esbuild src/repo/main.ts --bundle --outfile=dist/repo.js --format=iife --platform=browser && esbuild src/purgepanel/main.ts --bundle --outfile=dist/purge.js --format=iife --platform=browser && esbuild src/designprunepanel/main.ts --bundle --outfile=dist/designprune.js --format=iife --platform=browser && esbuild src/quizpanel/main.ts --bundle --outfile=dist/quiz.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && esbuild src/newsession/main.ts --bundle --outfile=dist/newsession.js --format=iife --platform=browser && esbuild src/sandboxpanel/main.ts --bundle --outfile=dist/sandbox.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
     "watch": "npm run build -- --sourcemap --watch",
     "check": "tsc --noEmit",
     "test": "vitest run"

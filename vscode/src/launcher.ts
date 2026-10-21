@@ -865,6 +865,10 @@ export interface Start {
   prompt?: string;
   machine?: string;
   sandbox?: boolean;
+  // mounts and env go into the repository's sandbox file before the session
+  // starts, so the first turn already has them.
+  mounts?: { path: string; rw?: boolean }[];
+  env?: { [key: string]: string };
   // brief is a document carried from this machine, written into the session
   // once it is serving.
   brief?: { name: string; body: string };
