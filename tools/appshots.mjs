@@ -37,7 +37,7 @@ const VIEWS = [
   { name: "app-waiting", place: "Waiting on you" },
   { name: "app-sessions", place: "Sessions" },
   { name: "app-agents", place: "Agents" },
-  { name: "app-terminal", place: "Pull requests", keys: "k", type: "terminal", enter: true },
+  { name: "app-terminal", place: "Terminal" },
   { name: "app-todos", place: "Todos" },
   { name: "app-team", place: "Team" },
   { name: "app-person", place: "Team", row: "kim" },

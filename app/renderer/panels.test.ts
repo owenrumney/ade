@@ -76,10 +76,11 @@ describe("the verbs that are more than one call", () => {
     await commit.onMessage({
       kind: "do",
       what: "commit",
-      title: "a change",
+      message: "a change\n\nThe body.",
       push: true,
     });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit", "/api/push"]);
+    expect(seen[0].body).toEqual({ title: "a change", body: "The body." });
   });
 
   // The server clears its draft when the commit lands, but the page keeps
@@ -103,7 +104,7 @@ describe("the verbs that are more than one call", () => {
   it("does not push when it did not", async () => {
     const { reach, seen } = spy();
     const commit = WHICH["ade.commitPanel"](reach);
-    await commit.onMessage({ kind: "do", what: "commit", title: "a change" });
+    await commit.onMessage({ kind: "do", what: "commit", message: "a change" });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit"]);
   });
 

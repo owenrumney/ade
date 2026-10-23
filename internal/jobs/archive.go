@@ -9,6 +9,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/wiki"
@@ -107,6 +108,12 @@ func FireArchive(ctx context.Context, store *wiki.Store, targets []ArchiveTarget
 		state, err := archive.Look(runCtx, target.Root, target.CommonGitDir, "")
 		if err != nil {
 			done()
+			// A remote with no repository behind it fails every fire, so it is
+			// reported rather than failing the sweep of the others.
+			if ghpr.NoRepository(err) {
+				report = append(report, fmt.Sprintf("%s: skipped, its origin has no repository on GitHub", target.Repo))
+				continue
+			}
 			failed = append(failed, fmt.Sprintf("%s: %s", target.Repo, err))
 			continue
 		}

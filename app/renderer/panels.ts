@@ -2,6 +2,7 @@ import { UNDER as ASSETS, type Panel } from "./panel";
 import { body as chatBody } from "../../vscode/src/chat/body";
 import { fresh, names, type Chosen } from "../../vscode/src/newsession/view";
 import { BODY as SETTINGS_BODY } from "../../vscode/src/settings/body";
+import { split } from "../../vscode/src/commit";
 
 
 export interface Reach {
@@ -506,7 +507,8 @@ export function commit(reach: Reach): Panel {
           return doing("createPR", () => reach.send("session", "/api/pr-create", body));
         case "commit":
           return doing("commit", async () => {
-            await reach.send("session", "/api/commit", body);
+            const message = split(String(body.message ?? ""));
+            await reach.send("session", "/api/commit", message);
             if (body.push) await reach.send("session", "/api/push", { force: false });
             committed = true;
           });

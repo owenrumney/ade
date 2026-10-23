@@ -113,6 +113,7 @@ class Ade {
   // knows whether a session it is about to show is served.
   private announced: real.Active[] = [];
   private todoList: real.Todo[] = [];
+  private jobs: real.Job[] = [];
   // The diff is the largest thing the server holds, kept until the
   // version it publishes for exactly this moves.
   private diffNow = "";
@@ -267,6 +268,7 @@ class Ade {
     this.launcher = (await window.ade.where()) ?? undefined;
     this.announced = got.active ?? [];
     this.todoList = got.todos ?? [];
+    this.jobs = got.jobs ?? [];
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
@@ -999,6 +1001,18 @@ class Ade {
           : `store:${row.id}`;
       return this.show({ panel: which }, row.name, "design");
     }
+    if (this.place === "jobs") {
+      const job = this.jobs.find((one) => `job:${one.name}` === row.id);
+      return this.show(
+        {
+          kind: "doc",
+          title: row.name,
+          body: job ? real.jobReport(job) : `# ${row.name}\n\nNo run history.`,
+        },
+        row.name,
+        "eye",
+      );
+    }
     if (this.place === "spaces") return this.openSpace(row.id.slice("space:".length));
     // The row says which pull request it is, not the list it was in. A
     // notification's id is its own, so the number comes off its url.
@@ -1416,7 +1430,18 @@ class Ade {
       if (place.id === "review") bar.push(el("div", "gap"));
       bar.push(button);
     }
+    bar.push(this.terminalButton());
     return bar;
+  }
+
+  // Not a place: it opens a tab rather than filling the sidebar.
+  private terminalButton(): HTMLElement {
+    const button = document.createElement("button");
+    button.className = this.tabs.some((tab) => tab.id === "term") ? "on" : "";
+    button.title = "Terminal";
+    button.append(icon("terminal", 21));
+    button.addEventListener("click", () => this.run("ade.openTerminal"));
+    return button;
   }
 
   // grip drags the sidebar wider, by one variable on the root.

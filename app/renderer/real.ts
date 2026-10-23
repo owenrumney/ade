@@ -1,4 +1,5 @@
 import type { Place, Row, Status, World } from "./model";
+import { page as jobPage, type Outcome } from "../../vscode/src/jobpage";
 
 // ade's own answers, as the window draws them: one function per
 // endpoint. Nothing is invented that the launcher does not send.
@@ -706,6 +707,11 @@ export interface Job {
   lastFired?: string;
   paused?: boolean;
   failing?: boolean;
+  outcomes?: Outcome[];
+}
+
+export function jobReport(job: Job): string {
+  return jobPage(job.name, job.outcomes ?? []);
 }
 
 // jobs is what ade does on a timer. A list, not a report: you want to

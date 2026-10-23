@@ -607,6 +607,14 @@ describe("the jobs list", () => {
     expect(paused.meta).toContain("paused");
     expect(failing.tone).toBe("bad");
   });
+
+  it("opens recorded failures as run history", () => {
+    expect(real.jobReport({
+      name: "drift",
+      schedule: "nightly",
+      outcomes: [{ firedAt: "2026-10-22T02:00:00Z", millis: 1, error: "exit status 1" }],
+    })).toContain("**Failed:** exit status 1");
+  });
 });
 
 describe("the queue, under Waiting on you", () => {

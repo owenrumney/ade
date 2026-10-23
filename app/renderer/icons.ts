@@ -41,6 +41,8 @@ export const PATHS: Record<string, string> = {
   history: "M12 3a9 9 0 1 0 8.5 6M21 3v6h-6M12 7v5l3 2",
   ask: "M4 5h16v11H9l-5 4V5M12 13v.01M10 9a2 2 0 1 1 2 2",
   answer: "M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7",
+  // A prompt and a caret: a shell, not the chevrons that mean source.
+  terminal: "M3 5h18v14H3zM7 10l3 2.5-3 2.5M12.5 15H17",
 };
 
 // icon is one glyph at the size asked for, or nothing drawn at all when the

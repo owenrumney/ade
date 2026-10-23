@@ -1110,6 +1110,18 @@ func brief(args []string) string {
 	return line
 }
 
+// NoRepository reports whether gh failed because the origin has no repository
+// on GitHub: a renamed, deleted or never-pushed remote, which no retry fixes.
+func NoRepository(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "could not resolve to a repository") ||
+		strings.Contains(msg, "no git remotes found") ||
+		strings.Contains(msg, "could not determine base repository")
+}
+
 // noPullRequest is gh's answer when a branch simply has none open.
 func noPullRequest(stderr string) bool {
 	return strings.Contains(strings.ToLower(stderr), "no pull requests found")

@@ -2,6 +2,9 @@ import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
+// Electron 33's main is Node 20: no WebSocket global without a flag.
+import WebSocket from "ws";
 import { Keymap, merge, shared, type Binding } from "./keymap";
 import { askForLocalNetwork } from "./localnetwork";
 import { shellPath } from "./shellpath";
@@ -261,28 +264,45 @@ void app.whenReady().then(async () => {
     })();
     return { ok: true };
   });
-  // The terminal's socket, in the shell: the server refuses a websocket
-  // from an origin that is not loopback, and the shell sends none.
-  let term: WebSocket | undefined;
+  // The terminal's sockets, in the shell: the server refuses a websocket
+  // from a non-loopback origin, and the shell sends none. One per pane.
+  const terms = new Map<string, WebSocket>();
+  const closeTerm = (pane: string) => {
+    terms.get(pane)?.close();
+    terms.delete(pane);
+  };
   ipcMain.handle("ade.term", async (e, session: string, pane: string) => {
+    closeTerm(pane);
+    if (!session) return { ok: true };
     const where = await found();
-    if (!where || !session) return { error: "pick a session first" };
-    term?.close();
+    if (!where) return { error: "pick a session first" };
     const at = new URL(`${where.base}/s/${session}/api/terminal`);
     at.protocol = at.protocol === "https:" ? "wss:" : "ws:";
     at.searchParams.set("t", where.token);
     at.searchParams.set("pane", pane);
     const ws = new WebSocket(at.toString());
-    ws.binaryType = "arraybuffer";
-    term = ws;
-    ws.onmessage = (m) => {
-      const data = m.data as ArrayBuffer | string;
-      e.sender.send("term", typeof data === "string" ? data : Buffer.from(data).toString("utf8"));
-    };
-    ws.onclose = () => e.sender.send("term.closed", true);
+    terms.set(pane, ws);
+    // A character may be split across two chunks.
+    const decoder = new StringDecoder("utf8");
+    ws.on("message", (data: Buffer | string) => {
+      e.sender.send("term", pane, typeof data === "string" ? data : decoder.write(data));
+    });
+    ws.on("error", (why: Error) => e.sender.send("term.closed", pane, why.message));
+    ws.on("close", () => {
+      if (terms.get(pane) === ws) terms.delete(pane);
+      e.sender.send("term.closed", pane, "");
+    });
     return { ok: true };
   });
-  ipcMain.on("ade.term.send", (_e, data: string) => term?.send(data));
+  // Binary is a keystroke, text a control message: the server reads the frame type.
+  ipcMain.on("ade.term.send", (_e, pane: string, data: string) => {
+    const ws = terms.get(pane);
+    if (ws?.readyState === WebSocket.OPEN) ws.send(Buffer.from(data, "utf8"), { binary: true });
+  });
+  ipcMain.on("ade.term.resize", (_e, pane: string, cols: number, rows: number) => {
+    const ws = terms.get(pane);
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
+  });
   // float is a second window holding one panel, which is what the
   // concierge wants: over the work rather than in the editor area.
   ipcMain.handle("ade.float", (_e, panel: string, session: string) => {
