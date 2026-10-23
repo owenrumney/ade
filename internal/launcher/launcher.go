@@ -42,6 +42,7 @@ import (
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/settingsapi"
+	"github.com/owenrumney/ade/internal/todo"
 	"github.com/owenrumney/ade/internal/ui"
 	"github.com/owenrumney/ade/internal/wiki"
 	"github.com/owenrumney/ade/internal/worktrees"
@@ -131,6 +132,7 @@ type Server struct {
 	wiki *wiki.Store
 	// designs is the one store every machine shares. See the design doc.
 	designs *designs.Store
+	todos   *todo.Shared
 	// wikiSyncing keeps the background refresh to one worker.
 	wikiSyncing atomic.Bool
 
@@ -253,6 +255,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 	if config, err := settings.Load(); err == nil {
 		s.wiki = wiki.New(home, config.WikiRemote)
 		s.designs = designs.New(filepath.Join(home, "designs"), config.DesignsRemote)
+		s.todos = todo.NewShared(filepath.Join(home, "todos"), config.WikiRemote)
 	}
 	s.recall()
 	// No Dir: gh runs wherever this process is. The launcher serves no
