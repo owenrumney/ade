@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const src = readFileSync(join(__dirname, "settings.ts"), "utf8");
-const markup = src.slice(src.indexOf("<!doctype html>"), src.lastIndexOf("</html>"));
+// The form itself is settings/body.ts, shared with ade's own app; the
+// order of the fields within it is what this is about.
+const markup = readFileSync(join(__dirname, "settings", "body.ts"), "utf8");
 
 describe("the settings page", () => {
   // A read that failed used to report into a div below six sections, so an

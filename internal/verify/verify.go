@@ -29,6 +29,18 @@ type Check struct {
 	// Narrow is Run scoped to what changed: {{.Packages}} and {{.Files}} expand
 	// to the changed set. Empty means the check only runs in the full pass.
 	Narrow string `json:"narrow,omitempty"`
+
+	// Filter is how this check takes a test-name pattern, as one argument:
+	// "-run=%s" for go test, "--grep=%s" for vitest. Empty refuses one.
+	Filter string `json:"filter,omitempty"`
+
+	// Tool offers this check to the agent as a tool of its own. Without it a
+	// check is the post-turn list's and the agent cannot start it.
+	Tool bool `json:"tool,omitempty"`
+
+	// About is what the tool says it does, for a check whose name is not
+	// enough on its own.
+	About string `json:"about,omitempty"`
 }
 
 // Config is the list a checkout runs. Asked records that the offer to detect
@@ -157,14 +169,28 @@ func Run(ctx context.Context, root string, checks []Check) Outcome {
 	return out
 }
 
+// One runs a single check narrowed by args, which may have come from an
+// agent. Its own context, so it is not the post-turn pass's to cancel.
+func One(ctx context.Context, root string, check Check, args Args) (Result, error) {
+	argv, err := Argv(root, check, args)
+	if err != nil {
+		return Result{}, err
+	}
+	return run(ctx, root, check, argv), nil
+}
+
 // one runs a single check in a process group of its own, so a command that
 // starts a build leaves nothing behind when it is cancelled.
 func one(ctx context.Context, root string, check Check) Result {
+	return run(ctx, root, check, []string{"sh", "-c", check.Run})
+}
+
+func run(ctx context.Context, root string, check Check, argv []string) Result {
 	started := time.Now()
 	each, cancel := context.WithTimeout(ctx, eachCap)
 	defer cancel()
 
-	cmd := exec.CommandContext(each, "sh", "-c", check.Run) // #nosec G204 -- the command is ade's own state, never the checkout's
+	cmd := exec.CommandContext(each, argv[0], argv[1:]...) // #nosec G204 -- ade's own command; see Argv for what an agent may add
 	cmd.Dir = filepath.Join(root, check.Dir)
 	cmd.Env = spawncap.Apply(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -218,6 +244,9 @@ func (c Config) valid() error {
 		}
 		if err := validNarrow(check.Narrow); err != nil {
 			return fmt.Errorf("check %q has a narrow form that does not read: %w", check.Name, err)
+		}
+		if err := validFilter(check.Filter); err != nil {
+			return fmt.Errorf("check %q has a filter that does not read: %w", check.Name, err)
 		}
 	}
 	return nil

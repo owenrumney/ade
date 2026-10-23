@@ -6,6 +6,10 @@ import { join } from "node:path";
 // not be in it. The design says so and the first build did it anyway.
 const chat = readFileSync(join(__dirname, "chat.ts"), "utf8");
 
+// The body is shared with the app, which hosts the same page, so the
+// markup is read where it lives rather than where it is wrapped.
+const shared = readFileSync(join(__dirname, "chat", "body.ts"), "utf8");
+
 // The markup the page is built from, without the code around it.
 const markup = chat.slice(
   chat.indexOf("<!doctype html>"),
@@ -28,7 +32,7 @@ describe("the chat webview's html", () => {
   // Not server.base: a webview renders locally even when the editor is on
   // another machine, so the page is given a forwarded address.
   it("carries the address the page can reach, which is not a secret", () => {
-    expect(markup).toContain('data-base="${base}"');
+    expect(shared).toContain('data-base="${base}"');
     expect(chat).toContain("reach ?? server.base");
   });
 
@@ -124,7 +128,7 @@ describe("the chat stream when ade goes away and comes back", () => {
 
   // Rewriting the html throws away a typed draft and any held images.
   it("hands a new token over instead of reloading the page", () => {
-    expect(chatSrc).toContain("Boolean(was) === Boolean(server)");
+    expect(chatSrc).toContain("was?.base === server?.base");
     expect(chatSrc).toContain("this.hand()");
   });
 });

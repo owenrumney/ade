@@ -639,7 +639,7 @@ func (s *Server) runBuild(ctx context.Context, prompt, step string) {
 // as soon as there is one.
 func (s *Server) adoptDesign(was string) (string, string) {
 	ws := s.space()
-	dirs := docs.SearchDirs(ws.homeRoot, s.commonGitDir, "")
+	dirs := docs.SearchDirs(ws.homeRoot, s.commonGitDir, s.docsOverride)
 	dir, file, ok := docs.Find(dirs, s.commonGitDir, ws.branch, s.agent.Current())
 	// No name to match, so the design is whatever was written during the
 	// conversation — until something is recorded for the branch.

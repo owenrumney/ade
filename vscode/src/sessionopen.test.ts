@@ -8,14 +8,14 @@ const src = readFileSync(join(__dirname, "extension.ts"), "utf8");
 describe("opening a conversation that is on another machine", () => {
   // The path is that machine's. Opening it as a local folder is the error
   // "The path ... does not exist on this computer".
-  it("goes through openThere rather than switchTo", () => {
+  it("goes through openThere rather than attaching here", () => {
     const body = src.slice(
       src.indexOf("async function openSession("),
       src.indexOf("// resume points a server's conversation"),
     );
     expect(body).toContain("openThere(machine");
     expect(body.indexOf("openThere(machine")).toBeLessThan(
-      body.indexOf("switchTo(session.dir)"),
+      body.indexOf("attach({"),
     );
   });
 

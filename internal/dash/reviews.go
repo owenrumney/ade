@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
@@ -20,6 +22,10 @@ import (
 type Review struct {
 	ghpr.Request
 	Muted bool `json:"muted,omitempty"`
+
+	// Review is what your own review of it has reached, read off the
+	// worktree it was checked out into. Absent until one was started.
+	Review *ReviewState `json:"review,omitempty"`
 }
 
 // RefreshReviews asks GitHub for the pull requests waiting on your review,
@@ -109,12 +115,72 @@ func (b *Board) Reviews() []Review {
 	b.mu.RUnlock()
 
 	muted := settings.MutedReviews()
+	repos, _ := b.repos()
 	out := make([]Review, 0, len(asked))
 	for _, pr := range asked {
-		out = append(out, Review{Request: pr, Muted: muted[ReviewKey(pr.Repo, pr.Number)]})
+		row := Review{Request: pr, Muted: muted[ReviewKey(pr.Repo, pr.Number)]}
+		if main, ok := checkoutFor(repos, pr.Repo); ok {
+			state := reviewStateIn(main, pr.Number, b.reviewing(pr.Repo, pr.Number))
+			row.Review = &state
+		}
+		out = append(out, row)
 	}
 	return out
 }
+
+// reviewing is a cold review this launcher started and has not seen finish.
+func (b *Board) reviewing(repo string, number int) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.running[ReviewKey(repo, number)]
+}
+
+// StartReview checks the pull request out and asks its server for a cold
+// review, with no window opened. The row is what says it is going.
+func (b *Board) StartReview(ctx context.Context, repo string, number int) (string, error) {
+	url, path, err := b.OpenReview(ctx, repo, number)
+	if err != nil {
+		return "", err
+	}
+	key := ReviewKey(repo, number)
+	b.mu.Lock()
+	if b.running == nil {
+		b.running = map[string]bool{}
+	}
+	if b.running[key] {
+		b.mu.Unlock()
+		return path, nil
+	}
+	b.running[key] = true
+	b.mu.Unlock()
+	b.changed()
+
+	go func() {
+		err := askForReview(context.WithoutCancel(ctx), url)
+		b.mu.Lock()
+		delete(b.running, key)
+		b.mu.Unlock()
+		if err != nil {
+			slog.Warn("cold review", "repo", repo, "pr", number, "err", err)
+		}
+		b.changed()
+	}()
+	return path, nil
+}
+
+// askForReview is the session server's own review endpoint, which files the
+// findings as threads. No agents named is the cold reviewer.
+func askForReview(ctx context.Context, url string) error {
+	if cut := strings.Index(url, "#"); cut >= 0 {
+		url = url[:cut]
+	}
+	_, err := sessions.AskFor(ctx, url, http.MethodPost, "/api/review", "{}", reviewWait)
+	return err
+}
+
+// reviewWait is how long the ask may take. The run itself is longer; this is
+// the server accepting it.
+const reviewWait = 30 * time.Second
 
 // Mute puts a pull request aside, or brings it back. Only one the search
 // returned: this writes to ade's own state.

@@ -118,6 +118,27 @@ func (s *Server) handleOpenReview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRunReview checks the pull request out and sets a cold review going
+// on it, with no window opened. The row is what reports on it.
+func (s *Server) handleRunReview(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	path, err := s.board.StartReview(r.Context(), req.Repo, req.Number)
+	switch {
+	case errors.Is(err, dash.ErrGone):
+		writeError(w, http.StatusNotFound, err.Error())
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]any{"path": path})
+	}
+}
+
 // handleStartTicket makes a ticket's worktree and document in a repository you
 // have checked out, and answers the link to the ade now serving it.
 func (s *Server) handleStartTicket(w http.ResponseWriter, r *http.Request) {

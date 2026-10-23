@@ -33,6 +33,17 @@ func State(a *session.AgentHealth) string {
 	}
 }
 
+// Attention is whether a state is the user's turn rather than the agent's.
+// Silence is not in it: see Silence below.
+func Attention(state string) bool {
+	switch state {
+	case Failed, Wedged, Asking:
+		return true
+	default:
+		return false
+	}
+}
+
 // Silence is how long the agent has said nothing, and whether it ever has.
 // Never folded into State: no threshold separates a hang from a long command.
 func Silence(a *session.AgentHealth, now time.Time) (time.Duration, bool) {

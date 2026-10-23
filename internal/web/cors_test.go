@@ -86,3 +86,14 @@ func TestAPreflightAllowsEverySettingsMethod(t *testing.T) {
 		assert.Contains(t, allowed, method)
 	}
 }
+
+// ade's own app registers this scheme and serves its panels from it, so
+// their fetches reach the session server the same way a VS Code
+// webview's do.
+func TestTheAppsOwnWebviewSchemeIsAllowedToo(t *testing.T) {
+	assert.True(t, editorOrigin("ade-webview://0123abcd"))
+	assert.True(t, editorOrigin("vscode-webview://0123abcd"))
+	assert.False(t, editorOrigin("file://"))
+	assert.False(t, editorOrigin("http://evil.example"))
+	assert.False(t, editorOrigin(""))
+}

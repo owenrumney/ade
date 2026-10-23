@@ -12,7 +12,6 @@ import {
   tick,
   type Chosen,
 } from "./newsession/view";
-import { multiRoot } from "./multiroot";
 
 const chose = (part: Partial<Chosen> = {}): Chosen => ({ ...fresh, ...part });
 
@@ -193,25 +192,5 @@ describe("the line under the button", () => {
   it("says a conversation when nothing is branched", () => {
     const chosen = chose({ mode: "direct", repos: ["/code/ade"] });
     expect(summary(chosen, plan(chosen))).toBe("A conversation in ade.");
-  });
-});
-
-describe("the window a session across repositories opens", () => {
-  it("leads with home, because the first folder is the one served", () => {
-    const file = JSON.parse(
-      multiRoot("/code/ade-fix", ["/code/worker-fix"]),
-    ) as { folders: { path: string; name: string }[] };
-
-    expect(file.folders).toEqual([
-      { path: "/code/ade-fix", name: "ade-fix" },
-      { path: "/code/worker-fix", name: "worker-fix" },
-    ]);
-  });
-
-  it("never lists home twice", () => {
-    const file = JSON.parse(multiRoot("/code/a", ["/code/a", "/code/b"])) as {
-      folders: { path: string }[];
-    };
-    expect(file.folders.map((one) => one.path)).toEqual(["/code/a", "/code/b"]);
   });
 });

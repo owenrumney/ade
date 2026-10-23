@@ -580,6 +580,17 @@ export interface Review {
   checks?: string;
   reviewDecision?: string;
   muted?: boolean;
+  review?: ReviewState;
+}
+
+// ReviewState is how far your own review of a pull request has got, as the
+// launcher read it off the worktree it was checked out into.
+export interface ReviewState {
+  state: "requested" | "running" | "ready" | "drafted" | "sent";
+  threads?: number;
+  unsent?: number;
+  sent?: number;
+  path?: string;
 }
 
 export async function reviews(server: Server): Promise<Asked> {
@@ -663,6 +674,28 @@ export async function openReview(
   if (!res.ok)
     throw new Error(said(await res.text()) || `open review: ${res.status}`);
   return (await res.json()) as { url?: string; path?: string };
+}
+
+// runReview checks the pull request out and sets a cold review going on it.
+// No window: the row is what reports on it, and the answer is immediate.
+export async function runReview(
+  server: Server,
+  repo: string,
+  number: number,
+): Promise<void> {
+  const res = await fetch(
+    `${server.base}/api/reviews/run?t=${encodeURIComponent(server.token)}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Ade-Token": server.token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ repo, number }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(said(await res.text()) || `run review: ${res.status}`);
 }
 
 export async function usage(server: Server): Promise<Usage> {
@@ -865,6 +898,10 @@ export interface Start {
   prompt?: string;
   machine?: string;
   sandbox?: boolean;
+  // mounts and env go into the repository's sandbox file before the session
+  // starts, so the first turn already has them.
+  mounts?: { path: string; rw?: boolean }[];
+  env?: { [key: string]: string };
   // brief is a document carried from this machine, written into the session
   // once it is serving.
   brief?: { name: string; body: string };

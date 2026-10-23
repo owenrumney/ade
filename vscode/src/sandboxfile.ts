@@ -7,6 +7,16 @@ export interface SandboxFile {
   path?: string;
   runtime?: string;
   fixed?: string;
+  // What the container gets whether or not the file names it, and why.
+  always?: Always[] | null;
+}
+
+// Always is a mount ade makes itself. Not editable: taking one away
+// would be a container the agent cannot work in.
+export interface Always {
+  path: string;
+  why: string;
+  rw?: boolean;
 }
 
 export interface Mount {

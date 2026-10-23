@@ -91,7 +91,6 @@ import {
   gitDir,
   label,
   localFiles,
-  nearest,
   probe,
   read,
   recordPath,
@@ -222,6 +221,7 @@ import {
   dashOf,
   dismissNotification,
   openReview,
+  runReview,
   startTicket,
   type Checkout,
   type Host,
@@ -318,6 +318,8 @@ import {
 } from "./verify";
 import { rows as queueRows, type TreeRow } from "./queue";
 import { Queue } from "./queuetree";
+import { Agents } from "./agentstree";
+import type { Node as AgentNode } from "./agents";
 import {
   detail as cardDetail,
   press as pressCard,
@@ -369,8 +371,9 @@ import { acts as treeActs, rows as treeRows } from "./worktreepick";
 import { offstage } from "./loading";
 import { entries, GROUPS } from "./menu";
 import { wellCount, wellRows } from "./well";
-import { Dashboard } from "./dashview";
+import { SectionTree, type Node as DeskNode } from "./desk/tree";
 import { RepoPage } from "./repoview";
+import { SandboxPage } from "./sandboxview";
 import {
   NewSessionPage,
   nothing as noOffer,
@@ -382,14 +385,18 @@ import {
   type Chosen,
   type Doc,
 } from "./newsession/view";
-import { multiRoot } from "./multiroot";
 import { PurgePage } from "./purgeview";
 import type { Sweep } from "./purgepanel/view";
 import { DesignPrunePage, type Archived } from "./designpruneview";
 import type { Prunable, WikiState } from "./designprunepanel/view";
 import { QuizPage } from "./quizview";
 import type { Repo as RepoStats } from "./repo/view";
-import type { Board, Do } from "./dashboard/view";
+import {
+  sections as deskSections,
+  type Board,
+  type DesignRow,
+  type Do,
+} from "./desk/sections";
 import { openCount } from "./comments";
 import {
   everyRow,
@@ -407,8 +414,8 @@ import {
 } from "./omnibox";
 import { at, done, inFile, orphans, type Pinned } from "./here";
 import { refused } from "./reconcile";
-import { closeAfter, inNewWindow } from "./window";
-import { take, want } from "./wanted";
+import { take, want, type Wanted } from "./wanted";
+import { rootsFor, type Current } from "./current";
 import { AdeIndex, GitIndex, type Index, Scm } from "./scm";
 import { gitRepository } from "./gitapi";
 import { picked } from "./picked";
@@ -665,10 +672,7 @@ async function openRequestedReview(review: Review): Promise<void> {
     return;
   }
   if (!where.path) return;
-  // Opening the folder restarts the extension, so the panel cannot be opened
-  // from here: the intent is left for the window that comes up to find.
-  await want(memory, { path: where.path, number: review.number });
-  await switchTo(where.path);
+  await attach({ path: where.path, number: review.number });
 }
 
 async function mute(review: Review, muted: boolean): Promise<void> {
@@ -803,10 +807,23 @@ let chat: Chat;
 let concierge: Chat;
 let settingsPage: Settings;
 let commitView: CommitView;
-let dashboard: Dashboard;
+// The desk: one tree per section, each with its own badge and collapse.
+const DESK_VIEWS = [
+  ["ade.waiting", "waiting"],
+  ["ade.prs", "prs"],
+  ["ade.designs", "designs"],
+  ["ade.sessions", "sessions"],
+  ["ade.todos", "todos"],
+  ["ade.tickets", "tickets"],
+  ["ade.inbox.github", "inbox"],
+] as const;
+const deskTrees = new Map<string, SectionTree>();
+let deskViews: vscode.TreeView<DeskNode>[] = [];
+let deskReading: Promise<void> | undefined;
 let repoPage: RepoPage;
 let newSessionPage: NewSessionPage;
 let purgePage: PurgePage;
+let sandboxPage: SandboxPage;
 let designPrunePage: DesignPrunePage;
 let quizPage: QuizPage;
 let sessions: Sessions;
@@ -822,6 +839,8 @@ let worktreeGraph: WorktreeGraph;
 const pages = new Pages();
 const edits = new Edits();
 let queueTree: Queue;
+let agentsTree: Agents;
+let agentsView: vscode.TreeView<AgentNode> | undefined;
 let desk: Desk;
 let issues: Issues;
 let inbox: Inbox;
@@ -879,8 +898,11 @@ export async function activate(
   );
   void tellBusHere(vscode.window.state.focused);
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    vscode.workspace.onDidChangeWorkspaceFolders((change) => {
       if (client) void client.diffFolders(windowFolders()).catch(() => {});
+      // A folder written into the desk from outside is a session to attach to.
+      const came = change.added[0];
+      if (came && !adding) void attach({ path: came.uri.fsPath, chat: true });
     }),
   );
 
@@ -900,7 +922,8 @@ export async function activate(
   // starts the desk. Without this the pane draws before anything serves it.
   concierge.onShown = () => void startDesk();
   boxContext = context;
-  dashboard = new Dashboard(context, boardNow, boardAct);
+  for (const [view, id] of DESK_VIEWS)
+    deskTrees.set(view, new SectionTree(id, boardAct));
   repoPage = new RepoPage(context, repoNow);
   newSessionPage = new NewSessionPage(
     context,
@@ -909,6 +932,11 @@ export async function activate(
     startChosen,
   );
   purgePage = new PurgePage(context, sweepNow, pruneIn);
+  sandboxPage = new SandboxPage(
+    context,
+    () => serving().sandboxFile(),
+    (body) => serving().saveSandboxFile(body),
+  );
   designPrunePage = new DesignPrunePage(
     context,
     designRepos,
@@ -917,15 +945,12 @@ export async function activate(
   );
   quizPage = new QuizPage(context, () => live?.root);
   context.subscriptions.push(
-    dashboard,
     repoPage,
     newSessionPage,
     purgePage,
+    sandboxPage,
     designPrunePage,
     quizPage,
-    vscode.window.registerWebviewPanelSerializer("ade.dashboard", {
-      deserializeWebviewPanel: async (panel) => dashboard.revive(panel),
-    }),
   );
   if (!context.globalState.get<boolean>("ade.arranged")) {
     void context.globalState.update("ade.arranged", true);
@@ -942,6 +967,7 @@ export async function activate(
   worktreeTree = new Worktrees();
   worktreeGraph = new WorktreeGraph(context);
   queueTree = new Queue();
+  agentsTree = new Agents();
   desk = new Desk(async () => (launcher ??= await findLauncher()));
   issues = new Issues();
   changes = new Changes();
@@ -984,9 +1010,28 @@ export async function activate(
       new Revs(() => client),
     ),
   );
+  deskViews = DESK_VIEWS.map(([view]) =>
+    vscode.window.createTreeView(view, {
+      treeDataProvider: deskTrees.get(view)!,
+    }),
+  );
+  context.subscriptions.push(...deskViews);
+  void readDesk();
   const queueView = vscode.window.createTreeView("ade.queue", {
     treeDataProvider: queueTree,
   });
+  // Every agent on every machine, not only this window's. The badge is how
+  // many want an answer; the red icon is the same number, seen sooner.
+  agentsView = vscode.window.createTreeView("ade.agents", {
+    treeDataProvider: agentsTree,
+  });
+  context.subscriptions.push(
+    agentsView,
+    agentsTree.onDidChangeTreeData(() => drawAgentsBadge()),
+  );
+  void agentsTree.refresh().then(() => drawAgentsBadge());
+  const agentsTicker = setInterval(() => void agentsTree.refresh(), 5000);
+  context.subscriptions.push({ dispose: () => clearInterval(agentsTicker) });
   context.subscriptions.push(desk.onDidChange(() => drawDesk()));
   const inboxView2 = vscode.window.createTreeView("ade.inbox", {
     treeDataProvider: inbox,
@@ -1054,9 +1099,10 @@ export async function activate(
       "ade.answerSession",
       (row: Row) => void answerSession(row),
     ),
+    vscode.commands.registerCommand("ade.dashboard", () => void showDesk()),
     vscode.commands.registerCommand(
-      "ade.dashboard",
-      () => void dashboard.show(),
+      "ade.desk.run",
+      (view: string, node: DeskNode) => void deskTrees.get(view)?.run(node),
     ),
     vscode.commands.registerCommand("ade.diffTurn", () => void diffTurn()),
     vscode.commands.registerCommand(
@@ -1192,6 +1238,9 @@ export async function activate(
     vscode.commands.registerCommand("ade.arrange", () => void arrange()),
     vscode.commands.registerCommand("ade.machines", () => void pickMachine()),
     vscode.commands.registerCommand("ade.addMachine", () => void addMachine()),
+    vscode.commands.registerCommand("ade.removeMachine", () => void pickForgetMachine()),
+    vscode.commands.registerCommand("ade.driftDismiss", () => void waveDrift(true)),
+    vscode.commands.registerCommand("ade.driftRestore", () => void waveDrift(false)),
     vscode.commands.registerCommand("ade.diagnose", () => void checkNetwork()),
     vscode.commands.registerCommand("ade.keys", () => void keys()),
     vscode.commands.registerCommand("ade.pullBase", () => void pullBase()),
@@ -1295,6 +1344,8 @@ export async function activate(
       "ade.distilMemory",
       () => void distilMemory(),
     ),
+    vscode.commands.registerCommand("ade.memoryForget", () => void pickMemoryOf("kept")),
+    vscode.commands.registerCommand("ade.memoryProposal", () => void pickMemoryOf("proposed")),
     vscode.commands.registerCommand("ade.drift", () => void pickDrift()),
     vscode.commands.registerCommand("ade.design", () => void pickDesign()),
     vscode.window.registerCustomEditorProvider(
@@ -1315,6 +1366,7 @@ export async function activate(
       "ade.sandboxFile",
       () => void sandboxFile(),
     ),
+    vscode.commands.registerCommand("ade.sandboxPanel", () => void openSandbox()),
     vscode.commands.registerCommand(
       "ade.refreshTeam",
       () => void refreshTeam(),
@@ -1581,6 +1633,7 @@ async function askToReload(): Promise<void> {
 let live: Server | undefined;
 let launcher: Server | undefined;
 let client: Client | undefined;
+let current: Current | undefined;
 let logChannel: vscode.OutputChannel | undefined;
 let logSeen = 0;
 
@@ -1874,6 +1927,7 @@ async function boardNow(): Promise<Board> {
     started: dash?.started ?? {},
     mine: prs.filter((p) => p.mine),
     sessions: shortlist(sessionsKept?.rows ?? [], [], live?.root).slice(0, 8),
+    designs: at ? await designsEverywhere(at).catch(() => []) : [],
     todos: desk.list
       .filter((t) => !doneTodo(t))
       .slice(0, 10)
@@ -1887,6 +1941,72 @@ async function boardNow(): Promise<Board> {
     agent: badge?.text.replace(/\$\([^)]*\)\s*/g, ""),
     at: Date.now(),
   };
+}
+
+// designsEverywhere is the shared store, which is one directory read rather
+// than a walk of every checkout on every machine.
+async function designsEverywhere(at: Server): Promise<DesignRow[]> {
+  const got = await askLauncher<{ designs: DesignRow[] | null }>(
+    at,
+    "/api/designs/all",
+  );
+  return got.designs ?? [];
+}
+
+// startDesign makes a worktree in each repository the design names, on one
+// branch, and a session across them.
+async function startDesign(
+  at: Server,
+  name: string,
+): Promise<{ path?: string; also?: string[] }> {
+  return tellLauncher<{ path?: string; also?: string[] }>(
+    at,
+    "/api/designs/start",
+    { name },
+  );
+}
+
+// readDesk fills every section from one gather. One at a time: a dozen
+// callers ask for it, and each gather is a launcher round trip.
+function readDesk(): Promise<void> {
+  deskReading =
+    deskReading ??
+    boardNow()
+      .then((board) => {
+        const all = deskSections(board);
+        for (const tree of deskTrees.values()) tree.show(all);
+        drawDeskBadges();
+      })
+      .catch(() => undefined)
+      .finally(() => (deskReading = undefined));
+  return deskReading;
+}
+
+// The badge counts what wants an answer, not how many agents are running:
+// four working agents are not four things to do.
+function drawAgentsBadge(): void {
+  if (!agentsView) return;
+  const n = agentsTree.count;
+  agentsView.badge =
+    n > 0 ? { value: n, tooltip: `${n} waiting on you` } : undefined;
+}
+
+// The badge is what the row count says without the view being open.
+function drawDeskBadges(): void {
+  for (const [i, [view]] of DESK_VIEWS.entries()) {
+    const tree = deskTrees.get(view);
+    const at = deskViews[i];
+    if (!tree || !at) continue;
+    at.badge =
+      tree.count > 0
+        ? { value: tree.count, tooltip: `${tree.count} in ${at.title ?? view}` }
+        : undefined;
+  }
+}
+
+async function showDesk(): Promise<void> {
+  await vscode.commands.executeCommand("ade.waiting.focus");
+  await readDesk();
 }
 
 async function boardAct(what: Do): Promise<string | void> {
@@ -1907,6 +2027,20 @@ async function boardAct(what: Do): Promise<string | void> {
     case "open-pr":
       await openPR(Number(what.number));
       return;
+    case "design-open":
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        vscode.Uri.file(String(what.file)),
+      );
+      return;
+    case "design-start": {
+      if (!at) return "the launcher is not running";
+      const made = await startDesign(at, String(what.name));
+      if (made.path) await attach({ path: made.path, chat: true });
+      for (const dir of made.also ?? [])
+        if (vscode.workspace.workspaceFile) await addFolder(dir);
+      return `started ${what.name}`;
+    }
     case "session": {
       const row = sessionsKept?.rows.find((r) => r.session.id === what.id);
       if (row) await openSession(row.session);
@@ -1919,16 +2053,16 @@ async function boardAct(what: Do): Promise<string | void> {
     case "dismiss":
       if (at) await dismissNotification(at, String(what.id));
       return;
+    case "run-review": {
+      if (!at) return "the launcher is not running";
+      await runReview(at, String(what.repo), Number(what.number));
+      void readDesk();
+      return `reviewing ${what.repo}#${what.number}`;
+    }
     case "open-review": {
       if (!at) return "the launcher is not running";
       const got = await openReview(at, String(what.repo), Number(what.number));
-      if (got.path) {
-        await vscode.commands.executeCommand(
-          "vscode.openFolder",
-          vscode.Uri.file(got.path),
-          { forceNewWindow: true },
-        );
-      }
+      if (got.path) await attach({ path: got.path, number: Number(what.number) });
       return;
     }
     case "todo": {
@@ -3404,27 +3538,19 @@ async function answerSession(row: Row): Promise<void> {
 }
 
 async function openSession(session: Session, machine?: string): Promise<void> {
-  if (live && session.dir === live.root) {
-    await resume(live, session.id, session.agent, session.model ?? "");
-    void chat.reveal(live);
-    return;
-  }
   // That path is on the other machine, and this one has no such folder.
   if (machine) {
     await openThere(machine, machine, session.dir, "that conversation is");
     return;
   }
 
-  // Opening the folder restarts the extension, so the conversation is left for
-  // the window that comes up: without it the switch lands on no tabs at all.
-  await want(memory, {
+  await attach({
     path: session.dir,
     chat: true,
     session: session.id,
     agent: session.agent,
     model: session.model,
   });
-  await switchTo(session.dir);
 }
 
 // resume points a server's conversation at a session. A failure is said and
@@ -3454,20 +3580,10 @@ async function resume(
   }
 }
 
-// switchTo moves this window to a checkout. No confirmation: clicking a session
-// somewhere else is the instruction, and being asked every time is the cost.
+// switchTo brings a checkout into this window. No confirmation: clicking a
+// session somewhere else is the instruction, and being asked is the cost.
 async function switchTo(dir: string): Promise<void> {
-  const newWindow = inNewWindow(
-    vscode.workspace.getConfiguration("ade").get<string>("openSessionIn"),
-    (vscode.workspace.workspaceFolders ?? []).length,
-  );
-  await vscode.commands.executeCommand(
-    "vscode.openFolder",
-    vscode.Uri.file(dir),
-    {
-      forceNewWindow: newWindow,
-    },
-  );
+  await attach({ path: dir });
 }
 
 // keys sets or forgets one of the secrets ade keeps. The value goes in through
@@ -3817,6 +3933,25 @@ function docName(node: unknown): string | undefined {
   return basename(uri.fsPath);
 }
 
+// openSandbox is the panel on its own, for when the list is the point rather
+// than one row of it.
+async function openSandbox(): Promise<void> {
+  if (!client) {
+    void vscode.window.showErrorMessage(
+      "ade: nothing is running for this folder yet.",
+    );
+    return;
+  }
+  await sandboxPage.show();
+}
+
+// serving is the session's own server, for a panel that reads it whenever it
+// is revealed rather than once at activation.
+function serving(): Client {
+  if (!client) throw new Error("nothing is running for this folder yet");
+  return client;
+}
+
 // sandboxFile edits what the repository's sandbox mounts and sets. A run of
 // picks rather than the file: the file holds secrets the server never shows.
 async function sandboxFile(): Promise<void> {
@@ -3831,11 +3966,18 @@ async function sandboxFile(): Promise<void> {
     for (;;) {
       const file = await c.sandboxFile();
       const picked = await pick(
-        sandboxRows(file).map((row) => ({
-          label: row.label,
-          description: row.description,
-          row,
-        })),
+        [
+          {
+            label: "Open the panel…",
+            description: "every mount and variable at once",
+            row: undefined as SandboxRow | undefined,
+          },
+          ...sandboxRows(file).map((row) => ({
+            label: row.label,
+            description: row.description,
+            row: row as SandboxRow | undefined,
+          })),
+        ],
         {
           title: "ade: sandbox mounts and environment",
           placeHolder:
@@ -3843,6 +3985,10 @@ async function sandboxFile(): Promise<void> {
         },
       );
       if (!picked) return;
+      if (!picked.row) {
+        await sandboxPage.show();
+        return;
+      }
       const edit = await sandboxEdit(picked.row);
       if (edit) await c.saveSandboxFile(applySandbox(file, edit));
     }
@@ -3950,6 +4096,29 @@ async function dismissDrift(
     c.dismissDrift(item.id, dismissed),
   );
   await driftTree.refresh();
+}
+
+// waveDrift is one requirement in or out of the check, picked on its
+// own rather than through the checklist: the window names both verbs.
+async function waveDrift(dismissed: boolean): Promise<void> {
+  if (!client) {
+    void vscode.window.showErrorMessage("ade: nothing is running for this folder yet.");
+    return;
+  }
+  await driftTree.refresh();
+  const items = (await driftTree.state())?.items ?? [];
+  const rows = items.filter((item) => Boolean(item.dismissed) !== dismissed);
+  if (rows.length === 0) {
+    void vscode.window.showInformationMessage(
+      dismissed ? "ade: nothing left to dismiss." : "ade: nothing is dismissed.",
+    );
+    return;
+  }
+  const picked = await pick(
+    rows.map((item) => ({ label: item.text, description: item.verdict, item })),
+    { title: dismissed ? "Stop checking which?" : "Check which again?" },
+  );
+  if (picked) await dismissDrift(picked.item, dismissed);
 }
 
 // pickDrift is the checklist on demand. The squiggles are the ambient half and
@@ -4321,8 +4490,7 @@ async function newScratch(): Promise<void> {
   if (name === undefined) return;
   try {
     const made = await scratch(launcher, { name: name.trim() });
-    await want(memory, { path: made.path, chat: true });
-    await switchTo(made.path);
+    await attach({ path: made.path, chat: true });
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
   }
@@ -4879,8 +5047,7 @@ async function checkoutPR(): Promise<void> {
       },
       () => c.checkoutPR(message.trim()),
     );
-    await want(memory, { path: made.path, chat: true });
-    await switchTo(made.path);
+    await attach({ path: made.path, chat: true });
   } catch (err) {
     void vscode.window.showErrorMessage(`ade: ${String(err)}`);
   }
@@ -5402,6 +5569,35 @@ async function pickMemory(): Promise<void> {
   }
 }
 
+// pickMemoryOf is one half of the memory list on its own, for the two
+// verbs the window names: what is kept, or what has been proposed.
+async function pickMemoryOf(which: "kept" | "proposed"): Promise<void> {
+  const c = client;
+  if (!c) {
+    void vscode.window.showErrorMessage("ade: nothing is running for this folder yet.");
+    return;
+  }
+  try {
+    const view = await c.project();
+    const rows = memoryRows(view).filter(
+      (row) => row.kind === "entry" && row.proposed === (which === "proposed"),
+    );
+    if (rows.length === 0) {
+      void vscode.window.showInformationMessage(
+        which === "proposed" ? "ade: nothing proposed." : "ade: nothing remembered yet.",
+      );
+      return;
+    }
+    const picked = await pick(
+      rows.map((row) => ({ label: memoryLabel(row), description: memoryLine(row), row })),
+      { title: which === "proposed" ? "ade: decide a proposal" : "ade: forget something" },
+    );
+    if (picked) await memoryVerbs(c, view, picked.row);
+  } catch (err) {
+    void vscode.window.showErrorMessage(`ade: ${String(err)}`);
+  }
+}
+
 async function memoryVerbs(
   c: Client,
   view: ProjectView,
@@ -5508,6 +5704,21 @@ async function checkNetwork(): Promise<void> {
 
 // addMachine bookmarks a machine. The name goes to ssh, so an alias from your
 // ssh config is as good as a host name and usually better.
+// pickForgetMachine is forgetMachine with the row picked rather than
+// clicked: the window names the verb, so the editor offers it too.
+async function pickForgetMachine(): Promise<void> {
+  const listed = (await machines.list()).filter((host) => !host.local);
+  if (listed.length === 0) {
+    void vscode.window.showInformationMessage("ade: no machines to forget.");
+    return;
+  }
+  const picked = await pick(
+    listed.map((host) => ({ label: host.label || host.name, description: host.name, host })),
+    { title: "Forget which machine?" },
+  );
+  if (picked) await forgetMachine(picked.host);
+}
+
 async function addMachine(): Promise<void> {
   launcher = await findLauncher();
   if (!launcher) {
@@ -5739,13 +5950,13 @@ async function closeSession(): Promise<void> {
     alsoRemove === "no" || !repo
       ? undefined
       : await removeHere(repo, root, alsoRemove === "force");
-  if (
-    closeAfter(
-      vscode.workspace.getConfiguration("ade").get<string>("afterCloseSession"),
-      removed === false,
-    )
-  ) {
-    await vscode.commands.executeCommand("workbench.action.closeWindow");
+  // A removed worktree leaves the workspace; a checkout that stays is still
+  // there to look at. Either way the window attaches to what is left.
+  if (vscode.workspace.workspaceFile) {
+    if (removed) dropFolder(root);
+    current = undefined;
+    if (boxContext) await connect(boxContext);
+    vscode.window.setStatusBarMessage("ade: session closed", 3000);
     return;
   }
   // The folder this window is open on has just gone, so it cannot stay here.
@@ -6107,8 +6318,9 @@ function openFolder(): string | undefined {
     (f) => f.uri.fsPath,
   );
   if (folders.length === 0) return undefined;
-  return nearest(
+  return rootsFor(
     folders,
+    current?.root,
     vscode.window.activeTextEditor?.document.uri.fsPath,
   )[0];
 }
@@ -6162,8 +6374,7 @@ async function newSession(node?: SessionNode, said?: string): Promise<void> {
   }
   // Same as newChatHere, which ends on the conversation: a session started in
   // another folder should land there too.
-  await want(memory, { path: dir, chat: true });
-  await switchTo(dir);
+  await attach({ path: dir, chat: true });
 }
 
 async function showNewSession(): Promise<void> {
@@ -6291,6 +6502,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
       prompt: chosen.message.trim(),
       machine: chosen.machine || undefined,
       sandbox: chosen.sandbox,
+      ...sandboxAsked(chosen),
     });
     // The path is that machine's, so it is a window over there and not a
     // folder this disk has never had.
@@ -6298,8 +6510,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
       await openThere(chosen.machine, await labelOf(at, chosen.machine), made.path);
       return;
     }
-    await want(memory, { path: made.path, chat: true });
-    await switchTo(made.path);
+    await attach({ path: made.path, chat: true });
     return;
   }
 
@@ -6328,6 +6539,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
         prompt: chosen.message.trim(),
         machine: chosen.machine || undefined,
         sandbox: chosen.sandbox,
+        ...sandboxAsked(chosen),
       }),
   );
 
@@ -6348,11 +6560,26 @@ async function startChosen(chosen: Chosen): Promise<void> {
   // Plan and Design are the document first: the window lands on the worktree
   // with the design open rather than on the conversation.
   const path = started.path ?? home;
-  await want(memory, {
+  const others = await spanning(path, also);
+  await attach({
     path,
     chat: chosen.mode !== "plan" && chosen.mode !== "design",
   });
-  await switchTo(await spanning(path, also));
+  if (vscode.workspace.workspaceFile)
+    for (const dir of others) await addFolder(dir);
+}
+
+// sandboxAsked is what the screen's mounts control chose, or nothing. Sent
+// only with the container: an unsandboxed session has nothing to let in.
+function sandboxAsked(chosen: Chosen): {
+  mounts?: { path: string; rw?: boolean }[];
+  env?: { [key: string]: string };
+} {
+  if (!chosen.sandbox) return {};
+  const asked: { mounts?: { path: string; rw?: boolean }[]; env?: { [key: string]: string } } = {};
+  if (chosen.mounts.length > 0) asked.mounts = chosen.mounts;
+  if (Object.keys(chosen.env).length > 0) asked.env = chosen.env;
+  return asked;
 }
 
 // labelOf is what the machine is called on screen, or its name.
@@ -6382,26 +6609,19 @@ async function carried(
   return { name: chosen.design, body: got.body };
 }
 
-// spanning is what the window opens: the worktree, or a workspace file over
-// every repository the session was started across, home first.
-async function spanning(path: string, also: string[]): Promise<string> {
-  if (also.length === 0) return path;
+// spanning is every other repository the session was started across, as ade
+// create recorded them, for the workspace to take in beside home.
+async function spanning(path: string, also: string[]): Promise<string[]> {
+  if (also.length === 0) return [];
   try {
     const dir = await gitDir(path);
-    if (!dir) return path;
+    if (!dir) return [];
     // Where ade create put them, not where the screen predicted: a branch
     // already checked out elsewhere is worked in where it is.
     const made = await sessionMounts(join(dir, "ade", "session.json"));
-    if (made.length === 0) return path;
-    const file = join(dir, "ade", "session.code-workspace");
-    await vscode.workspace.fs.createDirectory(vscode.Uri.file(join(dir, "ade")));
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.file(file),
-      Buffer.from(multiRoot(path, made), "utf8"),
-    );
-    return file;
+    return made.filter((one) => one !== path);
   } catch {
-    return path;
+    return [];
   }
 }
 
@@ -6442,8 +6662,7 @@ async function newWorkspace(
       },
       () => workspace(at, dir, name, message),
     );
-    await want(memory, { path: made.path, chat: true });
-    await switchTo(made.path);
+    await attach({ path: made.path, chat: true });
   } catch (err) {
     void vscode.window.showErrorMessage(
       `ade: could not start ${name} (${String(err)})`,
@@ -6541,6 +6760,12 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
     worktreeTree.serving(undefined);
     worktreeGraph.serving(undefined);
     offline(found.why);
+    // The desk with nothing to serve: the launcher starts the desk's session,
+    // which the next try finds. Once, like any other start.
+    if (deskHere() && !found.checkout && !started.has("desk")) {
+      started.add("desk");
+      void startDesk();
+    }
     again(context);
     return;
   }
@@ -6577,14 +6802,91 @@ async function connect(context: vscode.ExtensionContext): Promise<void> {
   status.show();
 
   await refresh(client);
-  const asked = await take(memory, server.root);
-  if (asked?.number) showReview();
-  if (asked?.chat) {
+  await landOn(await take(memory, server.root));
+  listen(client, context);
+}
+
+// landOn opens what a pick or a handover asked for, on the server now live.
+async function landOn(asked: Wanted | undefined): Promise<void> {
+  const server = live;
+  if (!server || !asked) return;
+  if (asked.number) showReview();
+  if (asked.chat) {
     if (asked.session)
       await resume(server, asked.session, asked.agent ?? "", asked.model ?? "");
     void chat.reveal(server);
   }
-  listen(client, context);
+}
+
+// attach puts the window on a checkout's conversation. A workspace takes the
+// folder in; a window on one folder is replaced, which restarts the extension.
+async function attach(asked: Wanted): Promise<void> {
+  if (!boxContext) return;
+  if (!windowFolders().includes(asked.path)) {
+    if (!vscode.workspace.workspaceFile) {
+      await want(memory, asked);
+      await vscode.commands.executeCommand(
+        "vscode.openFolder",
+        vscode.Uri.file(asked.path),
+        { forceNewWindow: false },
+      );
+      return;
+    }
+    await addFolder(asked.path);
+  }
+  current = { root: asked.path, session: asked.session };
+  if (live?.root !== asked.path) await connect(boxContext);
+  if (live?.root === asked.path) await landOn(asked);
+}
+
+// adding is set while attach adds a folder, so the folder watcher does not
+// attach a second time to the same arrival.
+let adding = false;
+
+async function addFolder(dir: string): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (folders.some((f) => f.uri.fsPath === dir)) return;
+  adding = true;
+  try {
+    const held = new Promise<void>((done) => {
+      const sub = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        sub.dispose();
+        done();
+      });
+      setTimeout(() => {
+        sub.dispose();
+        done();
+      }, 2000);
+    });
+    const uri = vscode.Uri.file(dir);
+    if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri }))
+      return;
+    await held;
+  } finally {
+    adding = false;
+  }
+}
+
+// dropFolder takes a checkout out of the workspace. The first folder is the
+// desk, and stays.
+function dropFolder(dir: string): void {
+  const at = (vscode.workspace.workspaceFolders ?? []).findIndex(
+    (f) => f.uri.fsPath === dir,
+  );
+  if (at > 0) vscode.workspace.updateWorkspaceFolders(at, 1);
+}
+
+// isDesk is the desk's own checkout, the workspace's first folder. Nothing is
+// started in it from here: the launcher starts the desk's session.
+function isDesk(root: string): boolean {
+  return (vscode.workspace.workspaceFolders ?? []).some(
+    (f) => f.uri.path === root && f.name === "Desk",
+  );
+}
+
+function deskHere(): boolean {
+  const file = vscode.workspace.workspaceFile?.path ?? "";
+  return basename(file) === "desk.code-workspace";
 }
 
 // started is the folders this window has already tried to start a server in.
@@ -6605,8 +6907,9 @@ async function find(): Promise<
   const tried: string[] = [];
   let checkout: string | undefined;
   const where = new Map(folders.map((f) => [f.uri.path, f.uri]));
-  const roots = nearest(
+  const roots = rootsFor(
     folders.map((f) => f.uri.path),
+    current?.root,
     vscode.window.activeTextEditor?.document.uri.path,
   );
   for (const root of roots) {
@@ -6619,13 +6922,13 @@ async function find(): Promise<
     const rec = await read(recordPath(dir), files);
     if (!rec) {
       tried.push(`${root}: no ade running`);
-      checkout ??= root;
+      if (!isDesk(root)) checkout ??= root;
       continue;
     }
     const server = await probe(rec);
     if (server) return { server };
     tried.push(`${root}: the recorded ade has gone`);
-    checkout ??= root;
+    if (!isDesk(root)) checkout ??= root;
   }
   return { why: tried.join("\n"), checkout };
 }
@@ -6764,7 +7067,7 @@ async function arrange(): Promise<void> {
       // A view that is not there yet is not worth stopping for.
     }
   }
-  await dashboard.show();
+  await showDesk();
 }
 
 // floatDesk puts the concierge in its own small window that stays on top. The
@@ -7690,7 +7993,7 @@ async function refresh(client: Client): Promise<void> {
     );
     titleSession();
     updateWell();
-    dashboard.stale();
+    void readDesk();
     nudge(inbox.apply(state.bus));
     if (diffHeader)
       diffHeader.description = state.meta?.view

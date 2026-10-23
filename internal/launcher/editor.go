@@ -10,7 +10,7 @@ import (
 
 // openEditor is how a checkout is put in front of the user. A variable so a
 // test can stand in for it rather than start an editor.
-var openEditor = editor.Open //nolint:gochecknoglobals // a seam for tests
+var openEditor = editor.OpenDesk //nolint:gochecknoglobals // a seam for tests
 
 // handleEditor shows a checkout in the editor. The page asks after it has
 // opened a session: the editor is where a session is looked at, not a tab.

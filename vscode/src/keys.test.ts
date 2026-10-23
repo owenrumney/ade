@@ -24,4 +24,12 @@ describe("the keybindings this extension contributes", () => {
     for (const b of manifest.contributes.keybindings)
       expect(b.mac, b.command).toBeTruthy();
   });
+
+  // One key, no chord: cmd+k on its own opens the omnibox, so the stock
+  // cmd+k chords are given up on purpose.
+  it("puts the omnibox on cmd+k", () => {
+    const box = manifest.contributes.keybindings.find((b) => b.command === "ade.omnibox");
+    expect(box?.mac).toBe("cmd+k");
+    expect(box?.key).toBe("ctrl+k");
+  });
 });

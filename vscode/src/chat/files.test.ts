@@ -63,6 +63,7 @@ describe("what a drag offers", () => {
 describe("dropping a file the editor named by path", () => {
   const page = readFileSync(join(__dirname, "main.ts"), "utf8");
   const host = readFileSync(join(__dirname, "..", "chat.ts"), "utf8");
+  const markup = readFileSync(join(__dirname, "body.ts"), "utf8");
 
   it("falls back to the paths when the drag carried no files", () => {
     expect(page).toContain('dropped(moved?.getData("text/uri-list"))');
@@ -75,6 +76,6 @@ describe("dropping a file the editor named by path", () => {
   });
 
   it("offers a file and not only an image", () => {
-    expect(host).toContain("paste an image or drop a file");
+    expect(markup).toContain("paste an image or drop a file");
   });
 });

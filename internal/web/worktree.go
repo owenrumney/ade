@@ -255,7 +255,8 @@ func (s *Server) rematchDesign(root, branch string) {
 	if s.docsDir == "" {
 		return
 	}
-	dir, file, ok := docs.Find(docs.SearchDirs(root, s.commonGitDir, ""), s.commonGitDir, branch, s.agent.Current())
+	dirs := docs.SearchDirs(root, s.commonGitDir, s.docsOverride)
+	dir, file, ok := docs.Find(dirs, s.commonGitDir, branch, s.agent.Current())
 
 	s.mu.Lock()
 	if ok {

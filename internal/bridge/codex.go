@@ -68,23 +68,27 @@ type CodexOpts struct {
 	// them is most of the startup cost.
 	NoMCP bool
 
-	// WikiMCP is ade's wiki tool for this session: where it is from inside the
-	// run, and the draft id that is its bearer token.
-	WikiMCP *WikiMCP
+	// MCPs are ade's own tools for this session: where each is from inside
+	// the run, and the token that reaches it.
+	MCPs []MCP
 
 	OnEvent  func(Event)
 	OnLimits func(limits.Limits)
 }
 
-// WikiMCP is one streamable-http MCP server, as Codex configures them.
-type WikiMCP struct {
+// MCP is one streamable-http MCP server, as Codex configures them. Name is
+// what the agent calls it, and what its token's variable is named after.
+type MCP struct {
+	Name  string
 	URL   string
 	Token string
 }
 
-// wikiTokenEnv carries the bearer token: Codex reads it from the environment
+// tokenEnv carries a bearer token: Codex reads it from the environment
 // rather than the config, so the token never sits in argv.
-const wikiTokenEnv = "ADE_WIKI_TOKEN"
+func tokenEnv(name string) string {
+	return "ADE_" + strings.ToUpper(strings.TrimPrefix(name, "ade_")) + "_TOKEN"
+}
 
 // codexClientVersion identifies ade in the app-server's user agent.
 const codexClientVersion = "1"
@@ -321,19 +325,31 @@ func codexArgs(opts CodexOpts) []string {
 	}
 	if opts.NoMCP || opts.ReadOnly {
 		args = append(args, "-c", "mcp_servers={}")
-	} else if opts.WikiMCP != nil && opts.WikiMCP.URL != "" {
-		args = append(args, "-c", "mcp_servers.ade_wiki.url="+strconv.Quote(opts.WikiMCP.URL),
-			"-c", "mcp_servers.ade_wiki.bearer_token_env_var="+strconv.Quote(wikiTokenEnv))
+	} else {
+		for _, each := range opts.MCPs {
+			if each.URL == "" {
+				continue
+			}
+			at := "mcp_servers." + each.Name
+			args = append(args, "-c", at+".url="+strconv.Quote(each.URL),
+				"-c", at+".bearer_token_env_var="+strconv.Quote(tokenEnv(each.Name)))
+		}
 	}
 	return args
 }
 
 // codexEnv is the run's environment with the wiki token added when there is one.
 func codexEnv(opts CodexOpts) []string {
-	if opts.WikiMCP == nil || opts.WikiMCP.Token == "" || opts.NoMCP || opts.ReadOnly {
+	if opts.NoMCP || opts.ReadOnly {
 		return opts.Env
 	}
-	return append(append([]string{}, opts.Env...), wikiTokenEnv+"="+opts.WikiMCP.Token)
+	out := append([]string{}, opts.Env...)
+	for _, each := range opts.MCPs {
+		if each.Token != "" {
+			out = append(out, tokenEnv(each.Name)+"="+each.Token)
+		}
+	}
+	return out
 }
 
 // codexConfig is the config.toml the spawned process will read: the box's copy

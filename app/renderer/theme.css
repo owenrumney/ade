@@ -1,0 +1,126 @@
+/* Ayu Dark Unbordered, as github.com/ayu-theme/vscode-ayu has it. The
+   names are ade's, so a second palette is this file again and nothing
+   else. */
+:root {
+  --ink: #bfbdb6;
+  --ink-dim: #5a6378;
+  --ink-bright: #ffffff;
+
+  /* One background, everywhere. */
+  --bg: #0d1017;
+  --bg-chrome: #0d1017;
+  /* Only what floats lifts: the omnibox, a comment thread, an input. */
+  --bg-raised: #141821;
+
+  /* Unbordered is the whole point of the variant: the seams between
+     regions are the background, so the window has none. What floats
+     still gets an edge, or it would have no shape at all. */
+  --edge: #0d1017;
+  --line: #1b1f29;
+  --line-strong: #2d333f;
+
+  /* Ayu leads with one gold rather than a blue, and the whole window
+     reads calmer for it. Selection and hover are its own translucent
+     greys, so a row lifts without changing hue. */
+  --accent: #e6b450;
+  --accent-ink: #765b24;     /* button.foreground: a brown, not the bg */
+  --accent-soft: #47526640;  /* list.activeSelectionBackground */
+  --hover: #47526640;        /* list.hoverBackground, the same grey */
+  --selected-quiet: #47526633;
+
+  --input-bg: #10141c;
+  --placeholder: #5a637880;
+  --guide: #5a637842;        /* editorIndentGuide.background1 */
+  --guide-on: #5a6378a1;     /* tree.indentGuidesStroke */
+  --line-no: #5a6378a6;
+
+  --good: #aad94c;
+  --warn: #e6b450;
+  --bad: #f26d78;
+  --info: #73b8ff;
+
+  /* What git decoration uses, which is not the string green: a file is
+     added, changed or gone in Ayu's own three. */
+  --git-add: #70bf56;
+  --git-mod: #73b8ff;
+  --git-del: #f26d78;
+
+  /* Ayu tints a badge rather than filling it: the hue at 33 behind the
+     hue at full, as badge.background is to badge.foreground. One
+     pattern for every pill in the window. */
+  --tint-good: #70bf5633;
+  --tint-warn: #e6b45033;
+  --tint-bad: #f26d7833;
+  --tint-info: #73b8ff33;
+  --tint-dim: #47526633;
+
+  --said: var(--good);
+  --heard: #ffb454;
+
+  /* diffEditor.insertedTextBackground and removedTextBackground. The
+     text itself keeps its syntax colour in Ayu, so only the row tints. */
+  --add-bg: #70bf561f;
+  --del-bg: #f26d781f;
+  /* The changed run inside a changed line: the same hues, held stronger. */
+  --add-edit: #70bf5640;
+  --del-edit: #f26d7840;
+
+  /* Syntax, from Ayu's own token colours. */
+  --syn-comment: #5a6673;
+  --syn-string: #aad94c;
+  --syn-keyword: #ff8f40;
+  --syn-func: #ffb454;
+  --syn-type: #59c2ff;
+  --syn-const: #d2a6ff;
+
+  /* Two fonts and one size. The chrome is sans; everything you read is
+     the coding font, which is what the fork's chat does and what makes
+     it crisp. `vscode/media/chat.css:7` sets the same pair. */
+  --ui: -apple-system, "Segoe UI", Ubuntu, "Droid Sans", sans-serif;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ui-size: 13px;
+  --read-size: 13px;
+  --read-line: 1.65;
+
+  --activity-w: 52px;
+  --sidebar-w: 300px;
+  --row-h: 24px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--ui-size)/1.45 var(--ui);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Everything in the editor area is read rather than clicked, so it takes
+   the coding font, the reading size and the looser line. */
+.sheet {
+  font: var(--read-size)/var(--read-line) var(--mono);
+  user-select: text;
+}
+
+/* What the window says went wrong is read, and usually read to somebody
+   else: an error you cannot select is an error you retype. */
+.sidebar .empty,
+.statusbar .saying,
+.nothing {
+  user-select: text;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.hidden { display: none !important; }

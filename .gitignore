@@ -17,6 +17,8 @@ bin/
 
 node_modules/
 internal/web/dist/
+app/dist/
+app/out/
 extension/web-ext-artifacts/
 *.test
 
@@ -34,3 +36,8 @@ editor/node24/
 # ade-private. Copy them in with `make private`.
 internal/roles/defaults/*.md
 internal/agents/defaults/*.md
+
+# A browser fetched for screenshots in a Linux container: 680 MB, and
+# the wrong architecture for anything but that container.
+tools/shots/chromium/
+tools/shots/chromium

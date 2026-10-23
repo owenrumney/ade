@@ -754,6 +754,8 @@ type boxInputs struct {
 	wiki      *wiki.Store
 	wikiDraft string
 	delegate  string
+	// delegateToken reaches ade's own tools from inside the box.
+	delegateToken string
 }
 
 // sandboxOpts is the conversation's own provider; claudeSandboxOpts is claude
@@ -787,7 +789,7 @@ func (a *agentRunner) boxFor(ctx context.Context, own bool) (boxInputs, error) {
 		a.runtime = rt
 	}
 	in := boxInputs{rt: a.runtime, dir: a.dir, gitDir: a.gitDir, workspace: a.workspace, own: a.own,
-		wiki: a.wiki, wikiDraft: a.wikiDraft, delegate: a.delegateURL}
+		wiki: a.wiki, wikiDraft: a.wikiDraft, delegate: a.delegateURL, delegateToken: a.delegateToken}
 	if own {
 		in.provider = a.provider
 	}
@@ -848,6 +850,14 @@ func (a *agentRunner) specFor(ctx context.Context, in boxInputs) (*sandbox.Spec,
 			ws.Env[key] = value
 		}
 		servers = wikiServers(workerBase(in.rt, in.delegate), draft)
+	}
+	// Not optional for a box: it carries no toolchain, so this is the only
+	// way a run in one builds or tests anything.
+	if entry := checksServer(workerBase(in.rt, in.delegate), in.delegateToken); entry != nil {
+		if servers == nil {
+			servers = map[string]json.RawMessage{}
+		}
+		servers[ChecksServerName] = entry
 	}
 	if in.provider == "codex" {
 		spec, err := sandbox.Codex{Home: home, Root: in.dir, GitDir: in.gitDir, Docs: in.docs, Extra: extra, Env: ws.Env}.Spec()
@@ -1612,12 +1622,25 @@ func rehost(addr, host string) string {
 
 // wikiMCP is the wiki tool as Codex reaches it: this server's address, under
 // the name a container knows it by, with the draft id as the token.
-func (a *agentRunner) wikiMCP() *bridge.WikiMCP {
-	if a.wiki == nil || !a.wiki.Enabled() || a.wikiDraft == "" || a.delegateURL == "" {
+// codexMCPs is every tool a codex run gets, addressed from where it runs. A
+// box has no toolchain, so without the checks server it cannot build at all.
+func (a *agentRunner) codexMCPs(boxed bool) []bridge.MCP {
+	base := a.delegateURL
+	if base == "" {
 		return nil
 	}
-	base := rehost(a.delegateURL, a.containerHost())
-	return &bridge.WikiMCP{URL: strings.TrimSuffix(base, "/") + wiki.MCPPath, Token: a.wikiDraft}
+	if boxed {
+		base = rehost(base, a.containerHost())
+	}
+	base = strings.TrimSuffix(base, "/")
+	var out []bridge.MCP
+	if a.wiki != nil && a.wiki.Enabled() && a.wikiDraft != "" {
+		out = append(out, bridge.MCP{Name: "ade_wiki", URL: base + wiki.MCPPath, Token: a.wikiDraft})
+	}
+	if a.delegateToken != "" {
+		out = append(out, bridge.MCP{Name: ChecksServerName, URL: base + ChecksMCPPath, Token: a.delegateToken})
+	}
+	return out
 }
 
 // setDelegate configures the private endpoint the agent's own tools use.
@@ -1752,7 +1775,7 @@ func (a *agentRunner) ensure(ctx context.Context, onEvent func(bridge.Event)) (b
 			codexOpts.Sandbox, codexOpts.Runtime = opts.Sandbox, opts.Runtime
 			codexOpts.OTLPHost = a.containerHost()
 		}
-		codexOpts.WikiMCP = a.wikiMCP()
+		codexOpts.MCPs = a.codexMCPs(opts.Sandbox != nil)
 		agent, err = bridge.NewCodex(ctx, codexOpts)
 	} else {
 		agent, err = bridge.NewClaude(ctx, opts)

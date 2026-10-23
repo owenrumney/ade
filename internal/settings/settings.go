@@ -46,6 +46,10 @@ type Settings struct {
 
 	// WikiRemote names the shared wiki's origin. Empty leaves wiki support off.
 	WikiRemote string `json:"wiki_remote,omitempty"`
+
+	// DesignsRemote shares the designs store between machines. Empty keeps
+	// it to this one, which still works.
+	DesignsRemote string `json:"designs_remote,omitempty"`
 	// WikiDistill publishes pages distilled from this machine's transcripts.
 	// Off by default: the text goes to a Git remote.
 	WikiDistill bool `json:"wiki_distill,omitempty"`
@@ -70,6 +74,10 @@ type Settings struct {
 	// Preview is screenshot capture for every repository. A repository's own
 	// preview.json overrides the URL.
 	Preview Preview `json:"preview,omitempty"`
+
+	// Front is which window `ade .` opens: "editor" or "window". Empty is
+	// the editor, which is where ade has always opened.
+	Front string `json:"front,omitempty"`
 
 	// SharpenOff stops the questions a cheap model asks about a vague prompt
 	// before it is sent.

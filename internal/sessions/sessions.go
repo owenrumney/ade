@@ -291,6 +291,9 @@ type Work struct {
 	Role string
 	// Also are checkouts that get a worktree each on the same branch.
 	Also []string
+	// Docs is where this session's design document lives, for one kept in
+	// the shared store rather than beside the checkout.
+	Docs string
 	// Sandbox, when set, is the container said rather than remembered.
 	Sandbox *bool
 }
@@ -322,6 +325,9 @@ func CreateWork(ctx context.Context, dir string, w Work) (string, string, error)
 	args = append(args, startArgs(w.Role, w.Sandbox)...)
 	for _, also := range w.Also {
 		args = append(args, "--also", also)
+	}
+	if w.Docs != "" {
+		args = append(args, "--docs", w.Docs)
 	}
 	// After --, so a name cannot be read as a flag.
 	args = append(args, "--", name)

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- frame-src is for the hosted panels: default-src 'none' blocks
+         an iframe outright, and the failure reads ERR_BLOCKED_BY_CSP
+         against the child's url rather than against this line. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-src ade-webview: http://127.0.0.1:* http://localhost:*; connect-src http://127.0.0.1:* http://localhost:*;" />
+    <title>ade</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="window.css" />
+    <link rel="stylesheet" href="views.css" />
+    <!-- monaco's own, emitted beside the bundle. Its editor writes
+         inline styles for every measured width, which is why style-src
+         carries 'unsafe-inline' here and nowhere else. -->
+    <link rel="stylesheet" href="../dist/renderer.css" />
+  </head>
+  <body>
+    <div id="window"></div>
+    <script src="../dist/renderer.js"></script>
+  </body>
+</html>

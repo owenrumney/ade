@@ -45,11 +45,14 @@ type Record struct {
 // only for a probe that carries the server's token: the port is predictable,
 // so what the agent is doing is not said to just anyone on loopback.
 type Health struct {
-	Ade    bool         `json:"ade"`
-	Root   string       `json:"root"`
-	PID    int          `json:"pid"`
-	Branch string       `json:"branch,omitempty"`
-	Agent  *AgentHealth `json:"agent,omitempty"`
+	Ade  bool   `json:"ade"`
+	Root string `json:"root"`
+	PID  int    `json:"pid"`
+	// Version is the binary serving this checkout: a 404 or a 405 does
+	// not say that the window is newer than the server.
+	Version string       `json:"version,omitempty"`
+	Branch  string       `json:"branch,omitempty"`
+	Agent   *AgentHealth `json:"agent,omitempty"`
 }
 
 // AgentHealth is what a server's agent is up to, in one line.
@@ -70,8 +73,31 @@ type AgentHealth struct {
 	Asking int `json:"asking,omitempty"`
 	// SideRuns names the agents at work beside the main one.
 	SideRuns []string `json:"sideRuns,omitempty"`
+	// Children is the sub-agents the main agent called, so a reader outside
+	// the process can draw the tree rather than one row per session.
+	Children []AgentChild `json:"children,omitempty"`
+	// Stacked is the queue in order. Queued is its length: a list that says
+	// which session each turn is waiting on needs the turns, not a count.
+	Stacked []AgentQueued `json:"stacked,omitempty"`
 	// Sandbox is whether the agent runs in a container.
 	Sandbox bool `json:"sandbox,omitempty"`
+}
+
+// AgentQueued is one turn waiting behind the run. No prompt: a row needs
+// what a turn will do, not what it will say.
+type AgentQueued struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	What string `json:"what,omitempty"`
+}
+
+// AgentChild is one sub-agent under the main one, as a list outside the
+// session draws it.
+type AgentChild struct {
+	// Kind is "agent" for a sub-agent and "task" for a background command.
+	Kind  string `json:"kind,omitempty"`
+	Name  string `json:"name"`
+	Doing string `json:"doing,omitempty"`
 }
 
 // Path is where the record lives for a checkout. A worktree has its own git dir,

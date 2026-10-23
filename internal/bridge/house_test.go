@@ -360,14 +360,44 @@ func TestAHostRunMayPublishToTheWikiUnasked(t *testing.T) {
 }
 
 // TestTheCliClaimsItsOwnIdentifier guards the Local Network grant, which is
-// keyed to this string. Renaming it starts from no permission.
+// keyed to this string. Renaming it starts from no permission. The window
+// signs with one of its own, so what is pinned is the default.
 func TestTheCliClaimsItsOwnIdentifier(t *testing.T) {
 	sign, err := os.ReadFile(filepath.Join("../..", "tools", "sign.sh"))
 	require.NoError(t, err)
 
 	found := regexp.MustCompile(`(?m)^bundle_id="([^"]+)"`).FindAllSubmatch(sign, -1)
 	require.Len(t, found, 1, "tools/sign.sh sets bundle_id once")
-	assert.Equal(t, "uk.co.owenrumney.ade-cli", string(found[0][1]))
+	assert.Equal(t, "${ADE_BUNDLE_ID:-uk.co.owenrumney.ade-cli}", string(found[0][1]),
+		"the cli's identifier is what sign.sh falls back to")
+}
+
+// TestTheWindowSignsAsItself keeps the two programs apart: one identifier
+// for two bundles is two sets of permissions macOS cannot tell apart.
+func TestTheWindowSignsAsItself(t *testing.T) {
+	pack, err := os.ReadFile(filepath.Join("../..", "app", "pack.sh"))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(pack), "--app-bundle-id=uk.co.owenrumney.ade-window")
+	assert.Contains(t, string(pack), "ADE_BUNDLE_ID=uk.co.owenrumney.ade-window")
+	assert.NotContains(t, string(pack), "ade-cli")
+}
+
+// TestTheWindowIsCalledOneThing keeps the three places that name it in
+// step. macOS reads the menu bar from the bundle when it is packaged and
+// from app.getName() when it is not, so a disagreement shows up in only
+// one of them — which is how it read "Electron" in a dev run.
+func TestTheWindowIsCalledOneThing(t *testing.T) {
+	const name = "ADE Window"
+	for _, at := range []struct{ file, want string }{
+		{filepath.Join("../..", "app", "package.json"), `"productName": "` + name + `"`},
+		{filepath.Join("../..", "app", "pack.sh"), `"` + name + `" \`},
+		{filepath.Join("../..", "app", "src", "main.ts"), `const NAME = "` + name + `"`},
+	} {
+		body, err := os.ReadFile(at.file)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), at.want, at.file)
+	}
 }
 
 func TestASessionStartsInTheRoleItWasAskedFor(t *testing.T) {

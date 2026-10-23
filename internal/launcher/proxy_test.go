@@ -522,3 +522,55 @@ func TestAWorkerSessionThatNeverAnnouncesIsABadGatewayAfterTheLongerWait(t *test
 	assert.Contains(t, rec.Body.String(), "never announced itself")
 	assert.NotContains(t, rec.Body.String(), "127.0.0.1:1234")
 }
+
+// A conversation on another machine is reached through that machine's own
+// launcher, which has the same proxy at the same path. Nothing here knows
+// which port serves it there, and nothing here needs to.
+func TestTheProxyReachesASessionOnAnotherMachine(t *testing.T) {
+	var asked *http.Request
+	far := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/repos" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"repos": []sessions.Repo{{
+				Name: "ade", Path: "/far/ade",
+				Checkouts: []sessions.Dir{{
+					Name: "ade", Path: "/far/ade",
+					Sessions: []sessions.Session{{ID: "away", Dir: "/far/ade", Name: "away"}},
+				}},
+			}}})
+			return
+		}
+		asked = r
+		_, _ = w.Write([]byte(`{"from":"the other machine"}`))
+	}))
+	defer far.Close()
+
+	s := newTestLauncher(t)
+	s.hosts["linux"] = &conn{url: far.URL + "/?t=faraway"}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	res, err := http.Get(front.URL + "/s/away/api/state?t=" + s.token)
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	require.NotNil(t, asked, "the far launcher was never asked")
+	// Its own proxy path, so it resolves the session at its end.
+	assert.Equal(t, "/s/away/api/state", asked.URL.Path)
+	assert.Equal(t, "faraway", asked.Header.Get("X-Ade-Token"))
+	// The token in the query is rewritten too, or the far end refuses it.
+	assert.Equal(t, "faraway", asked.URL.Query().Get("t"))
+}
+
+// One nobody has is still a 404: the machines are asked, and if none of
+// them holds it there is nothing to forward to.
+func TestASessionNoMachineHasIsStillNotFound(t *testing.T) {
+	s := newTestLauncher(t)
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	res, err := http.Get(front.URL + "/s/nobody/api/state?t=" + s.token)
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	assert.Equal(t, http.StatusNotFound, res.StatusCode)
+}

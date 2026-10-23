@@ -404,6 +404,18 @@
         "title": "ade: Sandbox mounts and environment…"
       },
       {
+        "command": "ade.sandboxPanel",
+        "title": "ade: Sandbox mounts and environment (panel)"
+      },
+      {
+        "command": "ade.memoryForget",
+        "title": "ade: Forget something ade remembers\u2026"
+      },
+      {
+        "command": "ade.memoryProposal",
+        "title": "ade: Decide a memory ade has proposed\u2026"
+      },
+      {
         "command": "ade.distilMemory",
         "title": "ade: Read the new transcripts for things worth remembering",
         "icon": "$(sparkle)"
@@ -595,6 +607,18 @@
         "icon": "$(add)"
       },
       {
+        "command": "ade.removeMachine",
+        "title": "ade: Forget a machine\u2026"
+      },
+      {
+        "command": "ade.driftDismiss",
+        "title": "ade: Stop checking the change against a requirement\u2026"
+      },
+      {
+        "command": "ade.driftRestore",
+        "title": "ade: Check the change against a requirement again\u2026"
+      },
+      {
         "command": "ade.reviewBranch",
         "title": "ade: Review this branch",
         "icon": "$(checklist)"
@@ -769,6 +793,10 @@
         "title": "ade: Ask, or run a verb"
       },
       {
+        "command": "ade.desk.run",
+        "title": "ade: Act on a desk row"
+      },
+      {
         "command": "ade.conciergeFloat",
         "title": "ade: Concierge in a floating window",
         "icon": "$(multiple-windows)"
@@ -814,7 +842,7 @@
       },
       {
         "command": "ade.dashboard",
-        "title": "ade: Dashboard",
+        "title": "ade: Show what is waiting",
         "icon": "$(dashboard)"
       },
       {
@@ -1071,6 +1099,18 @@
           "when": "false"
         },
         {
+          "command": "ade.sandboxPanel",
+          "when": "false"
+        },
+        {
+          "command": "ade.memoryForget",
+          "when": "false"
+        },
+        {
+          "command": "ade.memoryProposal",
+          "when": "false"
+        },
+        {
           "command": "ade.distilMemory",
           "when": "false"
         },
@@ -1220,6 +1260,18 @@
         },
         {
           "command": "ade.addMachine",
+          "when": "false"
+        },
+        {
+          "command": "ade.removeMachine",
+          "when": "false"
+        },
+        {
+          "command": "ade.driftDismiss",
+          "when": "false"
+        },
+        {
+          "command": "ade.driftRestore",
           "when": "false"
         },
         {
@@ -1468,6 +1520,10 @@
         },
         {
           "command": "ade.omnibox",
+          "when": "false"
+        },
+        {
+          "command": "ade.desk.run",
           "when": "false"
         },
         {
@@ -1952,24 +2008,6 @@
           "default": true,
           "description": "Mark lines a turn of the conversation wrote."
         },
-        "ade.openSessionIn": {
-          "type": "string",
-          "enum": [
-            "currentWindow",
-            "newWindow"
-          ],
-          "default": "newWindow",
-          "description": "Where a session in another checkout opens. A new window keeps the one you are in: reusing it closes every tab you had open. A window with no folder open is reused either way."
-        },
-        "ade.afterCloseSession": {
-          "type": "string",
-          "enum": [
-            "closeWindow",
-            "stay"
-          ],
-          "default": "closeWindow",
-          "description": "What this window does once the session is closed. Closing it quits the editor when it is the last one open. The window stays either way if the worktree could not be removed, so you can read why."
-        },
         "ade.sessionsPerCheckout": {
           "type": "number",
           "default": 5,
@@ -2010,8 +2048,23 @@
       "activitybar": [
         {
           "id": "ade",
-          "title": "ADE",
+          "title": "Desk",
           "icon": "media/ade.svg"
+        },
+        {
+          "id": "ade-work",
+          "title": "Work",
+          "icon": "media/work.svg"
+        },
+        {
+          "id": "ade-agents",
+          "title": "Agents",
+          "icon": "media/agents.svg"
+        },
+        {
+          "id": "ade-review",
+          "title": "Review",
+          "icon": "media/review.svg"
         },
         {
           "id": "ade-chat",
@@ -2036,6 +2089,55 @@
         }
       ],
       "ade": [
+        {
+          "id": "ade.waiting",
+          "name": "Waiting on you",
+          "icon": "$(bell)"
+        },
+        {
+          "id": "ade.sessions",
+          "name": "Sessions",
+          "icon": "$(comment-discussion)"
+        },
+        {
+          "id": "ade.todos",
+          "name": "Todos",
+          "icon": "$(checklist)",
+          "visibility": "collapsed"
+        }
+      ],
+      "ade-work": [
+        {
+          "id": "ade.prs",
+          "name": "Pull requests",
+          "icon": "$(git-pull-request)"
+        },
+        {
+          "id": "ade.designs",
+          "name": "Designs",
+          "icon": "$(book)"
+        },
+        {
+          "id": "ade.tickets",
+          "name": "Issues",
+          "icon": "$(issues)",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "ade.inbox.github",
+          "name": "GitHub inbox",
+          "icon": "$(mail)",
+          "visibility": "collapsed"
+        }
+      ],
+      "ade-agents": [
+        {
+          "id": "ade.agents",
+          "name": "Running agents",
+          "icon": "$(organization)"
+        }
+      ],
+      "ade-review": [
         {
           "id": "ade.diff",
           "name": "Diff"
@@ -2073,6 +2175,11 @@
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "ade.omnibox",
+        "key": "ctrl+k",
+        "mac": "cmd+k"
       },
       {
         "command": "ade.switchSession",
@@ -2120,7 +2227,7 @@
     ]
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/dashboard/main.ts --bundle --outfile=dist/dashboard.js --format=iife --platform=browser && esbuild src/repo/main.ts --bundle --outfile=dist/repo.js --format=iife --platform=browser && esbuild src/purgepanel/main.ts --bundle --outfile=dist/purge.js --format=iife --platform=browser && esbuild src/designprunepanel/main.ts --bundle --outfile=dist/designprune.js --format=iife --platform=browser && esbuild src/quizpanel/main.ts --bundle --outfile=dist/quiz.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && esbuild src/newsession/main.ts --bundle --outfile=dist/newsession.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node && esbuild src/chat/main.ts --bundle --outfile=dist/chat.js --format=iife --platform=browser && esbuild src/settings/main.ts --bundle --outfile=dist/settings.js --format=iife --platform=browser && esbuild src/commitpanel/main.ts --bundle --outfile=dist/commit.js --format=iife --platform=browser && esbuild src/worktreepanel/main.ts --bundle --outfile=dist/worktrees.js --format=iife --platform=browser && esbuild src/repo/main.ts --bundle --outfile=dist/repo.js --format=iife --platform=browser && esbuild src/purgepanel/main.ts --bundle --outfile=dist/purge.js --format=iife --platform=browser && esbuild src/designprunepanel/main.ts --bundle --outfile=dist/designprune.js --format=iife --platform=browser && esbuild src/quizpanel/main.ts --bundle --outfile=dist/quiz.js --format=iife --platform=browser && esbuild src/designedit/main.ts --bundle --outfile=dist/designedit.js --format=iife --platform=browser && esbuild src/newsession/main.ts --bundle --outfile=dist/newsession.js --format=iife --platform=browser && esbuild src/sandboxpanel/main.ts --bundle --outfile=dist/sandbox.js --format=iife --platform=browser && cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js",
     "watch": "npm run build -- --sourcemap --watch",
     "check": "tsc --noEmit",
     "test": "vitest run"

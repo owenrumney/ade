@@ -5,6 +5,7 @@ go 1.26.10
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
+	github.com/owenrumney/go-lsp v0.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.0
 	github.com/yuin/goldmark v1.8.2

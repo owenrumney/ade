@@ -60,6 +60,63 @@ version:
 shots:
 	./tools/shots.sh $(VIEWS)
 
+# The app spike: a window of ade's own. See app/README.md.
+ESBUILD := ../vscode/node_modules/.bin/esbuild
+
+# Electron is a hundred megabytes, so it is installed on demand rather than
+# by every target that only needs the bundles. The check is for the binary
+# itself: a shim with no download behind it is the usual way this fails,
+# and `electron: command not found` is not a useful thing to be told.
+app-deps:
+	cd app && ./deps.sh
+
+# Every precondition make app needs, checked one at a time. Run this
+# first when the window will not start.
+app-doctor:
+	cd app && ./doctor.sh
+
+# The window's own bundles, and the extension's: the panels are its
+# webviews, so a stale or missing vscode/dist is a blank pane with a
+# 404 nobody sees.
+app-build:
+	@cd vscode && if [ -d node_modules ]; then npm run build >/dev/null; \
+		else echo "vscode/node_modules is missing, so the panels will be blank"; fi
+	cd app && mkdir -p dist \
+		&& $(ESBUILD) src/main.ts --bundle --outfile=dist/main.js \
+			--platform=node --external:electron --format=cjs \
+		&& $(ESBUILD) src/preload.ts --bundle --outfile=dist/preload.js \
+			--platform=node --external:electron --format=cjs \
+		&& $(ESBUILD) src/keymap.ts --bundle --outfile=dist/keymap.js \
+			--platform=node --format=cjs \
+		&& $(ESBUILD) renderer/app.ts --bundle --outfile=dist/renderer.js \
+			--format=iife --platform=browser \
+			--loader:.ttf=dataurl --external:vs/* \
+		&& $(ESBUILD) renderer/editorentry.ts --bundle --outfile=dist/editor.js \
+			--format=iife --global-name=adeEditor --platform=browser \
+			--loader:.ttf=dataurl --external:vs/*
+
+app-test:
+	cd app && ../vscode/node_modules/.bin/vitest run --root . --reporter=dot
+
+# Starts the real window headless and checks it drew. Needs a display, or
+# xvfb-run on a machine without one.
+app-smoke: app-deps app-build
+	cd app && ./node_modules/.bin/electron smoke.js --no-sandbox --disable-gpu 2>&1 \
+		| grep -vE 'libva|GPU|dbus|Fontconfig|gbm|EGL|bus\.cc|Floss|vulkan|interface_endpoint'
+
+# A browser harness for pictures only: the keyboard is the shell's, so this
+# is never a way to run ade.
+app-shots: app-build
+	node tools/appshots.mjs $(VIEWS)
+
+# The window as something launchable: ADE Window.app on a Mac. Its own
+# bundle id, because the cli's is pinned to the cli.
+app-package: app-deps app-build
+	cd app && ./pack.sh
+
+app: app-deps app-build
+	cd app && ./node_modules/.bin/electron .
+
 test:
 	go test ./...
 	$(MAKE) vscode-test
