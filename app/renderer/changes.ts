@@ -45,30 +45,16 @@ export interface Diff {
   files?: Change[] | null;
 }
 
+// Which revision a thread is anchored to, in the server's own words
+// (internal/comments/anchor.go). Diff rows call the same sides del and add.
+export type Side = "left" | "right";
+
 // A comment thread, as the session server keeps it: anchored to a file
 // and a line of one side, with every comment on it.
-export interface Said {
-  id: string;
-  author: string;
-  body: string;
-  at?: string;
-  sentAt?: string;
-  outcome?: string;
-}
-
-export interface Thread {
-  id: string;
-  file: string;
-  side: string;
-  line: number;
-  comments?: Said[] | null;
-  resolved?: boolean;
-  orphaned?: boolean;
-  category?: string;
-  severity?: string;
-  sentAt?: string;
-  externalId?: string;
-}
+// The editor's, not a second declaration of it. A narrower copy here is what
+// left the window with no notion of a draft at all.
+import type { Thread } from "../../vscode/src/client";
+export type { Comment as Said, Thread } from "../../vscode/src/client";
 
 // One line of the drawn diff: a hunk header, a cell with the number it
 // has on whichever side it belongs to, or a thread anchored under one.
@@ -87,7 +73,7 @@ export function changesIn(got: unknown): Change[] {
 export function linesOf(file: Change | undefined, threads: Thread[] = []): Line[] {
   const out: Line[] = [];
   const mine = threads.filter((t) => t.file === file?.path);
-  const under = (side: string, no: number) => {
+  const under = (side: Side, no: number) => {
     for (const thread of mine.filter((t) => t.side === side && t.line === no)) {
       out.push({ at: "thread", thread });
     }
@@ -99,11 +85,11 @@ export function linesOf(file: Change | undefined, threads: Thread[] = []): Line[
       // the order a unified diff has them in.
       if (row.left && row.left.kind === "del") {
         out.push({ at: "line", kind: "del", no: row.left.line, cell: row.left });
-        under("old", row.left.line);
+        under("left", row.left.line);
       }
       if (row.right && row.right.kind !== "del") {
         out.push({ at: "line", kind: row.right.kind, no: row.right.line, cell: row.right });
-        under("new", row.right.line);
+        under("right", row.right.line);
       }
       // A context row has the same content on both sides, so the right
       // one above is the whole of it.
@@ -127,4 +113,84 @@ export function toneOf(status: string): "added" | "changed" | "removed" {
   if (status.startsWith("a") || status.startsWith("?")) return "added";
   if (status.startsWith("d")) return "removed";
   return "changed";
+}
+
+// Listed is one open comment as the Review sidebar names it: how bad, and
+// the first line of what it says.
+export interface Listed {
+  id: string;
+  file: string;
+  line: number;
+  severity: string;
+  title: string;
+}
+
+// At is what a jump into a file named: the comment to land on, and the line
+// it is about when that comment is not drawn in the diff.
+export interface At {
+  thread?: string;
+  line?: number;
+}
+
+// wanted is the selector a jump lands on. The two ids are ade's own — a hex
+// string and a line number — so anything else in them is not a selector.
+export function wanted(jump?: At): string {
+  const safe = (value: string) => value.replace(/[^\w-]/g, "");
+  const parts: string[] = [];
+  if (jump?.thread) parts.push(`[data-thread="${safe(jump.thread)}"]`);
+  if (jump?.line) parts.push(`[data-line="${safe(String(jump.line))}"]`);
+  return parts.join(", ");
+}
+
+// drawnFrom is everything one file's diff draws besides the diff itself. A
+// pane built from one of these is stale the moment it changes.
+export function drawnFrom(
+  path: string,
+  threads: Thread[],
+  open: Set<string>,
+  hasPR: boolean,
+): string {
+  const mine = threads
+    .filter((t) => t.file === path)
+    .map((t) =>
+      [
+        t.id,
+        t.comments?.length ?? 0,
+        t.severity ?? "",
+        t.resolved ? "r" : "",
+        t.orphaned ? "o" : "",
+        t.outgoing ? "w" : "",
+        t.sentAt ?? "",
+        t.draftReview ?? "",
+        open.has(t.id) ? "open" : "",
+      ].join("."),
+    );
+  return `${hasPR ? "pr" : "no-pr"}|${mine.join(",")}`;
+}
+
+const RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+// listed is the comments still to deal with, worst first: what would be said
+// once written up, and the finding before that. Resolved and sent are done.
+export function listed(threads: Thread[]): Listed[] {
+  return threads
+    .filter((t) => !t.resolved && !t.sentAt)
+    .map((t) => ({
+      id: t.id,
+      file: t.file,
+      line: t.line,
+      severity: t.severity || "medium",
+      title: firstLine(t.outgoing || t.comments?.[0]?.body || ""),
+    }))
+    .sort(
+      (a, b) =>
+        (RANK[a.severity] ?? 2) - (RANK[b.severity] ?? 2) ||
+        a.file.localeCompare(b.file) ||
+        a.line - b.line,
+    );
+}
+
+function firstLine(body: string): string {
+  const line = body.split("\n").find((one) => one.trim()) ?? "";
+  return line.replace(/^[#>*\-\s]+/, "").replace(/`|\*\*/g, "").trim();
 }

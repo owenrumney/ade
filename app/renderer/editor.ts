@@ -49,6 +49,23 @@ export interface Where {
   line: number;
 }
 
+const models = new Map<string, { model: monaco.editor.ITextModel; base: string }>();
+
+function dirty(held: { model: monaco.editor.ITextModel; base: string }): boolean {
+  return held.model.getValue() !== held.base;
+}
+
+// edits is the showing file when it has changes to save.
+export function edits(): { path: string; source: string } | undefined {
+  const held = models.get(showing);
+  return held && dirty(held) ? { path: showing, source: held.model.getValue() } : undefined;
+}
+
+export function saved(path: string, source: string): void {
+  const held = models.get(path);
+  if (held) held.base = source;
+}
+
 let asking: Asking | undefined;
 let registered = false;
 
@@ -115,14 +132,17 @@ export function mount(
   showing = path;
   if (!host) host = make();
   const editor = made!;
-  const want = languageOf(path);
-  const model = editor.getModel();
-  // A new file is a new model: setValue on the old one keeps its
-  // language and its undo history, which belong to the file that went.
-  if (!model || model.getValue() !== source || model.getLanguageId() !== want) {
-    editor.setModel(monaco.editor.createModel(source, want));
-    model?.dispose();
+  // A model per file, so an unsaved edit survives opening another. A
+  // fresh read replaces only what has not been typed over.
+  let held = models.get(path);
+  if (!held) {
+    held = { model: monaco.editor.createModel(source, languageOf(path)), base: source };
+    models.set(path, held);
+  } else if (held.base !== source && !dirty(held)) {
+    held.model.setValue(source);
+    held.base = source;
   }
+  if (editor.getModel() !== held.model) editor.setModel(held.model);
   if (line > 0) editor.revealLineInCenterIfOutsideViewport(line);
   // The element has just been moved in the document, so its size is
   // whatever it was before the move.
@@ -136,7 +156,6 @@ function make(): HTMLElement {
   monaco.editor.defineTheme("ade", THEME);
   made = monaco.editor.create(el, {
     theme: "ade",
-    readOnly: true,
     automaticLayout: true,
     fontFamily: "var(--mono)",
     fontSize: 13,

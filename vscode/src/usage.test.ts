@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badge, span, type Usage } from "./usage";
+import { badge, plan, span, type Usage } from "./usage";
 
 const now = Date.parse("2026-10-01T12:00:00Z");
 const claude: Usage = {
@@ -114,5 +114,38 @@ describe("span", () => {
     expect(span(5 * 60000)).toBe("5m");
     expect(span(90 * 60000)).toBe("1h 30m");
     expect(span(50 * 3600000)).toBe("2d 2h");
+  });
+});
+
+// The window draws its own icon, so it takes the facts rather than the
+// editor's spelling of them.
+describe("the same reading, for a bar that is not the editor's", () => {
+  it("is the windows and the words, without a codicon", () => {
+    const it0 = plan(claude, now);
+    expect(it0?.bars).toBe("5h 12% · 7d 41%");
+    expect(it0?.windows.map((w) => w.name)).toEqual(["5h", "7d"]);
+    expect(it0?.tooltip).toContain("claude 5h: 12%, resets in 2h 30m");
+    expect(it0?.warn).toBe(false);
+    expect(it0?.stale).toBe(false);
+  });
+
+  it("warns on the window nearest spent, whichever it is", () => {
+    const nearly: Usage = {
+      claude: { provider: "claude", windows: [{ name: "5h", percent: 3 }, { name: "7d", percent: 84 }] },
+    };
+    expect(plan(nearly, now)?.warn).toBe(true);
+    expect(plan(nearly, now)?.bars).toBe("5h 3% · 7d 84%");
+  });
+
+  it("says a stale reading is one, rather than passing it off as now", () => {
+    const old: Usage = {
+      claude: {
+        provider: "claude",
+        checkedAt: "2026-10-01T09:00:00Z",
+        windows: [{ name: "5h", percent: 12 }],
+      },
+    };
+    expect(plan(old, now)?.stale).toBe(true);
+    expect(plan(undefined, now)).toBeUndefined();
   });
 });

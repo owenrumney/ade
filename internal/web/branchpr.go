@@ -24,6 +24,7 @@ const commentInterval = 2 * time.Minute
 // BranchPR is the pull request for the current branch, with its checks.
 type BranchPR struct {
 	Number   int          `json:"number"`
+	HeadSHA  string       `json:"headSha,omitempty"`
 	Title    string       `json:"title"`
 	Author   string       `json:"author"`
 	URL      string       `json:"url"`
@@ -182,7 +183,7 @@ func (s *Server) refreshBranchPR(ctx context.Context) {
 
 	viewer := s.who(ctx, ws.homeRoot)
 	current := &BranchPR{
-		Number: pr.Number, Title: pr.Title, Author: pr.Author, URL: pr.URL,
+		Number: pr.Number, HeadSHA: pr.HeadSHA, Title: pr.Title, Author: pr.Author, URL: pr.URL,
 		State: pr.State, Draft: pr.Draft, BaseRef: pr.BaseRef, HeadRef: pr.HeadRef,
 		Body: pr.Body, BodyHTML: markdownHTML(pr.Body),
 		Checks: found, Failing: countFailing(found), CheckedAt: time.Now(),

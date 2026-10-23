@@ -27,6 +27,10 @@ const wanted = process.argv.slice(2).flatMap((bit) => bit.split(/[\s,]+/)).filte
 const VIEWS = [
   { name: "app-prs", place: "Pull requests", row: "#412 Add usage tiles to the desk" },
   { name: "app-designs", place: "Designs", row: "rethink-workflow-and-uk" },
+  { name: "app-spaces", place: "Spaces" },
+  { name: "app-space", place: "Spaces", row: "owenrumney/ade" },
+  { name: "app-issues", place: "Issues" },
+  { name: "app-open-space", place: "Spaces", keys: "k", type: "open space" },
   { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
   { name: "app-verbs", place: "Pull requests", keys: "k", type: "review" },
@@ -36,6 +40,7 @@ const VIEWS = [
   { name: "app-terminal", place: "Pull requests", keys: "k", type: "terminal", enter: true },
   { name: "app-todos", place: "Todos" },
   { name: "app-team", place: "Team" },
+  { name: "app-person", place: "Team", row: "kim" },
   { name: "app-jobs", place: "Jobs" },
   {
     name: "app-chat",
@@ -43,6 +48,14 @@ const VIEWS = [
     row: "Rethink the workflow and the window",
   },
   { name: "app-code", place: "Code", session: "Rethink the workflow and the window", twigs: ["internal/web", "web.go"] },
+  {
+    name: "app-commit",
+    place: "Pull requests",
+    session: "Rethink the workflow and the window",
+    keys: "k",
+    type: "Commit",
+    enter: true,
+  },
   {
     name: "app-permissions",
     place: "Pull requests",

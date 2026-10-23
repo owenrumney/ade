@@ -32,6 +32,7 @@ import {
   step,
   type Message,
   opens,
+  atBottom,
   redraws,
   queuedLabel,
   type Side,
@@ -1263,7 +1264,7 @@ function takeAttachment(waiting: Attachment | null | undefined): void {
 const taken = new Set<number>();
 
 list.addEventListener("scroll", () => {
-  pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  pinned = atBottom(list, pinned);
 });
 
 box.addEventListener("keydown", (event) => {

@@ -2,13 +2,16 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/owenrumney/ade/internal/agentbus"
+	"github.com/owenrumney/ade/internal/bushistory"
 	"github.com/owenrumney/ade/internal/busstate"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/statedir"
@@ -84,6 +87,9 @@ type busnode struct {
 	sentPresence string
 	sentStatus   string
 
+	// trouble is why there is no connection, for the page to say.
+	trouble string
+
 	// override is the presence you set by hand, empty to follow the window.
 	// Per launcher and not saved: it is a mood, not a setting.
 	override string
@@ -116,8 +122,9 @@ func (s *Server) watchBus(ctx context.Context) {
 	}
 	url := cfg.Agentbus.URL
 	if url == "" {
-		if url, err = agentbus.ResolveURL(ctx); err != nil {
-			slog.Debug("no agentbus to join", "err", err)
+		// Waits rather than giving up: the Mac app starts ade at login,
+		// where Tailscale is often not up yet.
+		if url = agentbus.Resolve(ctx, s.bus.setTrouble); url == "" {
 			return
 		}
 	}
@@ -130,10 +137,11 @@ func (s *Server) watchBus(ctx context.Context) {
 			Version: s.version,
 			Label:   s.busLabel(),
 		},
-		Accepts:  busAccepts(cfg.Agentbus),
-		Presence: s.busPresence(),
-		Status:   s.busStatus(),
-		OnFrame:  func(f agentbus.Frame) { s.onBusFrame(ctx, f) },
+		Accepts:   busAccepts(cfg.Agentbus),
+		Presence:  s.busPresence(),
+		Status:    s.busStatus(),
+		OnFrame:   func(f agentbus.Frame) { s.onBusFrame(ctx, f) },
+		OnTrouble: s.bus.setTrouble,
 	}
 	s.recallAsked()
 	go s.pulseBus(ctx)
@@ -158,11 +166,26 @@ func busAccepts(cfg settings.Agentbus) *agentbus.Accepts {
 	return accepts
 }
 
+// setTrouble records why the bus cannot be joined, so the Team place
+// says it rather than only that it is not connected.
+func (b *busnode) setTrouble(err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err == nil {
+		b.trouble = ""
+		return
+	}
+	b.trouble = err.Error()
+}
+
 func (b *busnode) attach(c *agentbus.Client) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.client = c
 	b.sentPresence, b.sentStatus = "", ""
+	if c != nil {
+		b.trouble = ""
+	}
 	if c == nil {
 		b.you = agentbus.From{}
 		clear(b.team)
@@ -377,6 +400,7 @@ func (s *Server) onBusFrame(ctx context.Context, f agentbus.Frame) {
 		}
 		s.bus.offers[offer.ID] = offer
 		s.bus.mu.Unlock()
+		s.said(offer.From, offerSaid(offer))
 		slog.Info("agentbus request", "kind", offer.Kind, "from", offer.From, "id", offer.ID)
 		s.busChanged()
 	case agentbus.TypeState:
@@ -393,6 +417,7 @@ func (s *Server) onBusFrame(ctx context.Context, f agentbus.Frame) {
 		if seen != nil && *seen == *reply {
 			return
 		}
+		s.answered(from, reply)
 		slog.Info("agentbus reply", "kind", reply.Kind, "from", reply.From, "id", reply.ID)
 		s.busChanged()
 	case agentbus.TypePresence:
@@ -436,6 +461,9 @@ func (s *Server) busChanged() { s.hub.Broadcast("bus", nil) }
 func (s *Server) currentBus() *busstate.State {
 	s.bus.mu.Lock()
 	state := &busstate.State{Online: s.bus.client != nil, User: s.bus.you.User}
+	if !state.Online {
+		state.Why = s.bus.trouble
+	}
 	if s.bus.you.Instance != nil {
 		state.Instance = s.bus.you.Instance.ID
 	}
@@ -498,4 +526,39 @@ func (s *Server) currentBus() *busstate.State {
 		return nil
 	}
 	return state
+}
+
+// said writes one thing to who's history. A failure is logged and nothing
+// else: losing a line of history is not a reason to refuse the message.
+func (s *Server) said(who string, e bushistory.Entry) {
+	if err := s.history.Add(who, e); err != nil && !errors.Is(err, bushistory.ErrNobody) {
+		slog.Warn("keep the agentbus history", "with", who, "err", err)
+	}
+}
+
+// answered files a reply under whoever gave it, and copies a question put to
+// anyone there too, or their history reads as an answer to nothing.
+func (s *Server) answered(asked askedBy, reply *busstate.Reply) {
+	if asked.Question != "" && !strings.EqualFold(asked.To, reply.From) {
+		s.said(reply.From, bushistory.Entry{
+			ID: reply.ID, Kind: bushistory.KindAsk, Mine: true, Agent: asked.Agent,
+			Question: asked.Question, PR: asked.PR,
+		})
+	}
+	s.said(reply.From, bushistory.Entry{
+		ID: reply.ID, Kind: bushistory.KindAnswer, Agent: reply.ByAgent,
+		Text: reply.Text, Option: reply.Option, Verdict: reply.Verdict, PR: reply.PR,
+	})
+}
+
+// offerSaid is a request put to you, as the history keeps it.
+func offerSaid(offer *busstate.Offer) bushistory.Entry {
+	kind := bushistory.KindAsk
+	if offer.Kind != bushistory.KindAsk {
+		kind = bushistory.KindReview
+	}
+	return bushistory.Entry{
+		ID: offer.ID, Kind: kind, Agent: offer.Agent != "",
+		Question: offer.Question, Options: offer.Options, PR: offer.PR,
+	}
 }

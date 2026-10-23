@@ -28,6 +28,10 @@ type Issue struct {
 	Priority   int       `json:"priority"`
 	BranchName string    `json:"branchName,omitempty"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+
+	// Project is what it is part of, for grouping. Empty is an issue in
+	// no project, which Linear allows and the list calls out.
+	Project string `json:"project,omitempty"`
 }
 
 // Client asks Linear's GraphQL API on your behalf.
@@ -43,7 +47,7 @@ const DefaultURL = "https://api.linear.app/graphql"
 // myIssues is what the menu shows: assigned to you, not started or started,
 // newest first. Linear's state types are fixed words; "unstarted" is the
 // Todo column, "started" In Progress.
-const myIssues = `{ viewer { assignedIssues(first: 50, orderBy: updatedAt, filter: { state: { type: { in: ["unstarted", "started"] } } }) { nodes { identifier title url priority branchName updatedAt state { name type } } } } }`
+const myIssues = `{ viewer { assignedIssues(first: 50, orderBy: updatedAt, filter: { state: { type: { in: ["unstarted", "started"] } } }) { nodes { identifier title url priority branchName updatedAt state { name type } project { name } } } } }`
 
 // MyIssues lists your open issues: in progress first, then by priority,
 // then newest.
@@ -102,6 +106,9 @@ func (c Client) MyIssues(ctx context.Context) ([]Issue, error) {
 							Name string `json:"name"`
 							Type string `json:"type"`
 						} `json:"state"`
+						Project struct {
+							Name string `json:"name"`
+						} `json:"project"`
 					} `json:"nodes"`
 				} `json:"assignedIssues"`
 			} `json:"viewer"`
@@ -122,6 +129,7 @@ func (c Client) MyIssues(ctx context.Context) ([]Issue, error) {
 			Identifier: n.Identifier, Title: n.Title, URL: n.URL, State: n.State.Name,
 			Started: n.State.Type == "started", Priority: n.Priority,
 			BranchName: n.BranchName, UpdatedAt: n.UpdatedAt,
+			Project: n.Project.Name,
 		})
 	}
 	Sort(out)

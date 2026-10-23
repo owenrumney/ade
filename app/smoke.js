@@ -1,18 +1,49 @@
 // Opens the window headless, checks the page drew and the bridge arrived,
 // then quits. It is the one test that proves the three bundles load
 // together under a real Electron rather than under a bundler.
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, net } = require("electron");
 const { join } = require("node:path");
 const { Keymap, merge } = require("./dist/keymap.js");
+const { declare, hold, serve } = require("./dist/webview.js");
 
 app.disableHardwareAcceleration();
+// Privileged schemes are declared before the app is ready, as in main.
+declare();
 
 const mac = process.platform === "darwin";
 
+// This window has no ipc handlers behind it, so `ade.world` rejects and
+// the renderer draws what it draws with no launcher: one place, holding
+// the line that says so. That it got that far is the point.
 const want = {
-  places: 8,
+  places: 1,
+  rows: 1,
+  offline: true,
   bridge: "object",
+  panelsAreReachable: true,
 };
+
+// A panel's page is served from the webview scheme by url. An id that
+// names a checkout carries slashes, which is not one path segment, and
+// the iframe showed "no such panel".
+const PANEL_IDS = [
+  "ade.openChat",
+  "design:spaces.md",
+  "spacedesign:/Users/x/code/infracost/coast|FIX-818.md",
+  "pr:412",
+];
+
+async function panelsAreReachable() {
+  serve(process.cwd());
+  for (const id of PANEL_IDS) {
+    const res = await net.fetch(hold(id, `<!doctype html><title>${id}</title>`));
+    if (!res.ok) {
+      console.error(`panel ${id} is not reachable: ${res.status}`);
+      return false;
+    }
+  }
+  return true;
+}
 
 // The keyboard is why ade is an app, so the smoke test presses the key
 // rather than trusting the table: main must see it, match it, and the
@@ -56,10 +87,12 @@ app
       places: document.querySelectorAll(".activity button").length,
       rows: document.querySelectorAll(".sidebar .row, .sidebar .twig").length,
       bridge: typeof window.ade,
+      offline: Boolean(document.querySelector(".sidebar .row .name")),
       background: getComputedStyle(document.body).backgroundColor,
       font: getComputedStyle(document.querySelector(".sheet")).fontFamily,
     })`);
 
+    got.panelsAreReachable = await panelsAreReachable();
     got.omniboxOnTheKey = await pressesOpenTheOmnibox(
       win,
       new Keymap(merge(), mac),

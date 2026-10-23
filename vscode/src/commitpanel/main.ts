@@ -33,6 +33,8 @@ interface Carried {
   base?: string;
   branch?: string;
   busy?: string;
+  // The commit landed: the message went with it.
+  committed?: boolean;
   note?: string;
 }
 
@@ -302,6 +304,9 @@ window.addEventListener("message", (event: MessageEvent<Carried>) => {
   const said = event.data;
   if (said.kind !== "state") return;
   all = rows(said.tree);
+  // The commit went in and took the message with it. Only here: a state
+  // with no draft is the ordinary case for a message you typed yourself.
+  if (said.committed) typed = draft = undefined;
   sign = said.tree?.signing;
   // A redraft replaces what the agent wrote, not what you typed over it.
   if (said.draft && (!draft || said.draft.title !== draft.title)) {

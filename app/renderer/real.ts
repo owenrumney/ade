@@ -43,6 +43,7 @@ export interface Issue {
   state: string;
   priority?: number;
   updatedAt?: string;
+  project?: string;
 }
 
 export interface Design {
@@ -105,7 +106,9 @@ export function prs(
   repo = "",
   now = Date.now(),
 ): Place {
-  const asked = (dash.reviews ?? []).filter((r) => !r.muted).map(reviewRow);
+  const all = dash.reviews ?? [];
+  const asked = all.filter((r) => !r.muted).map(reviewRow);
+  const aside = all.filter((r) => r.muted).map((r) => ({ ...reviewRow(r), group: "Put aside" }));
   const yours = mine
     .filter((p) => p.mine)
     .map((p) => ({
@@ -123,7 +126,7 @@ export function prs(
     id: "prs",
     title: "Pull requests",
     icon: "pr",
-    rows: [...asked, ...yours],
+    rows: [...asked, ...yours, ...aside],
     note: why(dash),
   };
 }
@@ -158,6 +161,8 @@ function reviewRow(r: Review): Row {
   return {
     id: `${r.repo}#${r.number}`,
     group: "To review",
+    url: r.url,
+    pr: { repo: r.repo, number: r.number },
     icon: stateIcon(state),
     tone: state === "drafted" ? "bad" : state === "ready" ? "warn" : undefined,
     name: `#${r.number} ${r.title}`,
@@ -196,16 +201,34 @@ function tagFor(r: Review): Row["tag"] {
   return undefined;
 }
 
-// designs is both the shared store and the picked checkout's own
-// `.git/ade/docs`: one never imported is still a design.
-export function designs(all: Design[], here: string[] = [], where = ""): Place {
-  const mine: Row[] = here.map((file) => ({
-    id: `here:${file}`,
-    group: where ? `In ${where.split("/").pop()}` : "In this checkout",
-    icon: "design",
-    name: file.replace(/\.md$/, ""),
-    meta: "",
-  }));
+// designs is the shared store and the documents written in the work: every
+// open space's, or the picked checkout's when no space is open.
+export function designs(
+  all: Design[],
+  here: string[] = [],
+  where = "",
+  open: { repo: string; path?: string; designs?: string[] }[] = [],
+): Place {
+  const mine: Row[] =
+    open.length > 0
+      ? open.flatMap((space) =>
+          (space.designs ?? []).map((file) => ({
+            // The space is in the id: which checkout a document is in is
+            // what a reader of another space's design needs.
+            id: `space:${space.path ?? ""}|${file}`,
+            group: space.repo,
+            icon: "design",
+            name: file.replace(/\.md$/, ""),
+            meta: "",
+          })),
+        )
+      : here.map((file) => ({
+          id: `here:${file}`,
+          group: where ? `In ${where.split("/").pop()}` : "In this checkout",
+          icon: "design",
+          name: file.replace(/\.md$/, ""),
+          meta: "",
+        }));
   const place = store(all);
   return { ...place, rows: [...mine, ...place.rows] };
 }
@@ -247,23 +270,30 @@ export interface Machine {
   repos?: Repo[] | null;
 }
 
+// RUNNING is the group every conversation that is up appears in, above
+// the repositories: what is open is what you are coming back to.
+const RUNNING = "Running";
+
 export function sessions(
   repos: Repo[],
   here?: string,
   now = Date.now(),
   machines: Machine[] = [],
+  active: Active[] = [],
 ): Place {
   // By repository, not by checkout: three worktrees of ade are three
-  // ways into one repository, not three repositories called ade.
+  // ways into one repository, not three repositories called ade. What
+  // is up is lifted out of them and listed first, in one group.
+  const up: { at: number; row: Row }[] = [];
   const groups: { name: string; at: number; rows: Row[] }[] = [];
   for (const repo of repos) {
     const name = repo.owner ? `${repo.owner}/${repo.name}` : repo.name;
     const found: { at: number; row: Row }[] = [];
     for (const checkout of repo.checkouts ?? []) {
       for (const session of (checkout.sessions ?? []).filter((s) => !s.archived)) {
-        found.push({ at: when(session.lastUsed), row: {
+        (session.live ? up : found).push({ at: when(session.lastUsed), row: {
           id: session.id,
-          group: name,
+          group: session.live ? RUNNING : name,
           icon: session.live ? "play" : "history",
           tone: session.live ? ("good" as const) : undefined,
           name: session.title || session.branch || session.name,
@@ -285,11 +315,32 @@ export function sessions(
         } });
       }
     }
+    // A checkout an ade is serving with nothing said in it yet: without
+    // a row it cannot be picked, so Review has nothing to follow.
+    for (const checkout of repo.checkouts ?? []) {
+      const spoken = (checkout.sessions ?? []).some((s) => !s.archived);
+      const serving = active.find((a) => !a.machine && a.dir === checkout.path);
+      if (spoken || !serving) continue;
+      up.push({ at: now, row: {
+        id: serving.id,
+        group: RUNNING,
+        icon: "play",
+        tone: "good" as const,
+        name: serving.branch || checkout.name,
+        meta: [checkout.worktree ? checkout.name : "", "no conversation yet"]
+          .filter(Boolean)
+          .join(" · "),
+        tag: checkout.path === here ? { text: "here", kind: "here" as const } : undefined,
+      } });
+    }
     if (found.length === 0) continue;
     found.sort((a, b) => b.at - a.at);
     groups.push({ name, at: found[0].at, rows: found.map((f) => f.row) });
   }
-  groups.sort((a, b) => b.at - a.at);
+  groups.sort((a, b) => a.name.localeCompare(b.name));
+  // By name, not by when it last spoke: a list ordered by recency
+  // reshuffles under the pointer every time an agent writes a line.
+  up.sort((a, b) => a.row.name.localeCompare(b.row.name) || a.row.id.localeCompare(b.row.id));
 
   // Another machine's, after this one's: the proxy forwards a session
   // it does not serve to the launcher that does.
@@ -320,7 +371,7 @@ export function sessions(
     id: "sessions",
     title: "Sessions",
     icon: "session",
-    rows: [...groups.flatMap((g) => g.rows), ...away],
+    rows: [...up.map((u) => u.row), ...groups.flatMap((g) => g.rows), ...away],
   };
 }
 
@@ -332,6 +383,7 @@ import {
   tree,
   waiting as wantingYou,
 } from "../../vscode/src/agents";
+import type { Active } from "../../vscode/src/agents";
 export type { Active, Health } from "../../vscode/src/agents";
 export { attention, stateOf } from "../../vscode/src/agents";
 
@@ -342,6 +394,45 @@ const TONE: Record<string, Row["tone"]> = {
   working: "warn",
   idle: undefined,
 };
+
+export function running(state: string): boolean {
+  return state === "working" || state === "asking";
+}
+
+// Ending is one question with four answers, worst last. What is running
+// decides the first of them: there is no run to stop when nothing is going.
+export interface Ending {
+  label: string;
+  note: string;
+  value: "agent" | "ade" | "archive" | "delete";
+}
+
+export function endings(state: string): Ending[] {
+  const out: Ending[] = [];
+  if (running(state)) {
+    out.push({ label: "Stop the agent", note: "the turn stops; ade keeps serving the checkout", value: "agent" });
+  }
+  out.push(
+    { label: "Stop ade here", note: "the server for this checkout goes too", value: "ade" },
+    { label: "Archive the session", note: "out of the lists, kept on disk", value: "archive" },
+    { label: "Delete the session", note: "gone from ade for good", value: "delete" },
+  );
+  return out;
+}
+
+// ended is what was done, in the words of the thing that was done to.
+export function ended(what: string): string {
+  switch (what) {
+    case "agent":
+      return "stopped";
+    case "ade":
+      return "ade stopped here";
+    case "archive":
+      return "archived";
+    default:
+      return "deleted";
+  }
+}
 
 export function agents(all: Active[]): Place {
   const rows: Row[] = [];
@@ -354,10 +445,17 @@ export function agents(all: Active[]): Place {
       name: row.name,
       meta: detail(row),
       tag: row.machine ? { text: row.machine, kind: "where" } : undefined,
-      acts:
-        row.state === "working" || row.state === "asking"
-          ? [{ label: "Stop", what: "session-stop" as const, name: row.session }]
-          : [],
+      // One verb for the whole session: stopping the run, stopping the ade
+      // under it, and putting the conversation away are the same decision.
+      acts: row.machine
+        ? []
+        : [
+            {
+              label: running(row.state) ? "Stop…" : "Put away…",
+              what: "session-end" as const,
+              name: row.session,
+            },
+          ],
     });
     for (const child of branch.children) {
       rows.push({
@@ -387,16 +485,42 @@ function when(stamp: string | undefined): number {
   return Number.isNaN(at) ? 0 : at;
 }
 
+// What an issue in no project is filed under. Named rather than blank: an
+// unlabelled group reads as a bug in the grouping.
+export const NO_PROJECT = "No project";
+
+// byProject keeps the server's order inside a project, and puts the
+// projects in the order their first issue appears. Issues in none go last.
+export function byProject(all: Issue[]): Issue[] {
+  const order: string[] = [];
+  const by = new Map<string, Issue[]>();
+  for (const issue of all) {
+    const key = issue.project || NO_PROJECT;
+    if (!by.has(key)) {
+      by.set(key, []);
+      order.push(key);
+    }
+    by.get(key)!.push(issue);
+  }
+  const named = order.filter((k) => k !== NO_PROJECT);
+  if (by.has(NO_PROJECT)) named.push(NO_PROJECT);
+  return named.flatMap((k) => by.get(k) ?? []);
+}
+
 export function issues(dash: Dash & { error?: string }): Place {
   const started = dash.started ?? {};
   return {
     id: "issues",
     title: "Issues",
     icon: "issue",
-    rows: (dash.linear?.issues ?? []).map((t) => ({
+    rows: byProject(dash.linear?.issues ?? []).map((t) => ({
       id: t.identifier,
+      group: t.project || NO_PROJECT,
+      // The play is this machine being on the ticket's branch, which is
+      // not Linear's "In Progress": the tag is what says so.
       icon: started[t.identifier] ? "play" : "issue",
       tone: started[t.identifier] ? "warn" : undefined,
+      tag: started[t.identifier] ? { text: "checked out", kind: "here" } : undefined,
       name: `${t.identifier} · ${t.title}`,
       url: t.url,
       meta: [t.state, t.priority ? `P${t.priority}` : "", ago(t.updatedAt)]
@@ -429,6 +553,7 @@ export function inbox(dash: Dash & { error?: string }): Place {
 
 export interface Bus {
   online?: boolean;
+  why?: string;
   user?: string;
   offers?: { id: string; kind: string; from: string; question?: string; pr?: string; claimed?: boolean }[];
   replies?: { id: string; from: string; question?: string; text?: string; verdict?: string; at?: string }[];
@@ -445,13 +570,20 @@ export interface Bus {
 
 // team is the bus as a list: what is waiting on you, then what you
 // asked for, then who is about.
+// notConnected says why, where the launcher knows: "not connected" with
+// no reason is what left a broken tailnet lookup invisible for an hour.
+export function notConnected(why?: string): string {
+  const said = "ade is not connected to agentbus.";
+  return why ? `${said} ${why}` : said;
+}
+
 export function team(bus: Bus | undefined, now = Date.now()): Place {
   const rows: Row[] = [];
   for (const offer of bus?.offers ?? []) {
     rows.push({
       id: offer.id,
       group: "Offered to you",
-      icon: offer.kind === "review" ? "pr" : "inbox",
+      icon: offer.kind === "review" ? "review" : "ask",
       tone: "warn",
       name: offer.question || offer.pr || offer.kind,
       meta: [offer.from, offer.claimed ? "claimed" : ""].filter(Boolean).join(" · "),
@@ -461,7 +593,7 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
     rows.push({
       id: reply.id,
       group: "Answers",
-      icon: "inbox",
+      icon: "answer",
       tone: "good",
       name: reply.text || reply.verdict || reply.question || "a reply",
       meta: [reply.from, ago(reply.at, now)].filter(Boolean).join(" · "),
@@ -471,7 +603,7 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
     rows.push({
       id: sent.id,
       group: "You asked",
-      icon: "ring",
+      icon: "ask",
       name: sent.question || sent.pr || "a question",
       meta: [sent.to, ago(sent.at, now)].filter(Boolean).join(" · "),
     });
@@ -494,7 +626,7 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
     icon: "people",
     rows,
     count: (bus?.offers ?? []).length + (bus?.replies ?? []).length,
-    note: bus?.online ? "" : "This session is not on agentbus.",
+    note: bus?.online ? "" : notConnected(bus?.why),
   };
 }
 
@@ -668,6 +800,10 @@ export interface Doing {
   // checkout's, which is not the same thing.
   scope: string;
   branch: string;
+  // The pull request for this branch, when there is one.
+  pr?: number;
+  // How many commits the base has that this branch does not.
+  behind?: number;
 }
 
 export const NOTHING: Doing = {
@@ -695,6 +831,8 @@ export function doingIn(got: unknown): Doing {
     queued?: number;
   };
   const chat = ((got as { chat?: { session?: string } })?.chat ?? {}) as { session?: string };
+  const branchPr = (got as { branchPr?: { number?: number } })?.branchPr;
+  const tree = (got as { worktree?: { behind?: number } | null })?.worktree;
   const meta = ((got as { meta?: { scope?: string; branch?: string } })?.meta ?? {}) as {
     scope?: string;
     branch?: string;
@@ -711,6 +849,8 @@ export function doingIn(got: unknown): Doing {
     checks: checksIn(got),
     scope: meta.scope ?? "",
     branch: meta.branch ?? "",
+    pr: branchPr?.number,
+    behind: tree?.behind,
   };
 }
 
@@ -767,6 +907,8 @@ export function status(dash: Dash, repos: Repo[], doing: Doing = NOTHING): Statu
     model: doing.model,
     scope: doing.scope,
     doing: saying(doing),
+    pr: doing.pr,
+    behind: doing.behind,
   };
 }
 
@@ -817,6 +959,104 @@ export function whereSessionsAre(repos: Repo[], active: Active[] = []): Map<stri
   return out;
 }
 
+// Said is one thing in the history with a person, as the launcher keeps it.
+export interface Said {
+  at: string;
+  id: string;
+  kind: "ask" | "review" | "answer";
+  mine?: boolean;
+  agent?: boolean;
+  question?: string;
+  options?: string[];
+  pr?: string;
+  text?: string;
+  option?: string;
+  verdict?: string;
+}
+
+// historyPage is the conversation with one person, oldest first, as the
+// window draws a document. Who said each thing is the first word of it.
+export function historyPage(who: string, said: Said[], now = Date.now()): string {
+  const out = [`# ${who}`, ""];
+  if (said.length === 0) {
+    out.push("Nothing said yet. What you ask and are asked on agentbus is kept here.");
+    return out.join("\n");
+  }
+  for (const one of said) {
+    const by = one.mine ? (one.agent ? "your agent" : "you") : one.agent ? `${who}'s agent` : who;
+    out.push(`**${by}** · ${ago(one.at, now) || "just now"}`, "");
+    if (one.kind === "answer") {
+      const words = [one.option, one.text, one.verdict].filter(Boolean).join(" — ");
+      out.push(words || "_answered_", "");
+      continue;
+    }
+    if (one.kind === "review") out.push(`Asked for a review of ${one.pr ?? "a pull request"}`, "");
+    if (one.question) out.push(`> ${one.question.split("\n").join("\n> ")}`, "");
+    if ((one.options ?? []).length > 0) out.push(`Options: ${(one.options ?? []).join(" · ")}`, "");
+  }
+  return out.join("\n");
+}
+
+// CaughtUp is what one catch-up did.
+export interface CaughtUp {
+  base: string;
+  behind: number;
+  replayed: number;
+  stashed?: boolean;
+  resolved?: string[] | null;
+  by?: string;
+  stuck?: string[] | null;
+  stale?: string;
+}
+
+// caughtUp says what happened, worst first: markers left in the tree are the
+// one outcome that needs you before anything else does.
+export function caughtUp(got: CaughtUp): string {
+  if (got.behind === 0) return `already on ${got.base}`;
+  const said = [`replayed ${got.replayed} on ${got.base}`];
+  const fixed = (got.resolved ?? []).length;
+  if (fixed > 0) said.push(`${got.by ?? "the agent"} settled ${fixed} conflict(s)`);
+  const stuck = got.stuck ?? [];
+  if (stuck.length > 0) {
+    return `${said.join("; ")} — your work came back with conflicts in ${stuck.join(", ")}`;
+  }
+  if (got.stale) said.push("the base could not be fetched, so it may be old");
+  return said.join("; ");
+}
+
+// DraftState is how far the review has got: waiting on GitHub, ready here,
+// or written up by nobody.
+export interface DraftState {
+  pr?: number;
+  review?: string;
+  inDraft: number;
+  ready: number;
+  notGoing: number;
+  error?: string;
+}
+
+// reviewNote says where the review stands, including what is going nowhere:
+// the draft answers what will be sent and nothing else answers what was left.
+export function reviewNote(at: DraftState): string {
+  if (at.error) return `Could not read the review: ${at.error}`;
+  const said = [
+    at.inDraft > 0 ? `${at.inDraft} in the draft review` : "",
+    at.ready > 0 ? `${at.ready} ready` : "",
+    at.notGoing > 0 ? `${at.notGoing} not written up` : "",
+  ].filter(Boolean);
+  return said.join(" · ");
+}
+
+// servingDir is the conversation the ade in one checkout announced, or
+// empty while none has. Never landOn, which falls back to any session.
+export function servingDir(where: Map<string, string>, dir: string): string {
+  if (!dir) return "";
+  for (const [session, at] of where) {
+    if (at === dir) return session;
+  }
+  return "";
+}
+
 // The session the window lands on with nothing picked. `dir` is what
 // `ade .` named: that checkout's conversation, not the last one.
 export function landOn(repos: Repo[], dir = ""): string {
@@ -832,6 +1072,30 @@ export function landOn(repos: Repo[], dir = ""): string {
     (a, b) => Date.parse(b.lastUsed ?? "") - Date.parse(a.lastUsed ?? ""),
   );
   return (from.find((s) => s.live) ?? newest[0])?.id ?? "";
+}
+
+// Drafted is what an add to the review answered: what went into it, and
+// what GitHub would not take.
+export interface Drafted {
+  drafted?: number;
+  refused?: string[];
+}
+
+// draftSaid is that answer in one line. A refusal nobody reads is a comment
+// the author never sees, so what was refused is said before what went.
+export function draftSaid(body: Drafted, pr: number): string {
+  const n = body.drafted ?? 0;
+  const refused = body.refused ?? [];
+  const went = `${n} in the draft review on #${pr}`;
+  if (refused.length === 0) return went;
+  if (n === 0) return refused.length === 1 ? refused[0] : `${refused.length} refused: ${refused[0]}`;
+  return `${refused.length} refused: ${refused[0]} · ${went}`;
+}
+
+// unserved is the launcher's answer for a session with no ade behind
+// it. Not a failure to act: there was nothing there to act on.
+export function unserved(error = ""): boolean {
+  return /no ade is serving/.test(error);
 }
 
 // ago is a stamp as a glance reads it, or nothing for one that did not

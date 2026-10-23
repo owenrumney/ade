@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { held, idOf, keepable, live, opened, shut, type Tab } from "./tabs";
+import { held, idOf, keepable, live, opened, rebuilt, shut, trimmed, type Tab } from "./tabs";
 
 const tab = (id: string): Tab => ({ id, title: id, icon: "file", what: { kind: "none" } });
 
@@ -86,5 +86,46 @@ describe("what is picked up again next time", () => {
 
   it("leaves out a document that came from a one-off read", () => {
     expect(keepable([doc])).toEqual([]);
+  });
+});
+
+describe("when a pane is built again", () => {
+  const pane = (key: string, waiting = false) => ({ key, waiting });
+
+  it("is when the session or the address it was built with has moved on", () => {
+    expect(rebuilt(pane("s1:http://x"), "s2:http://x", false)).toBe(true);
+    expect(rebuilt(pane("s1:http://x"), "s1:http://y", false)).toBe(true);
+    expect(rebuilt(pane("s1:http://x"), "s1:http://x", false)).toBe(false);
+  });
+
+  // The bug this is here for: the pane said "starting ade…", the session
+  // came up, and nothing in the key had changed — so it said it until the
+  // tab was closed and opened again.
+  it("is when one that could only say “starting ade…” can now draw the page", () => {
+    expect(rebuilt(pane("s1:http://x", true), "s1:http://x", false)).toBe(true);
+  });
+
+  it("is not when a drawn page is asked to wait again: it would lose what was typed", () => {
+    expect(rebuilt(pane("s1:http://x", false), "s1:http://x", true)).toBe(false);
+  });
+
+  it("is not while it is still waiting", () => {
+    expect(rebuilt(pane("s1:http://x", true), "s1:http://x", true)).toBe(false);
+  });
+});
+
+describe("the tab sets written down", () => {
+  const set = (n: string) => ({ tabs: [`code:${n}.go`], active: `code:${n}.go` });
+
+  it("puts the conversation just used first, so the oldest is what goes", () => {
+    const kept = new Map([["a", set("a")], ["b", set("b")], ["c", set("c")]]);
+    expect(trimmed(kept, "c", 2).map(([s]) => s)).toEqual(["c", "a"]);
+    expect(trimmed(kept, "a").map(([s]) => s)).toEqual(["a", "b", "c"]);
+  });
+
+  it("writes the others down even when the one just used has nothing kept", () => {
+    const kept = new Map([["a", set("a")]]);
+    expect(trimmed(kept, "unknown").map(([s]) => s)).toEqual(["a"]);
+    expect(trimmed(new Map(), "a")).toEqual([]);
   });
 });

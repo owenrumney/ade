@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/agentbus"
+	"github.com/owenrumney/ade/internal/bushistory"
 	"github.com/owenrumney/ade/internal/busstate"
 	"github.com/owenrumney/ade/internal/dash"
 )
@@ -130,6 +131,10 @@ func (s *Server) handleBusAsk(w http.ResponseWriter, r *http.Request) {
 		Kind: "ask", To: to.String(), Question: req.Question, At: time.Now()}
 	s.bus.mu.Unlock()
 	s.rememberAsked()
+	s.said(to.String(), bushistory.Entry{
+		ID: id, Kind: bushistory.KindAsk, Mine: true, Agent: req.From == "agent",
+		Question: req.Question, Options: req.Options,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "asked", "id": id, "to": to.String()})
 }
 
@@ -152,7 +157,8 @@ func (s *Server) handleBusAnswer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, notConnected)
 		return
 	}
-	if s.bus.offer(req.ID) == nil {
+	asked := s.bus.offer(req.ID)
+	if asked == nil {
 		writeError(w, http.StatusNotFound, "that question is no longer waiting")
 		return
 	}
@@ -172,6 +178,9 @@ func (s *Server) handleBusAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.bus.take(req.ID)
+	s.said(asked.From, bushistory.Entry{
+		ID: req.ID, Kind: bushistory.KindAnswer, Mine: true, Text: req.Text, Option: req.Option,
+	})
 	s.busChanged()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "answered"})
 }
@@ -429,4 +438,23 @@ func (s *Server) busPulseSeen(dir string) time.Time {
 	s.bus.mu.Lock()
 	defer s.bus.mu.Unlock()
 	return s.bus.checkouts[dir].At
+}
+
+// handleBusHistory is everything said with one person, oldest first. It is
+// this machine's record: the bus itself keeps none.
+func (s *Server) handleBusHistory(w http.ResponseWriter, r *http.Request) {
+	who := strings.TrimSpace(r.URL.Query().Get("with"))
+	said, err := s.history.With(who)
+	if errors.Is(err, bushistory.ErrNobody) {
+		writeError(w, http.StatusBadRequest, "say who: ?with=an address or a team")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if said == nil {
+		said = []bushistory.Entry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"with": who, "said": said})
 }

@@ -11,10 +11,10 @@ import (
 )
 
 // ErrNoWindow means ade's own window is not installed on this machine.
-var ErrNoWindow = errors.New("ade's own window is not installed: make app-package")
+var ErrNoWindow = errors.New("ade's own window is not installed: make app-install")
 
-// windowApp is where `make app-package` puts it, once it is in place.
-const windowApp = "/Applications/ADE Window.app"
+// windowApp is where `make app-install` puts it.
+var windowApp = "/Applications/ADE.app"
 
 // Wanted is which front end `ade .` should open. The setting decides,
 // and ADE_FRONT overrides it for one invocation.

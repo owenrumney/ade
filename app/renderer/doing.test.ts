@@ -1,12 +1,12 @@
+import { WHICH } from "./panels";
 import { describe, expect, it } from "vitest";
-import manifest from "../../vscode/package.json";
-import { entries, type Contributes } from "../../vscode/src/menu";
 import { live, owed, WIRED, wired } from "./doing";
+import { UNLISTED, VOCABULARY } from "./verbs";
+import { BAR } from "./model";
 
-// Every command the omnibox offers, as menu.ts decides them.
-const offered = entries(manifest.contributes as unknown as Contributes, "ade.omnibox")
-  .filter((e) => !e.separator && e.command)
-  .map((e) => e.command!);
+// Every verb the omnibox offers. The window's own list: ade is not an
+// editor extension and its vocabulary is not an extension manifest.
+const offered = VOCABULARY.flatMap((g) => g.verbs.map(([command]) => command));
 
 describe("the table answers for all of ade", () => {
   // The omnibox lists ade's whole vocabulary, so a command with no
@@ -30,10 +30,31 @@ describe("the table answers for all of ade", () => {
 });
 
 // Every ask a verb makes, with the command that makes it.
+// The other way round: a verb wired here but not in the vocabulary is one
+// the omnibox never lists, so ⌘K cannot reach it. Spaces shipped that way
+// once and the only symptom was a verb nobody could find.
+it("names every verb it wires, so the omnibox can list it", () => {
+  const listed = new Set([...offered, ...UNLISTED]);
+  const unreachable = Object.keys(WIRED).filter((id) => id.startsWith("ade.") && !listed.has(id));
+  expect(unreachable, `add these to verbs.ts: ${unreachable.join(", ")}`).toEqual([]);
+});
+
+it("names each verb once, with something to call it", () => {
+  const seen = new Set<string>();
+  for (const { verbs } of VOCABULARY) {
+    for (const [command, name] of verbs) {
+      expect(seen.has(command), command).toBe(false);
+      seen.add(command);
+      expect(name, command).not.toMatch(/^ade:/);
+      expect(name.trim(), command).not.toBe("");
+    }
+  }
+});
+
 const asks = Object.entries(WIRED).flatMap(([command, what]) =>
-  (what.at === "launcher" || what.at === "session" ? what.needs ?? [] : []).map(
-    (ask) => [command, what.path, ask] as const,
-  ),
+  what.at === "launcher" || what.at === "session"
+    ? (what.needs ?? []).map((ask) => [command, what.path, ask] as const)
+    : [],
 );
 
 describe("a verb that needs something first", () => {
@@ -120,10 +141,7 @@ describe("what each kind of entry promises", () => {
   });
 
   it("points a window verb at a place that exists", () => {
-    const places = [
-      "waiting", "prs", "designs", "sessions",
-      "todos", "jobs", "issues", "inbox", "team", "review", "code",
-    ];
+    const places = BAR;
     for (const [command, what] of Object.entries(WIRED)) {
       if (what.at !== "window" || !what.place) continue;
       expect(places, command).toContain(what.place);
@@ -175,5 +193,18 @@ describe("drift and machines, now that they have verbs", () => {
       path: "/api/drift/dismiss",
       body: { dismissed: false },
     });
+  });
+});
+
+// A verb that opens a panel names it, and panels.ts has to know how to
+// build that name: when it does not, the tab draws "no panel called X"
+// and the only clue is the name itself.
+describe("every verb that opens a panel can open it", () => {
+  it("names a panel panels.ts knows how to build", () => {
+    const named = Object.entries(WIRED)
+      .filter(([, what]) => what.at === "panel")
+      .map(([command, what]) => [command, (what as { panel: string }).panel] as const);
+    expect(named.length).toBeGreaterThan(5);
+    expect(named.filter(([, panel]) => !WHICH[panel]).map(([c, p]) => `${c} -> ${p}`)).toEqual([]);
   });
 });

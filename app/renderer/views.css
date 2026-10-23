@@ -91,6 +91,14 @@
 .doc h2 { font: 600 1.2em/1.4 var(--mono); color: var(--ink-bright); margin: 24px 0 8px; }
 .doc h3 { font: 600 1.05em/1.4 var(--mono); color: var(--ink); margin: 18px 0 6px; }
 .doc h1:first-child, .doc h2:first-child { margin-top: 0; }
+.pr-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.pr-acts button {
+  font: 12px/1.4 var(--ui); padding: 5px 12px; border-radius: 4px; cursor: pointer;
+  background: var(--bg-raised); color: var(--ink); border: 1px solid var(--line-strong);
+}
+.pr-acts button.go { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.pr-acts button:hover:not(:disabled) { border-color: var(--accent); }
+.pr-acts button:disabled { opacity: .5; cursor: default; }
 .doc p { margin: 0 0 14px; }
 .doc ul, .doc ol { margin: 0 0 14px; padding-left: 1.4em; }
 .doc li { margin: 3px 0; }
@@ -230,3 +238,125 @@
 
 /* The design editor fills its pane: CodeMirror scrolls itself. */
 .pane:has(> .panel-wrap) { overflow: hidden; }
+
+/* A thread says what it is before what it says: how bad, what about, and
+   where it has got to. */
+.thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.thread-head .sev {
+  font: 600 10px/1.6 var(--ui); text-transform: uppercase; letter-spacing: .04em;
+  padding: 0 6px; border-radius: 3px; background: var(--line-strong); color: var(--ink);
+}
+.thread-head .sev.critical, .thread-head .sev.high { background: var(--bad); color: var(--bg); }
+.thread-head .sev.medium { background: var(--warn); color: var(--bg); }
+.thread-head .sev.low { background: var(--line-strong); color: var(--ink-dim); }
+.thread-head .cat { font: 11px/1.6 var(--ui); color: var(--ink-dim); }
+.thread-head .quiet { font: 11px/1.6 var(--ui); color: var(--ink-dim); }
+.thread-head .tag {
+  font: 11px/1.6 var(--ui); padding: 0 6px; border-radius: 3px;
+  background: var(--bg-raised); color: var(--ink-dim); border: 1px solid var(--line-strong);
+}
+.thread-head .tag.draft { border-color: var(--accent); color: var(--accent); }
+.thread-head .tag.sent { border-color: var(--good); color: var(--good); }
+.thread-head .tag.disputed { border-color: var(--bad); color: var(--bad); }
+.thread .acts .quiet:not(.btn) { color: var(--ink-dim); font: 11px/1.6 var(--ui); }
+
+/* The box under a conversation with a person. */
+.doc.person { padding-bottom: 0; }
+.ask-box { position: sticky; bottom: 0; padding: 12px 0 16px; background: var(--bg); border-top: 1px solid var(--line); }
+.ask-box textarea {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--input-bg); color: var(--ink); border: 1px solid var(--line-strong);
+  border-radius: 5px; padding: 8px 10px; font: 13px/1.5 var(--ui);
+}
+.ask-box textarea:focus { outline: none; border-color: var(--accent); }
+.ask-box .row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.ask-box .hint { font: 11px/1.6 var(--ui); color: var(--ink-dim); }
+.ask-box button.go {
+  font: 12px/1.4 var(--ui); padding: 5px 14px; border-radius: 4px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); border: 0;
+}
+.ask-box button:disabled, .ask-box textarea:disabled { opacity: .6; cursor: default; }
+
+/* A space: its sessions and designs as links, then the repository's own
+   numbers. The heat steps are one colour at four strengths, as
+   `vscode/media/repo.css` has them. */
+.space-page { max-width: 110ch; }
+.space-head .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); margin-bottom: 18px; }
+.space-list { margin-bottom: 22px; }
+.space-list .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); }
+.space-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 3px 6px; border-radius: 4px;
+}
+.space-row:hover { background: var(--hover); }
+.space-row .link { padding: 0; color: var(--info); text-align: left; }
+.space-row .link:hover { text-decoration: underline; }
+.space-row .pip {
+  font: 10px/1.6 var(--ui); color: var(--good);
+  border: 1px solid var(--good); border-radius: 9px; padding: 0 6px;
+}
+.space-row .meta {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-dim); font: 11px/1.6 var(--ui);
+}
+.space-row .away {
+  opacity: 0; font: 11px/1.4 var(--ui); color: var(--ink-dim);
+  border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 8px;
+}
+.space-row:hover .away { opacity: 1; }
+.space-row .away:hover { color: var(--bad); border-color: var(--bad); }
+
+.space-page .cards {
+  display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.space-page .card {
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 14px; min-width: 0;
+}
+.space-page .card.wide { grid-column: 1 / -1; }
+.space-page .card h2 { font: 600 12px/1.6 var(--ui); color: var(--ink-bright); margin: 0 0 6px; }
+.space-page .card .sub { color: var(--ink-dim); font: 11px/1.6 var(--ui); margin: 0 0 10px; }
+.space-page .big { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.space-page .num { font: 600 16px/1.2 var(--mono); color: var(--ink-bright); }
+.space-page .unit { color: var(--ink-dim); font: 11px/1.6 var(--ui); }
+.space-page .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; }
+.space-page .slice { height: 100%; }
+.space-page .legend { margin-top: 8px; }
+.space-page .legend-row { display: flex; align-items: center; gap: 8px; font: 11px/1.8 var(--ui); }
+.space-page .legend-row .name { flex: 1; min-width: 0; }
+.space-page .legend-row .share { color: var(--ink-dim); }
+.space-page .dot { width: 8px; height: 8px; border-radius: 2px; }
+.space-page .c0 { background: var(--info); }
+.space-page .c1 { background: var(--good); }
+.space-page .c2 { background: var(--accent); }
+.space-page .c3 { background: var(--syn-const); }
+.space-page .c4 { background: var(--syn-keyword); }
+.space-page .c5 { background: var(--ink-dim); }
+
+.space-page .scroller { overflow-x: auto; padding-bottom: 4px; }
+.space-page .heat { display: flex; gap: 3px; }
+.space-page .week { display: flex; flex-direction: column; gap: 3px; }
+.space-page .cell {
+  width: 10px; height: 10px; border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.space-page .cell.gap { background: transparent; }
+.space-page .cell.h1 { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.space-page .cell.h2 { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.space-page .cell.h3 { background: color-mix(in srgb, var(--accent) 78%, transparent); }
+.space-page .cell.h4 { background: var(--accent); }
+.space-page .months { display: flex; gap: 3px; margin-top: 4px; font: 10px/1.4 var(--ui); color: var(--ink-dim); }
+.space-page .month { width: 10px; flex: 0 0 10px; white-space: nowrap; }
+.space-page .last {
+  margin-top: 14px; padding-left: 10px; border-left: 2px solid var(--line-strong); font-size: 12px;
+}
+.space-page .last .meta { color: var(--ink-dim); font: 11px/1.6 var(--ui); }
+
+.space-page .figures { display: flex; gap: 26px; margin-bottom: 10px; }
+.space-page .figure { display: flex; flex-direction: column; }
+.space-page .spark { display: flex; align-items: flex-end; gap: 2px; height: 42px; }
+.space-page .sparkbar { flex: 1; background: var(--accent); border-radius: 1px 1px 0 0; min-height: 1px; }
+.space-page .person { display: flex; align-items: center; gap: 10px; font: 11px/1.8 var(--ui); }
+.space-page .person .who { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.space-page .track { flex: 1; height: 6px; border-radius: 3px; background: var(--tint-dim); }
+.space-page .fill { display: block; height: 100%; border-radius: 3px; background: var(--info); }

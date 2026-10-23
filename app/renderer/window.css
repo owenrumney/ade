@@ -284,6 +284,42 @@ body.dragging { cursor: col-resize; user-select: none; }
 }
 .sidebar .find::placeholder { color: var(--placeholder); }
 .sidebar .find:focus { outline: none; border-color: var(--accent); }
+.sidebar .again {
+  flex: none; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 4px; padding: 3px;
+  color: var(--ink-dim); cursor: pointer;
+}
+.sidebar .again:hover { background: var(--hover); color: var(--ink); }
 
 /* A failing check in the status bar. */
 .statusbar .item.bad { color: var(--bad); cursor: pointer; }
+
+/* Where the review stands, under the Review heading. */
+.sidebar .heads { display: flex; flex-direction: column; }
+.sidebar .review-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 0 12px 8px 16px; font: 11px/1.6 var(--ui); color: var(--ink-dim);
+}
+.sidebar .review-bar .btn {
+  padding: 1px 8px; border-radius: 4px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+}
+.sidebar .review-bar .btn.quiet { background: var(--bg-raised); color: var(--ink); }
+
+/* The review's open comments, under its files: how bad, then what. */
+.sidebar .comments { border-top: 1px solid var(--line); margin-top: 8px; padding: 8px 0; }
+.sidebar .comments:empty { display: none; }
+.sidebar .comments .head {
+  padding: 0 12px 4px 16px; font: 600 11px/1.6 var(--ui);
+  text-transform: uppercase; letter-spacing: .04em; color: var(--ink-dim);
+}
+.sidebar .comments .comment {
+  display: flex; gap: 6px; padding: 2px 12px 2px 16px; cursor: pointer;
+  font: 12px/1.6 var(--ui); white-space: nowrap; overflow: hidden;
+}
+.sidebar .comments .comment:hover { background: var(--hover); }
+.sidebar .comments .title { overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.sidebar .comments .sev { flex: none; font-weight: 600; }
+.sidebar .comments .sev.critical, .sidebar .comments .sev.high { color: var(--bad); }
+.sidebar .comments .sev.medium { color: var(--warn); }
+.sidebar .comments .sev.low { color: var(--ink-dim); }

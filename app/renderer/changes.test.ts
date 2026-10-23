@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { changesIn, linesOf, toneOf, unsent, type Change } from "./changes";
+import {
+  changesIn,
+  drawnFrom,
+  linesOf,
+  listed,
+  toneOf,
+  unsent,
+  wanted,
+  type Change,
+  type Thread,
+} from "./changes";
 
 const cell = (line: number, kind: string, content: string) => ({ line, kind, content });
 
@@ -55,12 +65,12 @@ describe("the diff the window draws", () => {
 });
 
 describe("comment threads on the diff", () => {
-  const threads = [
-    { id: "t1", file: "internal/web/web.go", side: "new", line: 11, comments: [{ id: "c", author: "you", body: "why?" }] },
-    { id: "t2", file: "internal/web/web.go", side: "old", line: 11, comments: [] },
-    { id: "t3", file: "other.go", side: "new", line: 1, comments: [] },
-    { id: "t4", file: "internal/web/web.go", side: "new", line: 99, orphaned: true, comments: [] },
-  ];
+  const threads: Thread[] = [
+    { id: "t1", file: "internal/web/web.go", side: "right", line: 11, comments: [{ id: "c", author: "you", body: "why?", at: "" }] },
+    { id: "t2", file: "internal/web/web.go", side: "left", line: 11, comments: [] },
+    { id: "t3", file: "other.go", side: "right", line: 1, comments: [] },
+    { id: "t4", file: "internal/web/web.go", side: "right", line: 99, orphaned: true, comments: [] },
+  ] satisfies Thread[];
 
   it("puts each thread under the line it is anchored to", () => {
     const drawn = linesOf(file, threads).map((l) =>
@@ -87,5 +97,79 @@ describe("comment threads on the diff", () => {
   it("counts what a review would leave behind", () => {
     expect(unsent(threads)).toBe(4);
     expect(unsent([{ ...threads[0], sentAt: "now" }, { ...threads[1], resolved: true }])).toBe(0);
+  });
+});
+
+describe("the review's open comments, as the sidebar lists them", () => {
+  const said = (body: string) => [{ id: "c", author: "@security", body, at: "" }];
+  const all: Thread[] = [
+    { id: "low", file: "b.go", side: "right", line: 9, severity: "low", comments: said("Minor naming.") },
+    { id: "crit", file: "a.go", side: "right", line: 3, severity: "critical", comments: said("## Disables Lambda scanning\n\nmore") },
+    { id: "done", file: "a.go", side: "right", line: 4, severity: "high", resolved: true, comments: said("fixed") },
+    { id: "gone", file: "a.go", side: "right", line: 5, severity: "high", sentAt: "2026-10-23T00:00:00Z", comments: said("sent") },
+    { id: "plain", file: "a.go", side: "right", line: 7, comments: said("`x` is never read") },
+  ];
+
+  it("is worst first, then by file and line", () => {
+    expect(listed(all).map((one) => one.id)).toEqual(["crit", "plain", "low"]);
+  });
+
+  it("is severity and the first line, with the markdown taken off", () => {
+    const [crit, plain] = listed(all);
+    expect([crit.severity, crit.title]).toEqual(["critical", "Disables Lambda scanning"]);
+    expect([plain.severity, plain.title]).toEqual(["medium", "x is never read"]);
+  });
+
+  // Code names keep their underscores: `resource_types` is not resourcetypes.
+  it("takes the markdown off and leaves the identifiers alone", () => {
+    const one: Thread = { ...all[0], comments: said("`resource_types` leaves out **LAMBDA**") };
+    expect(listed([one])[0].title).toBe("resource_types leaves out LAMBDA");
+  });
+
+  it("says what would be sent, once it is written up", () => {
+    const written: Thread = { ...all[0], outgoing: "Consider a clearer name here." };
+    expect(listed([written])[0].title).toBe("Consider a clearer name here.");
+  });
+});
+
+// A comment picked in the sidebar lands on the comment, or on the line it
+// is about when the diff does not draw the comment itself.
+describe("where a jump lands", () => {
+  it("asks for the comment first and the line as well", () => {
+    expect(wanted({ thread: "t1", line: 42 })).toBe('[data-thread="t1"], [data-line="42"]');
+    expect(wanted({ line: 42 })).toBe('[data-line="42"]');
+    expect(wanted()).toBe("");
+  });
+});
+
+// A diff pane is built once and kept, so what it was built from has to say
+// when it is stale: the pull request arrives after the file is opened, and
+// the thread it draws must offer Add to review without reopening it.
+describe("when a drawn diff is stale", () => {
+  const one: Thread = {
+    id: "t1",
+    file: "a.go",
+    side: "right",
+    line: 3,
+    comments: [{ id: "c1", author: "security", body: "a finding", at: "" }],
+    outgoing: "words for the author",
+  };
+
+  it("changes when the branch turns out to have a pull request", () => {
+    const open = new Set<string>();
+    expect(drawnFrom("a.go", [one], open, false)).not.toBe(drawnFrom("a.go", [one], open, true));
+  });
+
+  it("changes when a thread moves on, and not when another file's does", () => {
+    const open = new Set<string>();
+    const was = drawnFrom("a.go", [one], open, true);
+    expect(drawnFrom("a.go", [{ ...one, draftReview: "REVIEW1" }], open, true)).not.toBe(was);
+    expect(drawnFrom("a.go", [one, { ...one, id: "t2", file: "b.go" }], open, true)).toBe(was);
+  });
+
+  it("changes when a thread is unfolded", () => {
+    expect(drawnFrom("a.go", [one], new Set(["t1"]), true)).not.toBe(
+      drawnFrom("a.go", [one], new Set(), true),
+    );
   });
 });

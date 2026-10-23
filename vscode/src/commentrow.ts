@@ -68,28 +68,40 @@ export function whyNotSendable(t: Thread, hasPR: boolean): string {
   return "";
 }
 
+// Verb is what a thread waits for: both front ends decide it the same way and
+// spell it their own, as a contextValue or as a button.
+export type Verb = "convert" | "draft" | "take-out" | "reply" | "answer" | "none";
+
+export function nextVerb(t: Thread, hasPR: boolean): Verb {
+  if (wasSent(t.sentAt)) return "none";
+  // Waiting in GitHub's pending review. Sending it again would post it twice.
+  if (t.draftReview) return "take-out";
+  if (answerable(t)) {
+    return pending(t).length === 0 ? "answer" : hasPR ? "reply" : "none";
+  }
+  if (t.resolved || t.orphaned) return "none";
+  if (whyNotSendable(t, hasPR) !== "") return "none";
+  return t.outgoing ? "draft" : "convert";
+}
+
 // claimState is the contextValue the thread's first comment carries, which is
 // where Convert and Send sit. Only the first: the verbs act on the thread.
 export function claimState(t: Thread, hasPR: boolean): string {
   if (wasSent(t.sentAt)) return "ade.claim.sent";
-  // A review comment from the pull request is answered in its own thread:
-  // drafted first, then sent once there are words waiting.
-  if (answerable(t)) {
-    if (pending(t).length === 0) return "ade.claim.answer";
-    return hasPR ? "ade.claim.reply" : "ade.claim";
+  switch (nextVerb(t, hasPR)) {
+    case "take-out":
+      return "ade.claim.drafted";
+    case "answer":
+      return "ade.claim.answer";
+    case "reply":
+      return "ade.claim.reply";
+    case "convert":
+      return "ade.claim.convert";
+    case "draft":
+      return "ade.claim.send";
+    default:
+      return "ade.claim";
   }
-  // Mirrors notSendable in internal/web/outgoing.go. A thread from the pull
-  // request is answered with a reply, not a new comment on the line.
-  const mine =
-    hasPR &&
-    !t.externalId &&
-    !t.resolved &&
-    !t.orphaned &&
-    t.scope !== "repo" &&
-    Boolean(t.file) &&
-    t.line > 0;
-  if (!mine) return "ade.claim";
-  return t.outgoing ? "ade.claim.send" : "ade.claim.convert";
 }
 
 // A reply carries no verbs of its own.

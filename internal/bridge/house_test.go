@@ -388,7 +388,7 @@ func TestTheWindowSignsAsItself(t *testing.T) {
 // from app.getName() when it is not, so a disagreement shows up in only
 // one of them — which is how it read "Electron" in a dev run.
 func TestTheWindowIsCalledOneThing(t *testing.T) {
-	const name = "ADE Window"
+	const name = "ADE"
 	for _, at := range []struct{ file, want string }{
 		{filepath.Join("../..", "app", "package.json"), `"productName": "` + name + `"`},
 		{filepath.Join("../..", "app", "pack.sh"), `"` + name + `" \`},

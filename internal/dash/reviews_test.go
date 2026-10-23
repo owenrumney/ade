@@ -3,6 +3,7 @@ package dash
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/ghpr"
+	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 )
@@ -147,4 +149,30 @@ func TestAReviewOfAMergedPullRequestSaysSoRatherThanRepeatingGit(t *testing.T) {
 	state = "OPEN"
 	_, _, err = b.OpenPullRequest(context.Background(), "infracost/lsp", 78)
 	require.ErrorIs(t, err, gitSaid)
+}
+
+// Git refuses a second checkout of a branch, so a pull request whose head is
+// already out — your own branch, most often — opens where it is rather than
+// failing in a worktree gh cannot check it out into.
+func TestAHeadAlreadyCheckedOutIsReviewedWhereItIs(t *testing.T) {
+	main := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = main
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run("init", "-q", ".")
+	run("commit", "-qm", "init", "--allow-empty")
+	run("checkout", "-qb", "fix/x")
+
+	was := headBranch
+	t.Cleanup(func() { headBranch = was })
+	headBranch = func(context.Context, string, int) string { return "fix/x" }
+
+	path, err := ReviewWorktree(context.Background(), main, 21)
+	require.NoError(t, err)
+	assert.Equal(t, main, path)
+	assert.NoDirExists(t, gitdiff.WorktreePath(main, "pr-21"))
 }

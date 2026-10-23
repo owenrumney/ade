@@ -31,12 +31,19 @@ export const NEAR = 80;
 // reports on a run, so a quiet day leaves the last one standing.
 export const STALE = 60 * 60 * 1000;
 
-// badge is the bar's few words: the first provider with a reading, every
-// window it has. No reading is no item, not a zero.
-export function badge(
-  usage: Usage | undefined,
-  now: number,
-): Badge | undefined {
+// Plan is what a status bar says about the windows, without saying how: both
+// front ends decide it the same way and draw their own icon.
+export interface Plan {
+  windows: Window[];
+  bars: string;
+  tooltip: string;
+  warn: boolean;
+  stale: boolean;
+}
+
+// plan is the first provider with a reading, every window it has. No reading
+// is no item, not a zero.
+export function plan(usage: Usage | undefined, now: number): Plan | undefined {
   const read = [usage?.claude, usage?.codex].filter(
     (l): l is Limits => (l?.windows?.length ?? 0) > 0,
   );
@@ -48,15 +55,28 @@ export function badge(
       ? [`${l.provider}: last read ${span(age(l, now))} ago`]
       : []),
   ]);
-  const bars = shown.map((w) => `${w.name} ${pct(w)}`).join(" · ");
   // Why the numbers stopped moving, beside how old they are.
   const why = usage?.error ? [`The last read failed: ${usage.error}`] : [];
   return {
-    text: `$(dashboard) ${stale(read[0], now) ? "~" : ""}${bars}`,
-    tooltip: ["Plan usage", ...lines, ...why, "Click for what spent it."].join(
-      "\n",
-    ),
+    windows: shown,
+    bars: shown.map((w) => `${w.name} ${pct(w)}`).join(" · "),
+    tooltip: ["Plan usage", ...lines, ...why, "Click for what spent it."].join("\n"),
     warn: shown.some((w) => w.percent >= NEAR),
+    stale: stale(read[0], now),
+  };
+}
+
+// badge is plan, spelled the way the editor's status bar wants it.
+export function badge(
+  usage: Usage | undefined,
+  now: number,
+): Badge | undefined {
+  const it = plan(usage, now);
+  if (!it) return undefined;
+  return {
+    text: `$(dashboard) ${it.stale ? "~" : ""}${it.bars}`,
+    tooltip: it.tooltip,
+    warn: it.warn,
   };
 }
 

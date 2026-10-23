@@ -13,6 +13,16 @@ export const WORLD = {
     { id: "2", text: "Bump the VSCodium pin", from: "editor-bump", note: "monthly job" },
     { id: "3", text: "Look at the sandbox image size", started: "ade" },
   ],
+  spaces: [
+    { repo: "owenrumney/ade", owner: "owenrumney", name: "ade", path: "/Users/owen/code/owenrumney/ade",
+      branch: "main", sessions: 13, here: true,
+      designs: ["spaces.md", "terminal-turns.md", "quiz-me.md"] },
+    { repo: "infracost/coast", owner: "infracost", name: "coast", path: "/Users/owen/code/infracost/coast",
+      branch: "main", sessions: 19, here: true, designs: ["pricing-rework.md", "usage-tiles.md"] },
+    { repo: "infracost/docs", owner: "infracost", name: "docs", sessions: 0, here: false },
+    { repo: "infracost/infra", owner: "infracost", name: "infra", path: "/Users/owen/code/infracost/infra",
+      branch: "master", sessions: 2, here: true },
+  ],
   dash: {
     reviews: [
       {
@@ -53,10 +63,37 @@ export const WORLD = {
           title: "One window for every session",
           url: "https://linear.app/ade/issue/ADE-204",
           state: "In Progress",
+          priority: 1,
+          project: "The window",
+        },
+        {
+          identifier: "ADE-211",
+          title: "Spaces: a repository you keep open",
+          url: "https://linear.app/ade/issue/ADE-211",
+          state: "Todo",
+          priority: 2,
+          project: "The window",
+        },
+        {
+          identifier: "COAST-88",
+          title: "Usage tiles on the desk",
+          url: "https://linear.app/coast/issue/COAST-88",
+          state: "Todo",
+          priority: 2,
+          project: "Pricing rework",
+        },
+        {
+          identifier: "ADE-97",
+          title: "Tidy the scratch directories",
+          url: "https://linear.app/ade/issue/ADE-97",
+          state: "Todo",
         },
       ],
     },
-    started: { ade: { dir: "/Users/owen/code/owenrumney/ade", branch: "rethink-workflow-and-uk", session: "ade" } },
+    started: {
+      ade: { dir: "/Users/owen/code/owenrumney/ade", branch: "rethink-workflow-and-uk", session: "ade" },
+      "ADE-211": { dir: "/Users/owen/code/owenrumney/ade-211", branch: "ade-211-spaces", session: "ade" },
+    },
   },
   designs: [
     {
@@ -74,7 +111,24 @@ export const WORLD = {
       repo: "owenrumney/ade",
     },
   ],
+  limits: {
+    claude: {
+      provider: "claude",
+      checkedAt: "2026-10-23T12:30:00Z",
+      windows: [
+        { name: "5h", percent: 62, resetsAt: "2026-10-23T16:10:00Z" },
+        { name: "7d", percent: 84, resetsAt: "2026-10-27T09:00:00Z" },
+      ],
+    },
+  },
   active: [
+    {
+      id: "pending-0d210b89",
+      dir: "/Users/owen/code/infracost/infra-pr-1535",
+      name: "infra-pr-1535",
+      repo: "infra",
+      branch: "feat/inspector-ec2-scanning",
+    },
     {
       id: "ade",
       dir: "/Users/owen/code/owenrumney/ade",
@@ -148,6 +202,36 @@ export const WORLD = {
     },
   ],
   repos: [
+    {
+      name: "infra",
+      owner: "infracost",
+      path: "/Users/owen/code/infracost/infra",
+      branch: "master",
+      checkouts: [
+        {
+          name: "infra",
+          path: "/Users/owen/code/infracost/infra",
+          branch: "master",
+          sessions: [
+            {
+              id: "infra-old",
+              name: "infra",
+              title: "Loki push path split and cluster ingress",
+              branch: "trk-1234",
+              dir: "/Users/owen/code/infracost/infra",
+              lastUsed: "2026-10-19T22:17:06Z",
+            },
+          ],
+        },
+        {
+          name: "infra-pr-1535",
+          path: "/Users/owen/code/infracost/infra-pr-1535",
+          branch: "feat/inspector-ec2-scanning",
+          worktree: true,
+          sessions: null,
+        },
+      ],
+    },
     {
       name: "ade",
       owner: "owenrumney",
@@ -284,7 +368,7 @@ const STATE = {
     {
       id: "t1",
       file: "app/renderer/doing.ts",
-      side: "new",
+      side: "right",
       line: 63,
       category: "correctness",
       severity: "medium",
@@ -299,15 +383,56 @@ const STATE = {
       ],
     },
     {
+      id: "t5",
+      file: "app/renderer/doing.ts",
+      side: "right",
+      line: 64,
+      category: "security",
+      severity: "high",
+      comments: [
+        { id: "c10", author: "@security", at: "2026-10-22T11:20:00Z", body: "The resource_types list omits LAMBDA, so an apply disables the Lambda scan." },
+        { id: "c11", author: "@staff-reviewer", at: "2026-10-22T11:21:00Z", body: "The provider's delete ignores the configured resource_types." },
+        { id: "c12", author: "@security", at: "2026-10-22T11:22:00Z", body: "Two resources set the ECR scan with no order between them." },
+        { id: "c13", author: "@tester", at: "2026-10-22T11:23:00Z", body: "No test covers the count guard." },
+      ],
+    },
+    {
+      id: "t6",
+      file: "app/renderer/doing.ts",
+      side: "right",
+      line: 65,
+      category: "correctness",
+      severity: "critical",
+      outgoing: "`resource_types` leaves out `LAMBDA`, so applying this turns off Lambda scanning for the whole account.",
+      comments: [
+        { id: "c20", author: "@security", at: "2026-10-22T11:24:00Z", body: "The finding, in full, with the working out." },
+      ],
+    },
+    {
+      id: "t7",
+      file: "app/renderer/doing.ts",
+      side: "right",
+      line: 62,
+      category: "correctness",
+      severity: "low",
+      outgoing: "Worth a `depends_on` here so the apply order is fixed.",
+      draftReview: "REVIEW1",
+      draftThread: "COMMENT1",
+      comments: [
+        { id: "c30", author: "@staff-reviewer", at: "2026-10-22T11:25:00Z", body: "Ordering is arbitrary between these two." },
+      ],
+    },
+    {
       id: "t2",
       file: "app/renderer/sources.ts",
-      side: "new",
+      side: "right",
       line: 4,
       resolved: true,
       comments: [{ id: "c3", author: "@tester", at: "2026-10-22T10:05:00Z", body: "No test for an empty answer." }],
     },
   ],
   agent: { sideRuns: [{ id: "s1", name: "security", startedAt: "2026-10-22T09:40:00Z" }] },
+  worktree: { staged: [], unstaged: [], ahead: 2, behind: 6 },
   branchPr: { number: 412, title: "Add usage tiles to the desk", body: "# What\n\nUsage tiles on the desk.\n" },
   openPrs: [
     {
@@ -333,9 +458,75 @@ const STATE = {
   },
 };
 
+// A year of commits for the space page's heatmap, worked out rather
+// than typed: 365 days of hand-written JSON is not a fixture.
+function year() {
+  const out = [];
+  const start = Date.parse("2025-10-26T00:00:00Z");
+  for (let i = 0; i < 364; i++) {
+    const at = new Date(start + i * 86_400_000);
+    const weekend = at.getUTCDay() === 0 || at.getUTCDay() === 6;
+    const commits = weekend ? (i % 9 === 0 ? 2 : 0) : (i * 7) % 11;
+    out.push({ date: at.toISOString().slice(0, 10), commits });
+  }
+  return out;
+}
+
+const REPO = {
+  repo: "ade",
+  dir: "/Users/owen/code/owenrumney/ade",
+  branch: "rethink-workflow-and-uk",
+  upstream: "origin/rethink-workflow-and-uk",
+  ahead: 2,
+  behind: 0,
+  dirty: 7,
+  lines: 184_320,
+  files: 612,
+  languages: [
+    { name: "Go", lines: 121_400, files: 388 },
+    { name: "TypeScript", lines: 48_900, files: 164 },
+    { name: "CSS", lines: 7_200, files: 14 },
+    { name: "Markdown", lines: 5_100, files: 38 },
+    { name: "Shell", lines: 1_720, files: 8 },
+  ],
+  days: year(),
+  commits: 1_284,
+  busiestDay: "Tuesday",
+  contributors: [
+    { name: "Owen Rumney", commits: 1_190 },
+    { name: "dependabot", commits: 61 },
+    { name: "kim", commits: 33 },
+  ],
+  last: {
+    sha: "5927858",
+    subject: "rethink workflow and uk (#20)",
+    author: "Owen Rumney",
+    at: "2026-10-22T18:04:00Z",
+  },
+  agent: {
+    cost: 184.52,
+    turns: 926,
+    sessions: 13,
+    tokens: { input: 1_900_000, output: 410_000, cacheRead: 48_000_000, cacheWrite: 2_300_000, reasoning: 120_000 },
+    byDay: Array.from({ length: 30 }, (_, i) => ({
+      key: new Date(Date.parse("2026-09-24T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+      cost: Math.round(((i * 13) % 17) * 1.4 * 100) / 100,
+      tokens: 0,
+      sessions: 1,
+    })),
+    tools: [
+      { key: "Bash", cost: 0, tokens: 0, sessions: 412 },
+      { key: "Edit", cost: 0, tokens: 0, sessions: 268 },
+      { key: "Read", cost: 0, tokens: 0, sessions: 211 },
+    ],
+    models: [],
+  },
+};
+
 const READS = {
   "/api/diff": DIFF,
   "/api/state": STATE,
+  "/api/repo": REPO,
   "/api/models": { models: [{ id: "opus", label: "Opus 5.5" }, { id: "sonnet", label: "Sonnet 5.5" }] },
   "/api/roles": { roles: [{ name: "oss", about: "open-source maintainer" }] },
   "/api/agents": {
@@ -391,8 +582,26 @@ export function shell() {
         });
       },
       keys: async () => [],
+      opened: async () => "",
+      spaces: async () => WORLD.spaces,
       world: async () => WORLD,
-      pr: async () => ({ error: "no GitHub in a picture" }),
+      pr: async (repo, number) => ({
+        pr: {
+          number,
+          title: "Add usage tiles to the desk",
+          author: "owenrumney",
+          url: "https://github.com/" + repo + "/pull/" + number,
+          state: "OPEN",
+          baseRef: "main",
+          headRef: "desk-usage",
+          body: "Usage tiles on the desk, one per model.",
+          reviews: [{ author: "kim", state: "COMMENTED" }],
+        },
+        checks: [
+          { name: "test", bucket: "fail" },
+          { name: "lint", bucket: "pass" },
+        ],
+      }),
       act: async () => ({}),
       link: async () => ({}),
       tree: async () => ({ files: ["app/renderer/app.ts", "app/renderer/sources.ts", "internal/web/web.go", "README.md"] }),
@@ -406,6 +615,20 @@ export function shell() {
               { sha: "a1b2c3d4", author: "owen", at: "2026-10-21T09:00:00Z", subject: "Thread the picked session through" },
             ],
           };
+        if (path.split("?")[0] === "/api/bus/history")
+          return {
+            with: "kim",
+            said: [
+              { at: "2026-10-23T09:10:00Z", id: "q1", kind: "ask", mine: true, agent: true,
+                question: "Is dev RDS safe to resize during the day?", options: ["yes", "no", "after 6pm"] },
+              { at: "2026-10-23T09:40:00Z", id: "q1", kind: "answer", option: "after 6pm",
+                text: "Batch jobs hit it until then." },
+              { at: "2026-10-23T11:02:00Z", id: "r1", kind: "review", pr: "owenrumney/ade#412" },
+              { at: "2026-10-23T11:20:00Z", id: "r1", kind: "answer", mine: true, verdict: "approved" },
+            ],
+          };
+        if (path.split("?")[0] === "/api/review/draft")
+          return { pr: 412, review: "REVIEW1", inDraft: 1, ready: 1, notGoing: 1 };
         return READS[path.split("?")[0]] ?? {};
       },
       panel: async () => "about:blank",

@@ -36,6 +36,9 @@ type Options struct {
 	// OnFrame takes the frames the server pushes on its own: offers, cancels,
 	// presence and state. Replies to this client's own calls never reach it.
 	OnFrame func(Frame)
+
+	// OnTrouble is why the bus cannot be joined, for the page to say.
+	OnTrouble func(error)
 }
 
 // Client is one connection. It does not reconnect; Run is the loop that does.

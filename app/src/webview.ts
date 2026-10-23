@@ -30,10 +30,18 @@ export function declare(): void {
 // Pages are held rather than written to disk: a panel's skeleton is
 // built per open, and giving it a url means it can be reloaded.
 const pages = new Map<string, string>();
+const keys = new Map<string, string>();
 
+// A panel's id is not a path: a design in another space carries the
+// checkout's, slashes and all. The key is opaque; the id stays here.
 export function hold(id: string, html: string): string {
-  pages.set(id, html);
-  return `${SCHEME}://panel/${id}`;
+  let key = keys.get(id);
+  if (!key) {
+    key = String(keys.size + 1);
+    keys.set(id, key);
+  }
+  pages.set(key, html);
+  return `${SCHEME}://panel/${key}`;
 }
 
 // serve answers the scheme: a held page, or a file under vscode/ for

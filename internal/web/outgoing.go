@@ -206,7 +206,8 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 			side = "LEFT"
 		}
 		inline = append(inline, ghpr.InlineComment{
-			Path: thread.File, Line: thread.Line, Side: side, Body: thread.Outgoing,
+			Path: thread.File, Line: thread.Line, Side: side,
+			Body: comments.Badged(thread.Severity, thread.Outgoing),
 		})
 		ids = append(ids, thread.ID)
 	}
@@ -303,12 +304,19 @@ func matchSent(thread comments.Thread, found []ghpr.ReviewComment) (int64, bool)
 		if c.ReplyTo != 0 || c.Path != thread.File || c.Line != thread.Line || c.Side != thread.Side {
 			continue
 		}
-		if strings.TrimSpace(c.Body) != strings.TrimSpace(thread.Outgoing) {
+		// Either form: the badge is added as it goes, and a comment sent
+		// before ade added one carries the words alone.
+		if !sameBody(c.Body, thread.Outgoing) &&
+			!sameBody(c.Body, comments.Badged(thread.Severity, thread.Outgoing)) {
 			continue
 		}
 		return c.ID, true
 	}
 	return 0, false
+}
+
+func sameBody(a, b string) bool {
+	return strings.TrimSpace(a) == strings.TrimSpace(b)
 }
 
 // handleSetOutgoing replaces the rewritten text for one thread. The agent

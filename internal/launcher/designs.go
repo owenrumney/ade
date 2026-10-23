@@ -67,6 +67,39 @@ func (s *Server) handleDesign(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadRequest, err.Error())
 }
 
+// handleDesignSave writes one document in a named checkout: the read takes a
+// dir and the write did not, so another space's design opened and never saved.
+func (s *Server) handleDesignSave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		File string `json:"file"`
+		Body string `json:"body"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.File == "" {
+		writeError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	root, common, ok := s.designsDir(w, r)
+	if !ok {
+		return
+	}
+	// The directory the document is already in, so a save never moves one.
+	dirs := docs.SearchDirs(root, common, "")
+	for _, dir := range dirs {
+		if _, err := docs.ReadBounded(dir, req.File); err == nil {
+			if err := docs.Save(dir, req.File, req.Body); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"file": req.File})
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, req.File+" is not a document in that checkout")
+}
+
 // designsDir resolves the checkout a document request is about, forwarding to
 // another machine's launcher when it names one. ok is false when it answered.
 func (s *Server) designsDir(w http.ResponseWriter, r *http.Request) (root, common string, ok bool) {

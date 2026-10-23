@@ -20,5 +20,5 @@
   "allowScripts": {
     "electron@33.4.11": true
   },
-  "productName": "ADE Window"
+  "productName": "ADE"
 }

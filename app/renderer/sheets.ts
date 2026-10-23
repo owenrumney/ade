@@ -1,7 +1,16 @@
 import { el } from "./omnibox";
 import { blocks, inline } from "./markdown";
-import { linesOf, type Cell, type Change, type Thread } from "./changes";
+import { linesOf, wanted, type At, type Cell, type Change, type Side, type Thread } from "./changes";
 import type { Rules, View } from "./model";
+import {
+  foldable,
+  folded,
+  nextVerb,
+  shownComments,
+  whyNotSendable,
+} from "../../vscode/src/commentrow";
+import type { PrAct, PrActId } from "./prpage";
+import { spacePage, type SpaceAct } from "./spacepage";
 
 // The editor area. Each view draws its own content: a pane that changes
 // its title and nothing else is indistinguishable from a broken one.
@@ -11,16 +20,26 @@ export function sheet(
   picked: (line: number) => void = () => {},
   forget: (rule: string) => void = () => {},
   on: OnThread = () => {},
+  act: (id: PrActId) => void = () => {},
+  review: Review = { hasPR: false, open: new Set() },
+  ask: (who: string, text: string) => void = () => {},
+  space: (did: SpaceAct) => void = () => {},
 ): HTMLElement {
   switch (view.kind) {
     case "rules":
       return rules(view.rules, forget);
     case "hunks":
-      return hunks(view.file, view.threads ?? [], on);
+      return hunks(view.file, view.threads ?? [], on, review, view.at);
     case "code":
       return code(view.source, picked, view.line);
     case "doc":
       return doc(view.body);
+    case "pr":
+      return pr(view.body, view.acts, act, view.busy);
+    case "person":
+      return person(view.who, view.body, ask);
+    case "space":
+      return spacePage(view.seen, space);
     default:
       return nothing();
   }
@@ -45,6 +64,51 @@ function doc(body: string): HTMLElement {
   const page = el("div", "rendered");
   page.innerHTML = html(body);
   out.append(page);
+  return out;
+}
+
+function pr(body: string, acts: PrAct[], act: (id: PrActId) => void, busy?: PrActId): HTMLElement {
+  const out = doc(body);
+  const bar = el("div", "pr-acts");
+  for (const one of acts) {
+    const button = el("button", one.primary ? "go" : "", busy === one.id ? "working…" : one.label);
+    button.title = one.blocked ?? one.detail;
+    (button as HTMLButtonElement).disabled = Boolean(one.blocked || busy);
+    button.addEventListener("click", () => act(one.id));
+    bar.append(button);
+  }
+  out.prepend(bar);
+  return out;
+}
+
+// person is the conversation and a box under it. Enter sends, shift-enter is
+// a new line. What it sends is a question: the bus has nothing plainer yet.
+function person(who: string, body: string, ask: (who: string, text: string) => void): HTMLElement {
+  const out = doc(body);
+  out.classList.add("person");
+  const box = el("div", "ask-box");
+  const text = document.createElement("textarea");
+  text.placeholder = `Ask ${who}…`;
+  text.rows = 3;
+  const send = el("button", "go", "Send") as HTMLButtonElement;
+  const go = () => {
+    const said = text.value.trim();
+    if (!said) return;
+    text.disabled = send.disabled = true;
+    send.textContent = "Sending…";
+    ask(who, said);
+  };
+  text.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      go();
+    }
+  });
+  send.addEventListener("click", go);
+  const row = el("div", "row");
+  row.append(el("span", "hint", "Sent as a question: they can answer for four hours."), send);
+  box.append(text, row);
+  out.append(box);
   return out;
 }
 
@@ -169,7 +233,13 @@ function group(
 
 // hunks draws the real diff: the server has already paired the lines and
 // split each into tokens, so the colours here are the ones ade decided.
-function hunks(file: Change, threads: Thread[], on: OnThread): HTMLElement {
+function hunks(
+  file: Change,
+  threads: Thread[],
+  on: OnThread,
+  at: Review,
+  jump?: At,
+): HTMLElement {
   const out = el("div", "diff");
   out.append(el("div", "file-head", `+${file.additions} −${file.deletions}`));
   if (file.binary) {
@@ -187,7 +257,9 @@ function hunks(file: Change, threads: Thread[], on: OnThread): HTMLElement {
       continue;
     }
     if (line.at === "thread") {
-      out.append(thread(line.thread, on));
+      const block = thread(line.thread, on, at.hasPR, at.open.has(line.thread.id));
+      block.dataset.thread = line.thread.id;
+      out.append(block);
       continue;
     }
     const kind = line.kind === "context" ? "" : line.kind;
@@ -197,31 +269,49 @@ function hunks(file: Change, threads: Thread[], on: OnThread): HTMLElement {
     const no = el("span", "no", String(line.no));
     no.title = "Comment on this line";
     no.addEventListener("click", () =>
-      on({ what: "new", file: file.path, side: line.kind === "del" ? "old" : "new", line: line.no }),
+      on({ what: "new", file: file.path, side: line.kind === "del" ? "left" : "right", line: line.no }),
     );
+    node.dataset.line = String(line.no);
     node.append(no, tokens(line.cell));
     out.append(node);
   }
+  reveal(out, jump);
   return out;
+}
+
+// reveal scrolls to what a jump named, once the pane is in the document:
+// a node that is not there yet cannot be scrolled to.
+function reveal(out: HTMLElement, jump?: At): void {
+  const want = wanted(jump);
+  if (!want) return;
+  requestAnimationFrame(() => out.querySelector(want)?.scrollIntoView({ block: "center" }));
 }
 
 // What a thread's buttons ask of the window. The sheet draws and the
 // window acts: it is the one holding the session.
 export interface Asked {
-  what: "new" | "reply" | "resolve" | "send" | "drop";
+  what: "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out" | "unfold";
   id?: string;
   file?: string;
-  side?: string;
+  side?: Side;
   line?: number;
 }
 
 export type OnThread = (asked: Asked) => void;
 
-// thread is one comment thread under the line it is about: who said
-// what, and the few things you can do about it.
-function thread(it: Thread, on: OnThread): HTMLElement {
+// Review is what the diff needs to know beyond the threads: whether there is
+// a pull request to say anything on, and which threads are unfolded.
+export interface Review {
+  hasPR: boolean;
+  open: Set<string>;
+}
+
+// thread is one comment thread under the line it is about: one comment,
+// whatever the agents did to reach it, and the one verb it is waiting for.
+function thread(it: Thread, on: OnThread, hasPR: boolean, open: boolean): HTMLElement {
   const out = el("div", it.resolved ? "thread done" : "thread");
-  for (const said of it.comments ?? []) {
+  out.append(heading(it, on, open));
+  for (const said of shownComments(it, open)) {
     const who = el("div", "who");
     who.append(el("span", "author", said.author === "you" ? "you" : said.author));
     const when = [said.at ? ago(said.at) : "", said.sentAt ? "sent" : ""].filter(Boolean);
@@ -231,19 +321,64 @@ function thread(it: Thread, on: OnThread): HTMLElement {
     out.append(who, body);
   }
   if (it.orphaned) out.append(el("div", "who", "the line this was on has gone"));
+  out.append(verbs(it, on, hasPR));
+  return out;
+}
 
+// heading is what the thread is, before what it says: how bad, what it is
+// about, and where it has got to.
+function heading(it: Thread, on: OnThread, open: boolean): HTMLElement {
+  const bar = el("div", "thread-head");
+  const how = it.severity ?? "medium";
+  bar.append(el("span", `sev ${how}`, how));
+  if (it.category) bar.append(el("span", "cat", it.category));
+  if (it.disputed) bar.append(el("span", "tag disputed", "disputed"));
+
+  const n = folded(it);
+  if (n > 1) bar.append(el("span", "quiet", `${n} findings`));
+  if (it.sentAt) bar.append(el("span", "tag sent", "on the pull request"));
+  else if (it.draftReview) bar.append(el("span", "tag draft", "in the draft review"));
+  else if (it.outgoing) bar.append(el("span", "tag ready", "ready"));
+
+  if (foldable(it)) {
+    const more = el("span", "btn quiet", open ? "Fold" : "Show the findings");
+    more.addEventListener("click", () => on({ what: "unfold", id: it.id }));
+    bar.append(more);
+  }
+  return bar;
+}
+
+// verbs is the one thing a thread is waiting for, and why when it is none.
+function verbs(it: Thread, on: OnThread, hasPR: boolean): HTMLElement {
   const acts = el("div", "acts");
   const act = (label: string, what: Asked["what"], quiet = true) => {
     const button = el("span", quiet ? "btn quiet" : "btn", label);
     button.addEventListener("click", () => on({ what, id: it.id }));
     acts.append(button);
   };
+  const next = nextVerb(it, hasPR);
+  switch (next) {
+    case "convert":
+      act("Write it for the author", "convert", false);
+      break;
+    case "draft":
+      act("Add to the review", "draft", false);
+      break;
+    case "take-out":
+      act("Take out of the review", "take-out");
+      break;
+    case "reply":
+    case "answer":
+      break;
+    default: {
+      const why = it.sentAt ? "" : whyNotSendable(it, hasPR);
+      if (why) acts.append(el("span", "quiet", why));
+    }
+  }
   act("Reply", "reply");
   act(it.resolved ? "Unresolve" : "Resolve", "resolve");
-  if (!it.sentAt && !it.externalId) act("Send to GitHub", "send", false);
-  act("Delete", "drop");
-  out.append(acts);
-  return out;
+  if (!it.sentAt && !it.draftReview) act("Delete", "drop");
+  return acts;
 }
 
 // ago is the same glance the lists use, kept here rather than imported

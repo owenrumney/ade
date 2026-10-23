@@ -2,11 +2,14 @@ package launcher
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/owenrumney/ade/internal/ghpr"
 )
+
+var nameWithOwner = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // handlePR is one pull request in full, with its checks: what a window
 // shows when one is picked, with no session server behind it.
@@ -22,21 +25,25 @@ func (s *Server) handlePR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// gh runs in a checkout of that repository, which is how it knows
-	// which forge and which credentials to use.
-	dir, ok := checkoutNamed(repos, repo)
-	if !ok {
-		writeError(w, http.StatusNotFound, "this machine has no checkout of "+repo)
+	// A checkout tells gh which forge and credentials to use; a review
+	// request from a repository never cloned here is asked for by name.
+	fetch := func() (*ghpr.PR, error) { return ghpr.FetchRepo(r.Context(), repo, number) }
+	read := func() ([]ghpr.Check, error) { return ghpr.ChecksRepo(r.Context(), repo, number) }
+	if dir, ok := checkoutNamed(repos, repo); ok {
+		fetch = func() (*ghpr.PR, error) { return ghpr.Fetch(r.Context(), dir, number) }
+		read = func() ([]ghpr.Check, error) { return ghpr.Checks(r.Context(), dir, number) }
+	} else if !nameWithOwner.MatchString(repo) {
+		writeError(w, http.StatusBadRequest, "repo must be owner/name")
 		return
 	}
-	pr, err := ghpr.Fetch(r.Context(), dir, number)
+	pr, err := fetch()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	// Checks are a second read, and a failure there is not a failure to
 	// show the pull request: the page says what it has.
-	checks, err := ghpr.Checks(r.Context(), dir, number)
+	checks, err := read()
 	if err != nil {
 		checks = nil
 	}

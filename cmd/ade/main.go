@@ -1171,12 +1171,13 @@ func openUnwatched(_ context.Context, url, dir string) {
 		fmt.Println("open the session from the editor's Sessions view:", url)
 		return
 	}
-	// The window when it is asked for and installed; the editor
-	// otherwise, which is where ade has always opened.
-	if editor.Wanted() == "window" {
-		if err := editor.OpenWindow(dir); err == nil {
+	// The window when it is installed, unless the editor is asked for.
+	if want := editor.Wanted(); want != "editor" {
+		err := editor.OpenWindow(dir)
+		if err == nil {
 			return
-		} else {
+		}
+		if want == "window" {
 			fmt.Printf("%v; opening the editor instead\n", err)
 		}
 	}

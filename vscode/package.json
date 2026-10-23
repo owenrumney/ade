@@ -488,6 +488,18 @@
         "title": "ade: Show this repository"
       },
       {
+        "command": "ade.spaces",
+        "title": "ade: Spaces"
+      },
+      {
+        "command": "ade.openSpace",
+        "title": "ade: Open a space…"
+      },
+      {
+        "command": "ade.closeSpace",
+        "title": "ade: Close a space…"
+      },
+      {
         "command": "ade.purgeWorktrees",
         "title": "ade: Purge worktrees on this machine"
       },
@@ -1152,6 +1164,18 @@
         },
         {
           "command": "ade.showRepo",
+          "when": "false"
+        },
+        {
+          "command": "ade.spaces",
+          "when": "false"
+        },
+        {
+          "command": "ade.openSpace",
+          "when": "false"
+        },
+        {
+          "command": "ade.closeSpace",
           "when": "false"
         },
         {

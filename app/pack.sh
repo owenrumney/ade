@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the window into something launchable: ADE Window.app on a Mac,
+# Builds the window into something launchable: ADE.app on a Mac,
 # a directory anywhere else. Signed with an identity of its own, because
 # the cli's is pinned to the cli and two programs may not share one.
 set -euo pipefail
@@ -26,7 +26,7 @@ packager="./node_modules/.bin/electron-packager"
 # Only what the window runs: the bundles, and the page that loads them.
 # node_modules is 113 MB of monaco source that esbuild already inlined,
 # and main.js requires nothing outside electron and node itself.
-node "$packager" . "ADE Window" \
+node "$packager" . "ADE" \
   --out="$out" \
   --overwrite \
   --app-bundle-id=uk.co.owenrumney.ade-window \

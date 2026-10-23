@@ -17,6 +17,7 @@ import {
   age,
   questionsOf,
   queuedLabel,
+  atBottom,
   redraws,
   sideLabel,
   step,
@@ -572,5 +573,26 @@ describe("messages waiting their turn", () => {
 
   it("says nothing when the queue is empty", () => {
     expect(queuedLabel(0)).toBe("");
+  });
+});
+
+// A tab put away is hidden, not removed, so its list measures zero and the
+// browser fires a scroll as it clamps. Reading that as "scrolled up" left
+// the transcript pinned nowhere: new replies landed below the fold and the
+// only way to see them was to close the pane and open it again.
+describe("following the conversation down", () => {
+  it("is pinned at the end, and not pinned above it", () => {
+    expect(atBottom({ scrollHeight: 1000, scrollTop: 980, clientHeight: 20 }, false)).toBe(true);
+    expect(atBottom({ scrollHeight: 1000, scrollTop: 100, clientHeight: 20 }, true)).toBe(false);
+  });
+
+  it("keeps the last answer for a pane that is not laid out", () => {
+    const away = { scrollHeight: 1000, scrollTop: 0, clientHeight: 0 };
+    expect(atBottom(away, true)).toBe(true);
+    expect(atBottom(away, false)).toBe(false);
+  });
+
+  it("is pinned when there is nothing to scroll", () => {
+    expect(atBottom({ scrollHeight: 100, scrollTop: 0, clientHeight: 100 }, false)).toBe(true);
   });
 });

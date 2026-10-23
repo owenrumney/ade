@@ -3,6 +3,8 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Keymap, merge, shared, type Binding } from "./keymap";
+import { askForLocalNetwork } from "./localnetwork";
+import { shellPath } from "./shellpath";
 import { ask, found, tell, type At } from "./launcher";
 import { events } from "../../vscode/src/launcher";
 import { declare, hold, serve } from "./webview";
@@ -13,8 +15,8 @@ declare();
 
 const mac = process.platform === "darwin";
 // What the window is called: the menu bar on a Mac, and the directory it
-// keeps its state in. "ADE" is the fork's app while that still exists.
-const NAME = "ADE Window";
+// keeps its state in.
+const NAME = "ADE";
 
 // serving names the ade behind a session, for a read that failed: a
 // route it has not got is the commonest cause, and the version says so.
@@ -102,23 +104,12 @@ function menu(): void {
   );
 }
 
-// run is one command, its output or its complaint. No shell: the
-// arguments are a list, so a path with a space in it is one argument.
-function run(cmd: string, args: string[]): Promise<string> {
-  return new Promise((done, fail) => {
-    execFile(cmd, args, { maxBuffer: 32 << 20 }, (err, out, bad) => {
-      if (err) fail(new Error((bad || err.message).trim().split("\n")[0]));
-      else done(out);
-    });
-  });
-}
-
 // why is what a failed read says. A 404 from the launcher is almost
 // always age: it predates the routes this branch added.
 function why(e: Error): string {
-  // 404 is a route the server does not have; 405 is one it has under
-  // another method. Both mean the ade answering is not this build.
-  return /\b(404|405)\b/.test(e.message)
+  // A bare status, with no error of ade's own: the route itself is
+  // missing, so the ade answering is not this build.
+  return /: (404 Not Found|405 Method Not Allowed)$/.test(e.message)
     ? `${e.message} — this ade is older than the window. Reinstall it and restart.`
     : e.message;
 }
@@ -133,7 +124,7 @@ async function gather(dir = ""): Promise<unknown> {
   // A part that fails says so by name. Swallowing it draws an empty list,
   // which reads as ade having nothing rather than as a broken read.
   const trouble: Record<string, string> = {};
-  const [dash, designs, repos, hosts, todos, jobs, active] = await Promise.all([
+  const [dash, designs, repos, hosts, todos, jobs, active, spaces, limits] = await Promise.all([
     ask(where, "/api/dash").catch((e: Error) => ({ error: e.message })),
     ask<{ designs?: unknown[] }>(where, "/api/designs/all")
       .then((d) => d.designs ?? [])
@@ -175,11 +166,28 @@ async function gather(dir = ""): Promise<unknown> {
         trouble.agents = why(e);
         return [];
       }),
+    // The repositories kept open. A launcher too old to know of them
+    // answers 404, which is no spaces and not a failure to read.
+    ask<{ spaces?: unknown[] }>(
+      where,
+      dir ? `/api/spaces?dir=${encodeURIComponent(dir)}` : "/api/spaces",
+    )
+      .then((s) => s.spaces ?? [])
+      .catch((e: Error) => {
+        trouble.spaces = why(e);
+        return [];
+      }),
+    // The plan windows. No reading is no item on the bar, not a zero.
+    ask<unknown>(where, "/api/limits").catch(() => undefined),
   ]);
-  return { dash, designs, repos, hosts, todos, jobs, active, trouble };
+  return { dash, designs, repos, hosts, todos, jobs, active, spaces, limits, trouble };
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  if (mac) {
+    void askForLocalNetwork();
+    process.env.PATH = (await shellPath()) ?? process.env.PATH;
+  }
   const map = keys();
   // Where the panels' assets are: the repository root in a checkout,
   // and what pack.sh staged beside the app once packaged.
@@ -255,18 +263,18 @@ void app.whenReady().then(() => {
   });
   // The terminal's socket, in the shell: the server refuses a websocket
   // from an origin that is not loopback, and the shell sends none.
-  let shell: WebSocket | undefined;
+  let term: WebSocket | undefined;
   ipcMain.handle("ade.term", async (e, session: string, pane: string) => {
     const where = await found();
     if (!where || !session) return { error: "pick a session first" };
-    shell?.close();
+    term?.close();
     const at = new URL(`${where.base}/s/${session}/api/terminal`);
     at.protocol = at.protocol === "https:" ? "wss:" : "ws:";
     at.searchParams.set("t", where.token);
     at.searchParams.set("pane", pane);
     const ws = new WebSocket(at.toString());
     ws.binaryType = "arraybuffer";
-    shell = ws;
+    term = ws;
     ws.onmessage = (m) => {
       const data = m.data as ArrayBuffer | string;
       e.sender.send("term", typeof data === "string" ? data : Buffer.from(data).toString("utf8"));
@@ -274,7 +282,7 @@ void app.whenReady().then(() => {
     ws.onclose = () => e.sender.send("term.closed", true);
     return { ok: true };
   });
-  ipcMain.on("ade.term.send", (_e, data: string) => shell?.send(data));
+  ipcMain.on("ade.term.send", (_e, data: string) => term?.send(data));
   // float is a second window holding one panel, which is what the
   // concierge wants: over the work rather than in the editor area.
   ipcMain.handle("ade.float", (_e, panel: string, session: string) => {

@@ -22,6 +22,30 @@ export interface Source {
 type Row = Record<string, string | number | boolean | undefined | null>;
 
 export const SOURCES: Record<Choice, Source> = {
+  // A repository to open as a space: the picker leaves out what is open
+  // already and anything with no owner, which is a scratch directory.
+  space: {
+    at: "launcher",
+    path: "/api/spaces",
+    rows: (got) =>
+      list(got.offered).map((r) => ({
+        label: str(r.repo),
+        note: [r.sessions ? `${String(r.sessions)} sessions` : "", str(r.branch)]
+          .filter(Boolean)
+          .join(" · "),
+        value: r.repo,
+      })),
+  },
+  openspace: {
+    at: "launcher",
+    path: "/api/spaces",
+    rows: (got) =>
+      list(got.spaces).map((r) => ({
+        label: str(r.repo),
+        note: r.here ? "" : "not cloned here",
+        value: r.repo,
+      })),
+  },
   model: {
     at: "launcher",
     path: "/api/models",

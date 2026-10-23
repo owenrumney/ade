@@ -341,6 +341,18 @@ export function foldNote(count: number): string {
   return `${count} prompts sent as one turn · undo takes back all of them`;
 }
 
+// atBottom is whether the reader is at the end of the transcript, so a
+// reply follows them down. A pane that is not laid out keeps the last answer.
+export function atBottom(
+  list: { scrollHeight: number; scrollTop: number; clientHeight: number },
+  was: boolean,
+): boolean {
+  // Hidden measures zero and fires a scroll as the browser clamps it. That
+  // is the pane being put away, not the reader scrolling up.
+  if (list.clientHeight === 0) return was;
+  return list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+}
+
 const redrawn = new Set(["chat", "agent", "state", "resync"]);
 
 // An unnamed event counts: a frame we cannot read is not one to drop.

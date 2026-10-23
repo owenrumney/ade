@@ -55,6 +55,10 @@ function memoryPage(view: ProjectView | undefined): string {
       out.push(`${row.unread} transcripts have not been read yet.`, "");
       continue;
     }
+    if (row.kind === "entry") {
+      out.push(...entryLines(row.entry));
+      continue;
+    }
     out.push(`## ${row.title}`, "");
     for (const entry of row.entries) out.push(...entryLines(entry));
   }

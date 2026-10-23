@@ -19,6 +19,9 @@ export class CommitView implements vscode.Disposable {
   private state?: State;
   private busy = "";
   private note = "";
+  // Set for the one state that follows a commit: the page keeps what you
+  // typed across every other read, and a message that went must not stay.
+  private committed = false;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -201,6 +204,7 @@ export class CommitView implements vscode.Disposable {
       return;
     }
     this.busy = "";
+    this.committed = true;
     this.note = said.push ? "Committed and pushed." : "Committed.";
     await this.after("commit");
   }
@@ -228,8 +232,10 @@ export class CommitView implements vscode.Disposable {
       base: state?.meta?.base ?? "",
       branch: state?.meta?.branch ?? "",
       busy: this.busy,
+      committed: this.committed,
       note: this.note,
     });
+    this.committed = false;
     if (this.busy === "redraft" && state?.draft) this.busy = "";
   }
 

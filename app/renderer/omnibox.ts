@@ -67,9 +67,7 @@ export class Omnibox {
       };
       const draw = () => {
         const want = input.value.trim().toLowerCase();
-        shown = want
-          ? rows.filter((r) => r.label.toLowerCase().includes(want))
-          : rows;
+        shown = want ? rows.filter((r) => loose(r.label, want)) : rows;
         at = Math.min(at, Math.max(0, shown.length - 1));
         list.replaceChildren(
           ...shown.map((row, i) => {
@@ -231,6 +229,15 @@ export class Omnibox {
     });
     return row;
   }
+}
+
+// loose is the picker's match: every word, in any order, so a label with a
+// small word in it is still found by the words that matter.
+export function loose(label: string, want: string): boolean {
+  const low = label.toLowerCase();
+  if (low.includes(want)) return true;
+  const words = want.split(/\s+/).filter(Boolean);
+  return words.length > 1 && words.every((word) => low.includes(word));
 }
 
 export function el(tag: string, cls = "", text = ""): HTMLElement {

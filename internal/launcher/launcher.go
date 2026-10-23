@@ -26,6 +26,7 @@ import (
 	"github.com/owenrumney/ade/internal/netcheck"
 
 	"github.com/owenrumney/ade/internal/archive"
+	"github.com/owenrumney/ade/internal/bushistory"
 	"github.com/owenrumney/ade/internal/concierge"
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/designs"
@@ -122,6 +123,8 @@ type Server struct {
 	// bus is this machine's one agentbus connection. The launcher holds it so
 	// a person is one row, and so a claim and its verdict share a connection.
 	bus *busnode
+	// history is what was said with each person, which the bus does not keep.
+	history *bushistory.Log
 
 	// reviewer turns the person a review was asked of into the reviewer on
 	// the pull request. It caches handles, so it is held rather than made.
@@ -237,6 +240,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 		jobs:      &jobsClock{},
 		wait:      &waitingCache{},
 		bus:       newBusnode(),
+		history:   bushistory.Open(home),
 		reviewer:  reviewer.New(),
 		used:      time.Now(),
 		hub:       httpx.NewHub(),
@@ -402,8 +406,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/limits/window", s.guard(s.handleWindowSpend))
 	mux.HandleFunc("GET /api/stats", s.guard(s.handleStats))
 	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
+	mux.HandleFunc("GET /api/spaces", s.guard(s.handleSpaces))
+	mux.HandleFunc("POST /api/spaces", s.guard(s.handleSpaceOpen))
+	mux.HandleFunc("DELETE /api/spaces", s.guard(s.handleSpaceClose))
+	mux.HandleFunc("POST /api/spaces/clone", s.guard(s.handleSpaceClone))
 	mux.HandleFunc("GET /api/designs", s.guard(s.handleDesigns))
 	mux.HandleFunc("GET /api/design", s.guard(s.handleDesign))
+	mux.HandleFunc("PUT /api/design", s.guard(s.handleDesignSave))
 	mux.HandleFunc("GET /api/designs/all", s.guard(s.handleStoreDesigns))
 	mux.HandleFunc("GET /api/designs/read", s.guard(s.handleDesignRead))
 	mux.HandleFunc("PUT /api/designs/write", s.guard(s.handleDesignWrite))
@@ -446,6 +455,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/linear/start", s.guard(s.handleStartTicket))
 	mux.HandleFunc("GET /api/bus", s.guard(s.handleBusState))
 	mux.HandleFunc("GET /api/bus/who", s.guard(s.handleBusWho))
+	mux.HandleFunc("GET /api/bus/history", s.guard(s.handleBusHistory))
 	mux.HandleFunc("POST /api/bus/checkout", s.guard(s.handleBusCheckout))
 	mux.HandleFunc("POST /api/bus/ask", s.guard(s.handleBusAsk))
 	mux.HandleFunc("POST /api/bus/presence", s.guard(s.handleBusPresence))
