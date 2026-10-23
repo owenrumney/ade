@@ -418,6 +418,11 @@ export interface VerifyCheck {
   run: string;
   dir?: string;
   narrow?: string;
+  // filter is the flag form this check takes a test-name pattern as, and
+  // tool offers it to the agent as a tool of its own.
+  filter?: string;
+  tool?: boolean;
+  about?: string;
 }
 
 // VerifyState is the last check run, or a detected list waiting on a yes.

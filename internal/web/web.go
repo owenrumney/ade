@@ -35,6 +35,7 @@ import (
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/lineage"
+	"github.com/owenrumney/ade/internal/lsp"
 	"github.com/owenrumney/ade/internal/memory"
 	"github.com/owenrumney/ade/internal/overlap"
 	"github.com/owenrumney/ade/internal/runlog"
@@ -102,6 +103,9 @@ type Server struct {
 	hookToken string
 	agent     *agentRunner
 
+	// docsOverride is --docs as it was given, so a later search finds the
+	// same place. A design in the shared store is nowhere near the checkout.
+	docsOverride string
 	// docsDir is where design documents live. Empty when ade is serving a
 	// snapshot, which has no working tree to design against.
 	docsDir string
@@ -300,6 +304,11 @@ type Server struct {
 
 	// version is ade's own, told to the bus so a `who` row says what is running.
 	version string
+
+	// lsp answers language questions about this checkout. Started on the
+	// first ask: a session that never opens a file spawns no server.
+	lspOnce sync.Once
+	lsp     *lsp.Pool
 
 	// queue holds chat turns sent while the agent was busy, in the order you
 	// sent them. nextQueued names them, so removing one does not depend on a
@@ -516,7 +525,7 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.docsDir = dir
+		s.docsDir, s.docsOverride = dir, cfg.DocsDir
 
 		switch {
 		case cfg.DocFile != "":
@@ -557,6 +566,10 @@ func (s *Server) Close() {
 	// with the process, and the conversation should say so.
 	s.noteInterruptedSides()
 	s.closeTerminal()
+	// A language server outlives nothing: it is this checkout's.
+	if s.lsp != nil {
+		s.lsp.Close()
+	}
 	s.settle(closeWait)
 	if err := s.chatStore().Close(); err != nil {
 		slog.Debug("close the chat store", "err", err)
@@ -718,7 +731,7 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	// The editor is the front end: a window already on this checkout comes
 	// forward, and with no editor cli the address above is what there is.
 	if openBrowser {
-		if err := editor.Open(s.startRoot); err != nil {
+		if err := editor.OpenDesk(s.startRoot); err != nil {
 			fmt.Printf("%v; open %s in your editor, where the ade extension finds this session\n", err, s.startRoot)
 		}
 	}
@@ -736,12 +749,21 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST "+wiki.MCPPath, s.handleWikiMCP)
 	mux.HandleFunc("POST "+BusMCPPath, s.handleBusMCP)
+	mux.HandleFunc("POST "+ChecksMCPPath, s.handleChecksMCP)
 
 	mux.HandleFunc("GET /api/state", s.guard(s.handleState))
 	mux.HandleFunc("POST /api/launcher", s.guard(s.handleLauncher))
 	mux.HandleFunc("GET /api/diff", s.guard(s.handleDiff))
 	mux.HandleFunc("GET /api/blob", s.guard(s.handleBlob))
 	mux.HandleFunc("GET /api/blame", s.guard(s.handleBlame))
+	// The checkout's own source, for a window that may be reaching this
+	// session from another machine.
+	mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
+	mux.HandleFunc("GET /api/source", s.guard(s.handleSource))
+	mux.HandleFunc("GET /api/hover", s.guard(s.handleHover))
+	mux.HandleFunc("GET /api/definition", s.guard(s.handleDefinition))
+	mux.HandleFunc("GET /api/references", s.guard(s.handleReferences))
+	mux.HandleFunc("GET /api/docs/{name...}", s.guard(s.handleDocFile))
 	mux.HandleFunc("GET /api/history", s.guard(s.handleHistory))
 	mux.HandleFunc("GET /api/file/at", s.guard(s.handleFileAt))
 	mux.HandleFunc("GET /api/lineage", s.guard(s.handleLineage))
@@ -1084,7 +1106,7 @@ func sameToken(got, want string) bool {
 // path, so what the agent is doing — branch, model, session, queue — is only
 // said to a caller that already holds the token, as the graph's probe does.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	health := session.Health{Ade: true, Root: s.startRoot, PID: os.Getpid()}
+	health := session.Health{Ade: true, Root: s.startRoot, PID: os.Getpid(), Version: s.version}
 	if s.authorized(r) {
 		state := s.agentState()
 		agent := &session.AgentHealth{
@@ -1094,6 +1116,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, side := range state.SideRuns {
 			agent.SideRuns = append(agent.SideRuns, side.Name)
+		}
+		for _, each := range state.Waiting {
+			agent.Stacked = append(agent.Stacked, session.AgentQueued{
+				ID: each.ID, Kind: each.Kind, What: each.What,
+			})
+		}
+		for _, child := range state.Children {
+			agent.Children = append(agent.Children, session.AgentChild{
+				Kind: child.Kind, Name: child.Name, Doing: child.Doing,
+			})
 		}
 		health.Branch = s.space().branch
 		health.Agent = agent

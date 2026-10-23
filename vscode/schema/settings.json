@@ -41,6 +41,10 @@
       "type": "string",
       "description": "The shared wiki's git origin. Empty leaves wiki support off."
     },
+    "designs_remote": {
+      "type": "string",
+      "description": "The designs store's git origin, so your machines share one set of design documents. Empty keeps the store to this machine, which still works."
+    },
     "wiki_distill": {
       "type": "boolean",
       "description": "Publish pages distilled from this machine's transcripts. Off by default: the text goes to a git remote."
@@ -48,6 +52,11 @@
     "wiki_verbatim": {
       "type": "boolean",
       "description": "Let a repository publish full prompts in its commit records."
+    },
+    "front": {
+      "type": "string",
+      "enum": ["editor", "window"],
+      "description": "Which window `ade .` opens: the editor, or ade's own window. Empty is the editor."
     },
     "sharpen_off": {
       "type": "boolean",

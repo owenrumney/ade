@@ -6,6 +6,7 @@ import {
   refuse,
   type Incoming,
 } from "./files";
+import { plainly } from "../client";
 import { openable, splitLinks } from "./links";
 import { copyable, copyWorthy } from "./copy";
 import { avatar } from "./avatar";
@@ -111,13 +112,28 @@ function ask(
 
 async function get<T>(path: string): Promise<T> {
   const res = await ask(path);
-  if (!res.ok) throw new Error(`${path}: ${res.error ?? res.status}`);
+  // The body is where ade says why. Without it a proxy's 404 reads as
+  // "/api/state: 404", which names the route and not the reason.
+  if (!res.ok) {
+    throw new Error(res.error ?? plainly(path, res.status ?? 0, res.text ?? ""));
+  }
   return JSON.parse(res.text || "{}") as T;
 }
+
+// The two notes about the stream rather than the conversation: a fetch
+// that lands clears these and nothing else.
+const CONNECTING = "connecting…";
+const LOST = "lost the connection to ade — reconnecting";
 
 function say(text: string): void {
   note.textContent = text;
   note.classList.toggle("on", text !== "");
+}
+
+// reached is a read that just worked, so the page is plainly connected.
+// The note sat until the stream next changed, which can be never.
+function reached(): void {
+  if (note.textContent === CONNECTING || note.textContent === LOST) say("");
 }
 
 // open runs are remembered across a redraw: an event arrives every few
@@ -1072,38 +1088,70 @@ async function look(): Promise<void> {
   if (mine === looks) drawQuestions(res?.ok ? sharpenedOf(res.text) : []);
 }
 
+// sending guards the post, not the button: the button is disabled for
+// it and Enter is not, so a mashed return sent the turn twice.
+let sending = false;
+
 async function submit(): Promise<void> {
+  if (sending) return;
   const message = box.value.trim();
   if (!message && held.length === 0) return;
+  sending = true;
   // A look still out is for a prompt that is now sent: its answer is dropped.
   clearTimeout(settling);
   looks++;
 
+  const sent = { files: held, context };
+  // On screen before the post, not after: the server answers when it has
+  // taken the turn, and waiting read as a missed keypress.
+  messages = [
+    ...messages,
+    {
+      id: pendingID,
+      kind: "you",
+      body: message,
+      at: new Date().toISOString(),
+      files: held.map((f) => ({ name: f.name, path: f.name })),
+    },
+  ];
+  box.value = "";
+  held = [];
+  looked = "";
+  drawQuestions([]);
+  context = undefined;
+  drawTray();
+  pinned = true;
+  say("");
   send.disabled = true;
+  draw();
   try {
     const res = await ask("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ message, files: held, queue: running, context }),
+      body: JSON.stringify({ message, files: sent.files, queue: running, context: sent.context }),
     });
     if (!res.ok) throw new Error(res.text || res.error || String(res.status));
-    box.value = "";
-    held = [];
-    looked = "";
-    drawQuestions([]);
-    context = undefined;
-    drawTray();
-    pinned = true;
-    say("");
-    // Not left to the stream: with it down the message is sent and never
-    // shown, which reads as a failed send.
+    // The real one, with the id and whatever the server made of it.
     await refresh();
   } catch (err) {
+    // It never went: take the pending one back off and give the words
+    // back, because the box is the only copy.
+    messages = messages.filter((m) => m.id !== pendingID);
+    box.value = message;
+    held = sent.files;
+    context = sent.context;
+    drawTray();
     say(String(err));
+    draw();
   } finally {
+    sending = false;
     send.disabled = false;
     box.focus();
   }
 }
+
+// The one drawn before the server has answered. Replaced by the real
+// message on the refresh that follows, or taken off if the post failed.
+const pendingID = "pending";
 
 // cancel is the turn and nothing more: the server and the agent stay up.
 async function cancel(): Promise<void> {
@@ -1128,6 +1176,8 @@ async function cancel(): Promise<void> {
 async function refresh(): Promise<void> {
   if (closed) return;
   try {
+    // One read does not take the other down: a failing /api/state left
+    // a sent message undrawn, which reads as a send that never went.
     const [chat, state] = await Promise.all([
       get<{ messages: Message[] | null }>("/api/chat"),
       get<{
@@ -1140,23 +1190,51 @@ async function refresh(): Promise<void> {
         };
         attachment?: Attachment | null;
         design?: { file?: string } | null;
-      }>("/api/state"),
+      }>("/api/state").catch(() => undefined),
     ]);
     messages = chat.messages || [];
-    running = Boolean(state.agent?.running);
-    weldedFirst = state.agent?.welded ?? "";
-    asking = new Map((state.agent?.asking || []).map((a) => [a.toolId, a]));
-    sides = state.agent?.sideRuns || [];
-    queued = state.agent?.queued ?? 0;
-    doc = state.design?.file || "";
+    // Left as it was when the state did not answer: saying nothing runs
+    // would hide the Stop button on a turn that is running.
+    if (state) {
+      running = Boolean(state.agent?.running);
+      weldedFirst = state.agent?.welded ?? "";
+      asking = new Map((state.agent?.asking || []).map((a) => [a.toolId, a]));
+      sides = state.agent?.sideRuns || [];
+      queued = state.agent?.queued ?? 0;
+      doc = state.design?.file || "";
+      takeAttachment(state.attachment);
+    }
     send.textContent = running ? "Queue" : "Send";
     stop.hidden = !running;
-    takeAttachment(state.attachment);
+    reached();
+    // Nothing in it is not the conversation drawn: a server still
+    // reading the transcript answers before it has one.
+    drew = messages.length > 0;
     draw();
+    if (!drew) again();
   } catch (err) {
     // A poll already in flight when the session closed lands here.
     if (!closed) say(String(err));
+    again();
   }
+}
+
+// drew is whether the conversation has been on screen. Until it has, a
+// read that fails or comes back empty is a server still starting.
+let drew = false;
+let retry: ReturnType<typeof setTimeout> | undefined;
+let tries = 0;
+const RETRIES = 10;
+
+// again is the first read, tried until it brings something: the page
+// redraws on the host's events, and an idle session sends none.
+function again(): void {
+  if (drew || closed || retry || tries >= RETRIES) return;
+  tries++;
+  retry = setTimeout(() => {
+    retry = undefined;
+    void refresh();
+  }, 1000);
 }
 
 // An attachment is held by the server until somebody takes it. Taking it
@@ -1357,7 +1435,7 @@ window.addEventListener("message", (event: MessageEvent) => {
   // missed: refetch, or stay stale for ever.
   if (said?.kind === "stream") {
     if (!closed) {
-      say(said.open ? "" : "lost the connection to ade — reconnecting");
+      say(said.open ? "" : LOST);
       if (said.open) start();
     }
     return;
@@ -1383,5 +1461,5 @@ window.addEventListener("message", (event: MessageEvent) => {
   start();
 });
 
-say("connecting…");
+say(CONNECTING);
 host.postMessage({ kind: "ready" });

@@ -46,6 +46,10 @@ type Board struct {
 	reviewTrouble ReviewTrouble
 	notifications []ghpr.Notification
 	linear        *linearCache
+
+	// running is the cold reviews this launcher started, by review key, so a
+	// row can say so while nothing is attached to the server doing it.
+	running map[string]bool
 }
 
 // New is a board that has not read anything yet.

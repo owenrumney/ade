@@ -30,6 +30,15 @@ func TestWhatAServerIsDoing(t *testing.T) {
 	}
 }
 
+func TestWhichStatesAreYourTurn(t *testing.T) {
+	for _, state := range []string{Failed, Wedged, Asking} {
+		assert.True(t, Attention(state), state+" is waiting on the user")
+	}
+	for _, state := range []string{Working, Idle} {
+		assert.False(t, Attention(state), state+" is the agent's turn")
+	}
+}
+
 func TestHowLongItHasBeenQuiet(t *testing.T) {
 	now := time.Now()
 

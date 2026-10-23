@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Session } from "../launcher";
-import { ago, inFlight, sections, type Board } from "./view";
+import { ago, inFlight, sections, type Board, type Section } from "./sections";
 
 const now = Date.parse("2026-10-09T20:00:00Z");
 const board: Board = {
@@ -24,22 +24,72 @@ const board: Board = {
     { id: "t1", text: "fix the pill #release", meta: "tomorrow · ade", icon: "circle-large-outline" },
     { id: "t2", text: "cut the notes", meta: "in progress", icon: "sync", started: "s1" },
   ],
+  // In the order the launcher answers with: newest first.
+  designs: [
+    {
+      name: "one-window", dir: "/d/one-window", file: "/d/one-window/design.md",
+      meta: { repos: ["owenrumney/ade"] }, repo: "owenrumney/ade", here: ["/r/ade"],
+      session: "s1", branch: "feat/one-window", live: true,
+    },
+    {
+      name: "quiet", dir: "/d/quiet", file: "/d/quiet/design.md",
+      meta: { repos: ["owenrumney/ade"] }, repo: "owenrumney/ade", here: ["/r/ade"],
+    },
+  ],
   agent: "ade · working 4s",
   at: now,
 };
 
-describe("the dashboard", () => {
+describe("the desk", () => {
   const got = sections(board);
-  const by = (id: string) => got.find((s) => s.id === id)!;
+  const by = (id: string): Section => got.find((s) => s.id === id)!;
+  const group = (id: string, name: string) =>
+    by(id).groups?.find((g) => g.name === name);
 
-  it("reads top down: waiting, todos, reviews, yours, issues, inbox, sessions", () => {
-    expect(got.map((s) => s.id)).toEqual(["waiting", "todos", "reviews", "mine", "tickets", "inbox", "sessions"]);
+  it("reads top down: what is waiting first, what is read last", () => {
+    expect(got.map((s) => s.id)).toEqual([
+      "waiting", "prs", "designs", "sessions", "todos", "tickets", "inbox",
+    ]);
   });
 
   it("leaves out what was muted or dismissed", () => {
-    expect(by("reviews").lines.map((l) => l.label)).toEqual(["ade#21 · Queue edits"]);
-    expect(by("reviews").lines[0].meta).toBe("kim · passing · 30m ago");
+    expect(group("prs", "To review")?.lines.map((l) => l.label)).toEqual(["ade#21 · Queue edits"]);
+    expect(group("prs", "To review")?.lines[0].meta).toBe("kim · passing · 30m ago");
     expect(by("inbox").lines).toHaveLength(1);
+  });
+
+  it("groups the pull requests by which side you are on", () => {
+    expect(by("prs").groups?.map((g) => g.name)).toEqual(["To review", "Yours"]);
+    expect(group("prs", "Yours")?.lines[0].do).toEqual({ what: "open-pr", number: 16 });
+  });
+
+  it("groups designs by repository and opens the session on one in flight", () => {
+    expect(by("designs").groups?.map((g) => g.name)).toEqual(["owenrumney/ade"]);
+    const lines = group("designs", "owenrumney/ade")!.lines;
+    expect(lines.map((l) => l.label)).toEqual(["one-window", "quiet"]);
+    expect(lines[0].do).toEqual({ what: "session", id: "s1" });
+    expect(lines[1].do).toEqual({ what: "design-open", file: "/d/quiet/design.md" });
+  });
+
+  it("offers Start work only on a design nothing is running for", () => {
+    const lines = group("designs", "owenrumney/ade")!.lines;
+    expect(lines[0].also?.map((a) => a.label)).toEqual(["Open"]);
+    expect(lines[1].also?.map((a) => a.label)).toEqual(["Open", "Start work"]);
+  });
+
+  it("warns rather than offering to start one this machine cannot", () => {
+    const short = sections({
+      ...board,
+      designs: [{
+        name: "spans", dir: "/d/spans", file: "/d/spans/design.md",
+        meta: { repos: ["infracost/cli", "infracost/infra"] },
+        repo: "infracost/cli", here: ["/code/cli"], missing: ["infracost/infra"],
+      }],
+    });
+    const line = short.find((s) => s.id === "designs")!.lines[0];
+    expect(line.icon).toBe("warning");
+    expect(line.meta).toContain("needs infracost/infra");
+    expect(line.also?.map((a) => a.label)).toEqual(["Open"]);
   });
 
   it("lists the todos with Done to hand, and the session a started one became", () => {
@@ -48,7 +98,6 @@ describe("the dashboard", () => {
     expect(lines[0].do).toEqual({ what: "todo", id: "t1" });
     expect(lines[0].also?.map((a) => a.label)).toEqual(["Done"]);
     expect(lines[1].also?.map((a) => a.do)).toEqual([{ what: "session", id: "s1" }, { what: "todo-done", id: "t2" }]);
-    expect(got.map((s) => s.id).indexOf("todos")).toBe(1);
   });
 
   it("puts issues in flight first and opens their session", () => {
@@ -60,7 +109,7 @@ describe("the dashboard", () => {
   });
 
   it("acts from a line: a review opens, a notification opens on the web", () => {
-    expect(by("reviews").lines[0].do).toEqual({ what: "open-review", repo: "ade", number: 21 });
+    expect(by("prs").lines[0].do).toEqual({ what: "open-review", repo: "ade", number: 21 });
     expect(by("inbox").lines[0].do).toEqual({ what: "open-url", url: "https://x/21" });
     expect(by("waiting").lines[0].do).toEqual({ what: "row", command: "ade.omnibox.open", args: [{ kind: "ask" }] });
   });

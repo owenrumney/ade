@@ -324,6 +324,7 @@ The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
 	cmd.AddCommand(newStopCommand())
 	cmd.AddCommand(newCancelCommand())
 	cmd.AddCommand(newDocCommand(&docsDir))
+	cmd.AddCommand(newDesignsCommand())
 	cmd.AddCommand(newDoneCommand())
 	cmd.AddCommand(newPsCommand())
 	cmd.AddCommand(newDoctorCommand())
@@ -1170,7 +1171,16 @@ func openUnwatched(_ context.Context, url, dir string) {
 		fmt.Println("open the session from the editor's Sessions view:", url)
 		return
 	}
-	if err := editor.Open(dir); err != nil {
+	// The window when it is asked for and installed; the editor
+	// otherwise, which is where ade has always opened.
+	if editor.Wanted() == "window" {
+		if err := editor.OpenWindow(dir); err == nil {
+			return
+		} else {
+			fmt.Printf("%v; opening the editor instead\n", err)
+		}
+	}
+	if err := editor.OpenDesk(dir); err != nil {
 		fmt.Printf("%v; open %s in your editor, where the ade extension finds it at %s\n", err, dir, url)
 	}
 }
@@ -1715,7 +1725,9 @@ the work, and the design is why the change looks the way it does; neither is
 expensive to keep and both are awkward to lose.
 
 It refuses while anything is uncommitted or unpushed, because that work exists
-nowhere else. --force skips those checks and throws it away.`,
+nowhere else, and while a review comment written here has not gone to GitHub:
+the thread store lives in this worktree and goes with it. --force skips those
+checks and throws it away.`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -1946,6 +1958,29 @@ func safeToRemove(ctx context.Context, root string) error {
 	}
 	if status.Ahead > 0 {
 		return fmt.Errorf("%d commit(s) here are unpushed; push them or pass --force", status.Ahead)
+	}
+	return unsentHere(ctx, root)
+}
+
+// unsentHere refuses while a review comment written here has not gone: the
+// store is in this worktree's git dir and goes with it.
+func unsentHere(ctx context.Context, root string) error {
+	gitDir, err := gitdiff.GitDir(ctx, root)
+	if err != nil {
+		return nil //nolint:nilerr // the caller's own checks already said more
+	}
+	store, err := comments.Open(gitDir, gitdiff.Branch(ctx, root))
+	if err != nil {
+		return nil //nolint:nilerr // an unreadable store is not a reason to refuse
+	}
+	n := 0
+	for _, thread := range store.List() {
+		if thread.ExternalID == "" && !thread.Sent() && !thread.Withdrawn && !thread.Resolved {
+			n++
+		}
+	}
+	if n > 0 {
+		return fmt.Errorf("%d review comment(s) here have not been sent to GitHub; send them or pass --force", n)
 	}
 	return nil
 }

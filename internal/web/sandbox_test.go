@@ -193,3 +193,61 @@ func TestCodexCanBeSwitchedIntoAContainer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.True(t, s.agent.State().Sandbox)
 }
+
+func TestTheSandboxPageSaysWhatIsMountedWithoutBeingAsked(t *testing.T) {
+	s := newTestServer(t)
+
+	rec := do(t, s, "GET", "/api/sandbox", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var view sandboxView
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
+
+	// The file names nothing, and the checkout is still mounted: a page
+	// drawn from Paths alone said the container had nothing in it.
+	assert.Empty(t, view.Paths)
+	require.NotEmpty(t, view.Always)
+	assert.Equal(t, s.agent.dir, view.Always[0].Path)
+	assert.Equal(t, "the checkout", view.Always[0].Why)
+	assert.True(t, view.Always[0].RW)
+}
+
+func TestWhatIsAlwaysMountedLeavesOutWhatTheCheckoutCovers(t *testing.T) {
+	s := newTestServer(t)
+	s.agent.gitDir = filepath.Join(s.agent.dir, ".git")
+	s.agent.docsDir = func() string { return filepath.Join(s.agent.dir, ".git", "ade", "docs") }
+
+	for _, each := range s.always() {
+		assert.Equal(t, s.agent.dir, each.Path, "one inside the checkout is already mounted")
+	}
+
+	// A worktree's git directory is the repository's, outside the
+	// checkout, so git in the container needs it named.
+	away := t.TempDir()
+	s.agent.gitDir = away
+	paths := []string{}
+	for _, each := range s.always() {
+		paths = append(paths, each.Path)
+	}
+	assert.Contains(t, paths, away)
+}
+
+func TestHoverOnAFileWithNoLanguageServerIsNotAFailure(t *testing.T) {
+	s := newTestServer(t)
+
+	// Most files have no server, and the window asks before it knows
+	// which do: an empty answer, not an error it has to draw.
+	rec := do(t, s, "GET", "/api/hover?path=README.md&line=1&col=1", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var said struct {
+		Hover string `json:"hover"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &said))
+	assert.Empty(t, said.Hover)
+}
+
+func TestHoverRefusesAPathOutsideTheCheckout(t *testing.T) {
+	s := newTestServer(t)
+
+	rec := do(t, s, "GET", "/api/hover?path=../../etc/passwd&line=1&col=1", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

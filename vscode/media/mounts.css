@@ -31,6 +31,15 @@
   overflow-wrap: anywhere;
 }
 
+/* A mount ade makes itself: why it is there, and how, with no control
+   beside it. The reason is the point — the path alone looks arbitrary. */
+.mount-row .mount-why,
+.mount-mode {
+  flex: none;
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
 .mount-value {
   margin: 0;
 }

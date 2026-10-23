@@ -54,7 +54,27 @@ func agentServers(ctx context.Context, a *agentRunner, cfg settings.Agentbus) ma
 	if entry := conciergeServer(a.dir); entry != nil {
 		out[concierge.ServerName] = entry
 	}
+	if entry := checksServer(a.delegateURL, a.delegateToken); entry != nil {
+		out[ChecksServerName] = entry
+	}
 	return out
+}
+
+// checksServer is the repository's own checks, run on this machine. The box
+// carries no toolchain, so a run reaches a build or a test only through here.
+func checksServer(base, token string) json.RawMessage {
+	if base == "" || token == "" {
+		return nil
+	}
+	entry, err := json.Marshal(map[string]any{
+		"type":    "http",
+		"url":     strings.TrimSuffix(base, "/") + ChecksMCPPath,
+		"headers": map[string]string{"X-Ade-Delegate-Token": token},
+	})
+	if err != nil {
+		return nil
+	}
+	return entry
 }
 
 // conciergeServer is the desk's own tools, from the launcher, and handed only

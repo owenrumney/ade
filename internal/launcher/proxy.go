@@ -60,6 +60,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	dir, port, ok := s.sessionServer(r.Context(), id)
 	if !ok {
+		// Not here: it may be a conversation on a machine this one is
+		// connected to, which has a launcher and a proxy of its own.
+		if away, path, token, found := s.sessionAway(r.Context(), id); found {
+			s.relay(w, r, away, path+id+rest, prefix, token)
+			return
+		}
 		writeError(w, http.StatusNotFound, "no ade is serving that session")
 		return
 	}
@@ -68,14 +74,24 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		token = s.upstreamToken(dir)
 	}
 	target := &url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))}
+	s.relay(w, r, target, rest, prefix, token)
+}
 
+// relay is the proxy itself, pointed at one address: the ade serving
+// this session, or the launcher of the machine it is on.
+func (s *Server) relay(
+	w http.ResponseWriter,
+	r *http.Request,
+	target *url.URL,
+	path, prefix, token string,
+) {
 	(&httputil.ReverseProxy{
 		// Without this an event stream is held until the buffer fills.
 		FlushInterval: -1,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.Out.Host = target.Host
-			pr.Out.URL.Path, pr.Out.URL.RawPath = rest, ""
+			pr.Out.URL.Path, pr.Out.URL.RawPath = path, ""
 			pr.Out.Header.Set("X-Ade-Token", token)
 			if query := pr.Out.URL.Query(); query.Has("t") {
 				query.Set("t", token)
@@ -84,6 +100,34 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		},
 		ModifyResponse: func(res *http.Response) error { return reprefix(res, prefix) },
 	}).ServeHTTP(w, r)
+}
+
+// sessionAway finds the machine holding a conversation: its launcher
+// has the same proxy at the same path. Read off the sweep, not dialled.
+func (s *Server) sessionAway(
+	ctx context.Context,
+	id string,
+) (target *url.URL, path, token string, ok bool) {
+	for _, machine := range s.hostRepos(ctx) {
+		for _, repo := range machine.Repos {
+			for _, checkout := range repo.Checkouts {
+				if _, found := sessions.Find(checkout.Sessions, checkout.Path, id); !found {
+					continue
+				}
+				live := s.connection(machine.Machine)
+				if live == nil {
+					return nil, "", "", false
+				}
+				at, err := url.Parse(live.url)
+				if err != nil {
+					return nil, "", "", false
+				}
+				return &url.URL{Scheme: at.Scheme, Host: at.Host},
+					proxyPath, at.Query().Get("t"), true
+			}
+		}
+	}
+	return nil, "", "", false
 }
 
 func (s *Server) handleProxyRoot(w http.ResponseWriter, r *http.Request) {

@@ -37,6 +37,7 @@ const THEME = {
   "keybindingTable-rowsBackground": "#242424",
   "charts-green": "#89d185",
   "terminal-ansiGreen": "#23d18b",
+  "terminal-ansiYellow": "#e5e510",
   "editorWarning-foreground": "#cca700",
   "gitDecoration-addedResourceForeground": "#81b88b",
   "gitDecoration-deletedResourceForeground": "#c74e39",

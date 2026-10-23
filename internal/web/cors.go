@@ -5,14 +5,18 @@ import (
 	"strings"
 )
 
-// webviewOrigin is what an editor's webview calls itself. A VS Code extension
-// runs its pages there, and they are a different origin from this server.
-const webviewOrigin = "vscode-webview://"
+// The schemes a webview of ade's own calls itself by. The scheme is the
+// whole rule: the rest is a per-window id nobody can enumerate.
+const (
+	webviewOrigin = "vscode-webview://"
+	appOrigin     = "ade-webview://"
+)
 
-// editorOrigin reports whether an Origin is an editor webview. Only the scheme
-// is checked: the rest is a per-window id nobody can enumerate or rely on.
+// editorOrigin reports whether an Origin is a webview ade put the page
+// in. Neither scheme is reachable from a browser.
 func editorOrigin(origin string) bool {
-	return strings.HasPrefix(origin, webviewOrigin)
+	return strings.HasPrefix(origin, webviewOrigin) ||
+		strings.HasPrefix(origin, appOrigin)
 }
 
 // allowEditor lets a webview read a reply it was already allowed. The token is

@@ -3,11 +3,14 @@
 package editor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/owenrumney/ade/internal/concierge"
 )
 
 // ErrNone means there is no editor to open: none on PATH, or ADE_EDITOR=none.
@@ -18,6 +21,16 @@ var candidates = []string{"ade-editor", "code", "cursor", "codium"} //nolint:goc
 
 // appCLI is ADE.app's own cli, for when make editor-install could not link it onto PATH.
 const appCLI = "/Applications/ADE.app/Contents/Resources/app/bin/ade-editor"
+
+// OpenDesk shows dir in the one window: the desk's workspace, with dir among
+// its folders. The extension attaches to the folder as it arrives.
+func OpenDesk(dir string) error {
+	file, err := concierge.Desk(context.Background(), dir)
+	if err != nil {
+		return err
+	}
+	return Open(file)
+}
 
 // Open shows dir in the editor: a window already on it comes forward, and
 // otherwise a new one opens. It does not wait for the window.

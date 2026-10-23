@@ -8,7 +8,10 @@ cd "$(dirname "$0")/.."
 identity="${ADE_SIGN_IDENTITY:-ADE Dev}"
 # The Local Network grant is keyed to this exact string: renaming it starts
 # from no permission. TestTheCliClaimsItsOwnIdentifier pins it.
-bundle_id="uk.co.owenrumney.ade-cli"
+#
+# The window is a second program and takes its own, or two things claim one
+# identity and macOS cannot tell their permissions apart.
+bundle_id="${ADE_BUNDLE_ID:-uk.co.owenrumney.ade-cli}"
 
 [ "$(uname -s)" = "Darwin" ] || exit 0
 
@@ -96,6 +99,8 @@ hash=$(identity_hash)
 
 for target in "$@"; do
   [ -e "$target" ] || continue
+  # Nested code first under its own identifiers, then the bundle under ours.
+  if [ -d "$target" ]; then codesign --force --deep --sign "$hash" "$target" 2>/dev/null; fi
   codesign --force --sign "$hash" --identifier "$bundle_id" "$target" 2>/dev/null
   codesign --verify --deep --strict "$target" 2>/dev/null ||
     { echo "signed $target but it does not verify" >&2; exit 1; }

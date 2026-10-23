@@ -282,15 +282,23 @@ func TestCodexResumesTheThreadItWasGiven(t *testing.T) {
 	assert.Contains(t, err.Error(), "thread/resume")
 }
 
-func TestCodexGetsTheWikiToolWithItsTokenInTheEnvironment(t *testing.T) {
-	opts := CodexOpts{Env: []string{"A=1"}, WikiMCP: &WikiMCP{URL: "http://127.0.0.1:9/mcp/wiki", Token: "draft-1"}}
+func TestCodexGetsAdesToolsWithTheirTokensInTheEnvironment(t *testing.T) {
+	opts := CodexOpts{Env: []string{"A=1"}, MCPs: []MCP{
+		{Name: "ade_wiki", URL: "http://127.0.0.1:9/mcp/wiki", Token: "draft-1"},
+		{Name: "checks", URL: "http://127.0.0.1:9/mcp/checks", Token: "del-2"},
+	}}
 	args := strings.Join(codexArgs(opts), " ")
 	assert.Contains(t, args, `mcp_servers.ade_wiki.url="http://127.0.0.1:9/mcp/wiki"`)
 	assert.Contains(t, args, `mcp_servers.ade_wiki.bearer_token_env_var="ADE_WIKI_TOKEN"`)
+	assert.Contains(t, args, `mcp_servers.checks.url="http://127.0.0.1:9/mcp/checks"`)
+	assert.Contains(t, args, `mcp_servers.checks.bearer_token_env_var="ADE_CHECKS_TOKEN"`)
 	assert.NotContains(t, args, "draft-1", "the token is not in argv")
-	assert.Equal(t, []string{"A=1", "ADE_WIKI_TOKEN=draft-1"}, codexEnv(opts))
+	assert.NotContains(t, args, "del-2", "the token is not in argv")
+	assert.Equal(t, []string{"A=1", "ADE_WIKI_TOKEN=draft-1", "ADE_CHECKS_TOKEN=del-2"}, codexEnv(opts))
 
 	opts.NoMCP = true
-	assert.NotContains(t, strings.Join(codexArgs(opts), " "), "ade_wiki", "no MCP means no wiki either")
+	bare := strings.Join(codexArgs(opts), " ")
+	assert.NotContains(t, bare, "ade_wiki", "no MCP means no wiki either")
+	assert.NotContains(t, bare, "mcp_servers.checks")
 	assert.Equal(t, []string{"A=1"}, codexEnv(opts))
 }

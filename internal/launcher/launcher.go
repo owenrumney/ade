@@ -28,6 +28,7 @@ import (
 	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/concierge"
 	"github.com/owenrumney/ade/internal/dash"
+	"github.com/owenrumney/ade/internal/designs"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/jobs"
@@ -128,6 +129,8 @@ type Server struct {
 	// wait is the last reading of what is waiting on you.
 	wait *waitingCache
 	wiki *wiki.Store
+	// designs is the one store every machine shares. See the design doc.
+	designs *designs.Store
 	// wikiSyncing keeps the background refresh to one worker.
 	wikiSyncing atomic.Bool
 
@@ -249,6 +252,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 	}
 	if config, err := settings.Load(); err == nil {
 		s.wiki = wiki.New(home, config.WikiRemote)
+		s.designs = designs.New(filepath.Join(home, "designs"), config.DesignsRemote)
 	}
 	s.recall()
 	// No Dir: gh runs wherever this process is. The launcher serves no
@@ -397,6 +401,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
 	mux.HandleFunc("GET /api/designs", s.guard(s.handleDesigns))
 	mux.HandleFunc("GET /api/design", s.guard(s.handleDesign))
+	mux.HandleFunc("GET /api/designs/all", s.guard(s.handleStoreDesigns))
+	mux.HandleFunc("GET /api/designs/read", s.guard(s.handleDesignRead))
+	mux.HandleFunc("PUT /api/designs/write", s.guard(s.handleDesignWrite))
+	mux.HandleFunc("POST /api/designs/sync", s.guard(s.handleDesignsSync))
+	mux.HandleFunc("POST /api/designs/start", s.guard(s.handleDesignStart))
 	mux.HandleFunc("GET /api/designs/repos", s.guard(s.handleDesignRepos))
 	mux.HandleFunc("GET /api/designs/prunable", s.guard(s.handleDesignsPrunable))
 	mux.HandleFunc("POST /api/designs/archive", s.guard(s.handleDesignArchive))
@@ -425,7 +434,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/quiet", s.guard(s.handleQuiet))
 	mux.HandleFunc("POST /api/waiting/seen", s.guard(s.handleSeen))
 	mux.HandleFunc("POST /api/say", s.guard(s.handleSay))
+	mux.HandleFunc("GET /api/pr", s.guard(s.handlePR))
 	mux.HandleFunc("POST /api/reviews/open", s.guard(s.handleOpenReview))
+	mux.HandleFunc("POST /api/reviews/run", s.guard(s.handleRunReview))
 	mux.HandleFunc("POST /api/reviews/mute", s.guard(s.handleMuteReview))
 	mux.HandleFunc("POST /api/notifications/dismiss", s.guard(s.handleDismissNotification))
 	mux.HandleFunc("POST /api/dash/refresh", s.guard(s.handleDashRefresh))

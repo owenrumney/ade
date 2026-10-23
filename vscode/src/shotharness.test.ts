@@ -5,7 +5,7 @@ import { join } from "node:path";
 // tools/shots/editor.mjs rebuilds this page over an ade origin so `make shots`
 // can photograph it outside VS Code. It carries its own copy of the markup, so
 // an id added here and not there is a shot of a page nobody runs.
-const page = readFileSync(join(__dirname, "chat.ts"), "utf8");
+const page = readFileSync(join(__dirname, "chat", "body.ts"), "utf8");
 const harness = readFileSync(
   join(__dirname, "..", "..", "tools", "shots", "editor.mjs"),
   "utf8",
@@ -14,7 +14,7 @@ const harness = readFileSync(
 describe("the shot harness and the webview", () => {
   it("name the same elements", () => {
     for (const id of ["ade", "list", "composer", "tray", "sharpen", "box", "send", "hint", "note"]) {
-      expect(page, `chat.ts lost #${id}`).toContain(`id="${id}"`);
+      expect(page, `chat/body.ts lost #${id}`).toContain(`id="${id}"`);
       expect(harness, `editor.mjs is missing #${id}`).toContain(`id="${id}"`);
     }
   });

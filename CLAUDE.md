@@ -133,6 +133,12 @@ Name the views: `make shots VIEWS=launcher-worktrees`. A reply carries four
 pictures, and the outbox picks them in name order, so a bare `make shots` always
 sends the four alphabetically first and never the one the change is about.
 
+`make app-shots` is the same for the app's window, and it will not send one
+you did not name: `make app-shots VIEWS="app-chat app-code"`. Named views are
+the only ones shot and the only ones copied to the outbox; a bare run writes
+every view to `app/dist/shots` and sends none. `make app-shots VIEWS=nope`
+lists the names.
+
 A reprovisioned container has neither chromium nor `tools/shots/node_modules`;
 the script installs both. Every build and install step reports its own failure,
 so when a shot does not appear, the reason is in the output.
