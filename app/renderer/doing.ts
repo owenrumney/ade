@@ -24,7 +24,8 @@ export type From =
 
 export type Ask =
   | { ask: "pick"; from: From; as: string; title: string }
-  | { ask: "many"; from: From; as: string; title: string }
+  // ticks are on when the box opens, for a list with a usual answer.
+  | { ask: "many"; from: From; as: string; title: string; ticks?: string[] }
   | { ask: "one"; of: (string | { label: string; value: unknown })[]; as: string; title: string }
   | { ask: "type"; as: string; title: string; blank?: true };
 
@@ -88,11 +89,12 @@ const pick = (from: From, as: string, title: string): Ask => ({
   as,
   title,
 });
-const many = (from: From, as: string, title: string): Ask => ({
+const many = (from: From, as: string, title: string, ticks?: string[]): Ask => ({
   ask: "many",
   from,
   as,
   title,
+  ticks,
 });
 
 export const WIRED: Record<string, Doing> = {
@@ -186,7 +188,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.reviewWithAgents": S(
     "/api/review",
     { level: "" },
-    many("reviewer", "agents", "Which agents should review?"),
+    many("reviewer", "agents", "Which agents should review?", ["security", "staff-reviewer"]),
   ),
   "ade.resolveAll": S("/api/resolve", { all: true }),
   "ade.resolveHere": S("/api/threads/{id}/resolve", {}, pick("thread", "id", "Resolve which comment?")),

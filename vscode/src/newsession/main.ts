@@ -1,3 +1,4 @@
+import { pasted, read, refuse, type Incoming } from "../chat/files";
 import { control } from "../mounts/control";
 import { added } from "../mounts/view";
 import {
@@ -58,6 +59,10 @@ const empty: Offer = {
 const nothingYet = { branch: "", doc: "", written: false, carried: false, makes: [] };
 let state: Shown = { chosen: { ...fresh }, plan: nothingYet, offer: empty };
 let filter = "";
+// Images pasted into the first message. Not in Chosen: they are bytes, and
+// Chosen goes to the host on every keystroke.
+let carrying: Incoming[] = [];
+let refused = "";
 
 function el(tag: string, cls?: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
@@ -68,6 +73,9 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
 
 function changed(): void {
   host.postMessage({ kind: "change", chosen: state.chosen });
+  // The button answers the keystroke here. A host that replied with a whole
+  // state would redraw the page and take the cursor out of the box.
+  root.querySelector(".foot")?.replaceWith(foot());
 }
 
 function set(part: Partial<Chosen>): void {
@@ -302,12 +310,19 @@ function asked(): HTMLElement {
   const message = document.createElement("textarea");
   message.className = "message";
   message.rows = 4;
-  message.placeholder = "What do you want done?";
+  message.placeholder = "What do you want done? Paste an image to send it too.";
   message.value = chosen.message;
   message.addEventListener("input", () => {
     state.chosen = { ...state.chosen, message: message.value };
   });
+  message.addEventListener("paste", (event) => {
+    const files = pasted((event as ClipboardEvent).clipboardData?.items);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void take(files);
+  });
   box.append(field("First message", message));
+  box.append(tray());
 
   if (offer.recent.length > 0) {
     const recent = el("div", "recent");
@@ -320,6 +335,39 @@ function asked(): HTMLElement {
     box.append(recent);
   }
   return box;
+}
+
+// What a paste attached, each chip its own remove.
+function tray(): HTMLElement {
+  const box = el("div", "tray");
+  for (const file of carrying) {
+    const one = el("button", "chip", `${file.name} ✕`);
+    one.addEventListener("click", () => {
+      carrying = carrying.filter((kept) => kept !== file);
+      refused = "";
+      redrawTray();
+    });
+    box.append(one);
+  }
+  if (refused) box.append(el("p", "sub", refused));
+  return box;
+}
+
+function redrawTray(): void {
+  root.querySelector(".tray")?.replaceWith(tray());
+}
+
+async function take(files: File[]): Promise<void> {
+  refused = "";
+  for (const file of files) {
+    const why = refuse(file, carrying.length);
+    if (why) {
+      refused = why;
+      break;
+    }
+    carrying.push(await read(file));
+  }
+  redrawTray();
 }
 
 // Why the list is empty: a failed read is said rather than counted as none.
@@ -389,7 +437,9 @@ function foot(): HTMLElement {
   start.className = "start";
   start.textContent = state.busy ? "Starting…" : "Start";
   start.disabled = Boolean(why) || Boolean(state.busy);
-  start.addEventListener("click", () => host.postMessage({ kind: "start", chosen: state.chosen }));
+  start.addEventListener("click", () =>
+    host.postMessage({ kind: "start", chosen: state.chosen, files: carrying }),
+  );
   box.append(start);
   return box;
 }

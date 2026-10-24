@@ -23,6 +23,11 @@ describe("the editor is loaded when a file is opened and not before", () => {
     expect(read("..", "Makefile")).toContain("renderer/editorentry.ts");
   });
 
+  it("draws a review's edit over the diff's left side, not as a plain file", () => {
+    expect(read("renderer", "editorentry.ts")).toContain("mountDiff");
+    expect(read("renderer", "app.ts")).toMatch(/view\.editing\) \{\s+return mountDiff\(view\.base/);
+  });
+
   it("brings monaco's stylesheet, which went with its bundle", () => {
     expect(read("renderer", "code.ts")).toContain("../dist/editor.css");
     expect(read("renderer", "index.html")).not.toContain("editor.css");

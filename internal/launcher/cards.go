@@ -189,7 +189,7 @@ func (s *Server) pressCard(ctx context.Context, card Card) (map[string]any, erro
 			sendBriefMessage(ctx, url, &Brief{Name: card.Name, Body: card.Text})
 			return map[string]any{"started": true, "dir": card.Dir, "design": true}, nil
 		}
-		sendFirstMessage(ctx, url, card.Text)
+		sendFirstMessage(ctx, url, card.Text, nil)
 		return map[string]any{"started": true, "dir": card.Dir}, nil
 	}
 	return nil, fmt.Errorf("a card cannot be a %q", card.Kind)

@@ -737,14 +737,14 @@ describe("the agents tree", () => {
     expect(real.attention("idle")).toBe(false);
   });
 
-  it("puts what wants you first and hangs what it called under it", () => {
+  it("keeps the sessions in name order and hangs what each called under it", () => {
     const place = real.agents(active);
     expect(place.rows.map((r) => r.name)).toEqual([
-      "gamma",
+      "alpha",
       "beta",
       "@security",
       "explore",
-      "alpha",
+      "gamma",
     ]);
     expect(place.rows.map((r) => r.depth ?? 0)).toEqual([0, 0, 1, 1, 0]);
     expect(place.alert).toBe(true);

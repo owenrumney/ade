@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { Incoming } from "./chat/files";
 import { plan } from "./newsession/plan";
 import { fresh, held, type Chosen, type Doc } from "./newsession/view";
 
@@ -33,6 +34,7 @@ export class NewSessionPage implements vscode.Disposable {
   private panel?: vscode.WebviewPanel;
   private offer: Offer = nothing;
   private chosen: Chosen = { ...fresh };
+  private files: Incoming[] = [];
   private busy = false;
   private note = "";
 
@@ -40,7 +42,7 @@ export class NewSessionPage implements vscode.Disposable {
     private context: vscode.ExtensionContext,
     private feed: (machine: string) => Promise<Offer>,
     private documents: (machine: string, dir: string) => Promise<Doc[]>,
-    private start: (chosen: Chosen) => Promise<void>,
+    private start: (chosen: Chosen, files: Incoming[]) => Promise<void>,
   ) {}
 
   dispose(): void {
@@ -99,7 +101,7 @@ export class NewSessionPage implements vscode.Disposable {
 
   private wire(webview: vscode.Webview): void {
     webview.onDidReceiveMessage(
-      (said: { kind?: string; chosen?: Chosen }) => {
+      (said: { kind?: string; chosen?: Chosen; files?: Incoming[] }) => {
         if (said.kind === "ready") this.hand();
         if (said.kind === "change" && said.chosen) {
           const was = this.chosen;
@@ -121,6 +123,7 @@ export class NewSessionPage implements vscode.Disposable {
         if (said.kind === "browse") void this.browse();
         if (said.kind === "start" && said.chosen) {
           this.chosen = said.chosen;
+          this.files = said.files ?? [];
           void this.run();
         }
       },
@@ -148,7 +151,7 @@ export class NewSessionPage implements vscode.Disposable {
     this.busy = true;
     this.hand();
     try {
-      await this.start(this.chosen);
+      await this.start(this.chosen, this.files);
       this.panel?.dispose();
     } catch (err) {
       this.note = String(err);

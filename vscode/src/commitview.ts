@@ -10,6 +10,7 @@ interface Said {
   message?: string;
   name?: string;
   push?: boolean;
+  force?: boolean;
 }
 
 // CommitView is staging, the message and what follows, in one panel.
@@ -129,6 +130,9 @@ export class CommitView implements vscode.Disposable {
         case "commit":
           await this.commit(c, said);
           return;
+        case "push":
+          await this.push(c, Boolean(said.force));
+          return;
         case "createPR":
           this.working("createPR");
           await c.createPR();
@@ -189,6 +193,21 @@ export class CommitView implements vscode.Disposable {
     await this.after("rebase");
   }
 
+  // push on its own, which a rebased branch needs: its upstream has moved
+  // under it, and only a lease push lands.
+  private async push(c: Client, force: boolean): Promise<void> {
+    this.working("push");
+    try {
+      await c.push(force);
+    } catch (err) {
+      this.failed(String(err));
+      return;
+    }
+    this.busy = "";
+    this.note = force ? "Pushed, replacing the branch." : "Pushed.";
+    await this.after("push");
+  }
+
   private async commit(c: Client, said: Said): Promise<void> {
     const { title, body } = split(said.message ?? "");
     if (!title) {
@@ -237,6 +256,10 @@ export class CommitView implements vscode.Disposable {
     });
     this.committed = false;
     if (this.busy === "redraft" && state?.draft) this.busy = "";
+    // The POST only starts the run: an agent writes the pull request. A
+    // state that does not say leaves it busy; a failed read must not free it.
+    if (this.busy === "createPR" && state?.agent && !state.agent.running)
+      this.busy = "";
   }
 
   private draw(): void {

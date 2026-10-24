@@ -31,20 +31,24 @@ export class Omnibox {
   many<T>(
     title: string,
     rows: { label: string; note?: string; value: T }[],
+    already?: T[],
   ): Promise<T[] | undefined> {
-    return this.choose(title, rows, true) as Promise<T[] | undefined>;
+    return this.choose(title, rows, true, already) as Promise<T[] | undefined>;
   }
 
   private choose<T>(
     title: string,
     rows: { label: string; note?: string; value: T }[],
     multi: boolean,
+    already?: T[],
   ): Promise<T | T[] | undefined> {
     return new Promise((done) => {
       this.close();
       let at = 0;
       let shown = rows;
-      const ticked = new Set<T>();
+      const ticked = new Set<T>(
+        rows.filter((row) => already?.includes(row.value)).map((row) => row.value),
+      );
       const scrim = el("div", "scrim");
       const box = el("div", "omnibox");
       const input = document.createElement("input");

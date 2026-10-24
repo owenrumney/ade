@@ -222,7 +222,13 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		// With what git said: "exit status 1" names neither the rejection nor
+		// the remote that did it.
+		said := strings.TrimSpace(string(out))
+		if said == "" {
+			return string(out), fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		}
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, said)
 	}
 	return string(out), nil
 }

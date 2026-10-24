@@ -379,6 +379,7 @@ import {
   nothing as noOffer,
   type Offer,
 } from "./newsessionview";
+import type { Incoming } from "./chat/files";
 import { plan as sessionPlan } from "./newsession/plan";
 import {
   names as sessionNames,
@@ -6486,7 +6487,7 @@ function mainCheckout(repo: Repo): Offer["repos"][number] {
 
 // startChosen routes the screen to the way in it names. Nothing here is new
 // behaviour: every row is a door ade already had.
-async function startChosen(chosen: Chosen): Promise<void> {
+async function startChosen(chosen: Chosen, files: Incoming[] = []): Promise<void> {
   const at = await ensureLauncher();
   if (!at) throw new Error(noLauncher("session"));
   launcher = at;
@@ -6502,6 +6503,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
       prompt: chosen.message.trim(),
       machine: chosen.machine || undefined,
       sandbox: chosen.sandbox,
+      files: files.length > 0 ? files : undefined,
       ...sandboxAsked(chosen),
     });
     // The path is that machine's, so it is a window over there and not a
@@ -6539,6 +6541,7 @@ async function startChosen(chosen: Chosen): Promise<void> {
         prompt: chosen.message.trim(),
         machine: chosen.machine || undefined,
         sandbox: chosen.sandbox,
+        files: files.length > 0 ? files : undefined,
         ...sandboxAsked(chosen),
       }),
   );

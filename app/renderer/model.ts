@@ -55,7 +55,19 @@ export type View =
   | { kind: "diff"; title: string; patch: string }
   // One file of the diff, with the threads anchored in it drawn under
   // the lines they are about.
-  | { kind: "hunks"; title: string; file: Change; threads?: Thread[]; at?: At }
+  // editing swaps the drawn diff for the file over its left side in the
+  // editor, in the same tab: a finding is fixed where it is read.
+  | {
+      kind: "hunks";
+      title: string;
+      file: Change;
+      threads?: Thread[];
+      at?: At;
+      editing?: boolean;
+      base?: string;
+      source?: string;
+      sum?: string;
+    }
   | { kind: "code"; title: string; source: string; line?: number; sum?: string }
   // The session's permission rules, drawn here rather than framed from
   // the server's own page: a frame wears its own stylesheet.

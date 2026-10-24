@@ -13,6 +13,13 @@ export interface Asking {
 
 interface Editor {
   mount(source: string, path: string, line: number, onLine: (n: number) => void): HTMLElement;
+  mountDiff(
+    base: string,
+    source: string,
+    path: string,
+    line: number,
+    onLine: (n: number) => void,
+  ): HTMLElement;
   selected(): { from: string; text: string } | undefined;
   edits(): { path: string; source: string } | undefined;
   saved(path: string, source: string): void;
@@ -69,10 +76,25 @@ export function mount(
   line: number,
   onLine: (n: number) => void,
 ): HTMLElement {
+  return once((editor) => editor.mount(source, path, line, onLine));
+}
+
+// mountDiff is the file over the diff's left side, edited inline.
+export function mountDiff(
+  base: string,
+  source: string,
+  path: string,
+  line: number,
+  onLine: (n: number) => void,
+): HTMLElement {
+  return once((editor) => editor.mountDiff(base, source, path, line, onLine));
+}
+
+function once(draw: (editor: Editor) => HTMLElement): HTMLElement {
   host ??= Object.assign(document.createElement("div"), { className: "monaco-host" });
   const ready = window.adeEditor;
   if (ready) {
-    host.replaceChildren(ready.mount(source, path, line, onLine));
+    host.replaceChildren(draw(ready));
     return host;
   }
   host.replaceChildren(
@@ -95,7 +117,7 @@ export function mount(
       );
       return;
     }
-    host?.replaceChildren(editor.mount(source, path, line, onLine));
+    host?.replaceChildren(draw(editor));
   });
   return host;
 }

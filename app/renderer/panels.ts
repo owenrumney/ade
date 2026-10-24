@@ -292,7 +292,7 @@ function from(id: string): (reach: Reach) => Panel {
 
 // picked is what the form chose, in the names `/api/open` and
 // `/api/scratch` take. Empty is a default, not a choice, so it is left out.
-function picked(want: Chosen): Record<string, unknown> {
+function picked(want: Chosen, files?: unknown[]): Record<string, unknown> {
   return {
     agent: want.agent || undefined,
     model: want.model || undefined,
@@ -300,6 +300,7 @@ function picked(want: Chosen): Record<string, unknown> {
     prompt: want.message.trim(),
     machine: want.machine || undefined,
     sandbox: want.sandbox,
+    files: files?.length ? files : undefined,
   };
 }
 
@@ -436,11 +437,15 @@ export function commit(reach: Reach): Panel {
       worktree?: { ahead?: number; behind?: number };
       draft?: unknown;
       branchPr?: unknown;
+      agent?: { running?: boolean };
       meta?: { base?: string; branch?: string };
     };
     // Before the state is built, not after as the editor does: the
     // editor gets another push shortly and this host does not.
     if (busy === "redraft" && state.draft) busy = "";
+    // The POST only starts the run: an agent writes the pull request. A
+    // state that does not say leaves it busy; a failed read must not free it.
+    if (busy === "createPR" && state.agent && !state.agent.running) busy = "";
     last = {
       kind: "state",
       tree: state.worktree,
@@ -465,7 +470,7 @@ export function commit(reach: Reach): Panel {
     if (last) reach.push("commit", { ...last, busy, note: "" });
     try {
       await run();
-      if (what !== "redraft") busy = "";
+      if (what !== "redraft" && what !== "createPR") busy = "";
       return await hand();
     } catch (err) {
       busy = "";
@@ -503,6 +508,10 @@ export function commit(reach: Reach): Panel {
           return doing("branch", () => reach.send("session", "/api/branch", body));
         case "rebase":
           return doing("rebase", () => reach.send("session", "/api/base/rebase", body));
+        case "push":
+          return doing("push", () =>
+            reach.send("session", "/api/push", { force: Boolean(body.force) }),
+          );
         case "createPR":
           return doing("createPR", () => reach.send("session", "/api/pr-create", body));
         case "commit":
@@ -628,18 +637,24 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         return { kind: "state", chosen, offer: await offer(), busy: false, note: "" };
       }
       if (said.kind === "change") {
-        chosen = (said.chosen ?? chosen) as Record<string, unknown>;
+        const was = chosen as unknown as Chosen;
+        const want = (said.chosen ?? chosen) as unknown as Chosen;
+        chosen = want as unknown as Record<string, unknown>;
+        // Only a new home has a new list of documents. Answering every
+        // keystroke redraws the page and takes the cursor out of the box.
+        if (want.repos[0] === was.repos[0]) return undefined;
         return { kind: "state", chosen, offer: await offer(), busy: false, note: "" };
       }
       if (said.kind === "start") {
         chosen = (said.chosen ?? chosen) as Record<string, unknown>;
         const want = chosen as unknown as Chosen;
+        const files = (said.files ?? []) as unknown[];
         // Scratch is the one with nowhere to live yet, so it has no
         // repository to tick and its own route.
         if (want.mode === "scratch") {
           const got = await reach.send("launcher", "/api/scratch", {
             name: want.name.trim(),
-            ...picked(want),
+            ...picked(want, files),
           });
           return { kind: "state", chosen, busy: false, note: started(got) };
         }
@@ -655,7 +670,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
           also: also.length > 0 ? also : undefined,
           fresh: true,
           direct: !want.machine,
-          ...picked(want),
+          ...picked(want, files),
         });
         return { kind: "state", chosen, busy: false, note: started(got) };
       }
