@@ -117,7 +117,9 @@ func TestCommentsJoinOneDraftReview(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	assert.Len(t, on.added, 2)
-	assert.Equal(t, "this reads oddly", on.added[0].Body)
+	assert.Equal(t,
+		"![Medium](https://img.shields.io/badge/Medium-orange)\n\nthis reads oddly",
+		on.added[0].Body, "a thread with no severity set goes out as medium")
 	assert.Equal(t, 2, draftState(t, s).InDraft)
 	assert.Equal(t, 0, draftState(t, s).Ready, "both are waiting on GitHub now")
 }
