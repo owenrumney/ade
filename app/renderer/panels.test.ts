@@ -37,6 +37,7 @@ function spy(): { reach: Reach; seen: { path: string; body: unknown }[] } {
     link: () => {},
     run: () => {},
     push: () => {},
+    follow: () => {},
   };
   return { reach, seen };
 }
@@ -148,6 +149,7 @@ describe("the quiz, which posts rather than reads", () => {
     link: () => {},
     run: () => {},
     push: () => {},
+    follow: () => {},
   });
 
   it("asks on ready and hands the questions straight to the page", async () => {
@@ -219,6 +221,7 @@ describe("the sandbox, which redraws from state and nothing else", () => {
       link: () => {},
       run: () => {},
       push: () => {},
+      follow: () => {},
     };
     const back = (await WHICH["ade.sandboxPanel"](reach).onMessage({
       kind: "save",
@@ -238,6 +241,7 @@ describe("the sandbox, which redraws from state and nothing else", () => {
       link: () => {},
       run: () => {},
       push: () => {},
+      follow: () => {},
     };
     const back = (await WHICH["ade.sandboxPanel"](reach).onMessage({
       kind: "save",
@@ -313,6 +317,7 @@ describe("the commit panel, where busy names the verb in flight", () => {
     link: () => {},
     run: () => {},
     push: () => {},
+    follow: () => {},
   });
 
   it("hands the page the seven things it draws from", async () => {
@@ -402,6 +407,7 @@ describe("a panel hears about work that finished elsewhere", () => {
       link: () => {},
       run: () => {},
       push: () => {},
+      follow: () => {},
     };
     expect(WHICH["ade.commitPanel"](reach).stirs).toBe(true);
     // The sweep is a `gh pr list` per repository and events arrive
@@ -452,6 +458,7 @@ describe("the commit panel while work is in flight", () => {
       link: () => {},
       run: () => {},
       push: (id, said) => pushed.push({ id, ...(said as Record<string, unknown>) }),
+      follow: () => {},
     };
     return { panel: commit(reach), pushed, finish };
   }
@@ -546,6 +553,7 @@ describe("the New session panel's Design row", () => {
       link: () => {},
       run: () => {},
       push: () => {},
+      follow: () => {},
     };
   }
 
@@ -632,5 +640,32 @@ describe("the New session panel's Design row", () => {
     const file = { name: "shot.png", mediaType: "image/png", data: "AAAA" };
     await panel.onMessage({ kind: "start", chosen: typed("cancel"), files: [file] });
     expect(opened[0].files).toEqual([file]);
+  });
+
+  // Start used to leave a red "started" banner and no conversation.
+  it("follows the session it started", async () => {
+    const went: string[] = [];
+    const reach = { ...reachWith({ designs: [] }), follow: (dir: string) => went.push(dir) };
+    const said = (await newSession(reach, {}).onMessage({
+      kind: "start",
+      chosen: typed("cancel"),
+    })) as { note: string };
+    expect(went).toEqual(["/r/coast-x"]);
+    expect(said.note).toBe("");
+  });
+
+  it("stays open on a failure, and says it", async () => {
+    const went: string[] = [];
+    const reach = {
+      ...reachWith({ designs: [] }),
+      send: async () => ({ error: "that branch is checked out elsewhere" }),
+      follow: (dir: string) => went.push(dir),
+    };
+    const said = (await newSession(reach, {}).onMessage({
+      kind: "start",
+      chosen: typed("cancel"),
+    })) as { note: string };
+    expect(went).toEqual([]);
+    expect(said.note).toContain("checked out elsewhere");
   });
 });

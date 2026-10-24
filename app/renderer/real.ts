@@ -287,16 +287,20 @@ export function sessions(
   // is up is lifted out of them and listed first, in one group.
   const up: { at: number; row: Row }[] = [];
   const groups: { name: string; at: number; rows: Row[] }[] = [];
+  // An ade serving the conversation is live, whatever the transcript's
+  // age says: a sandboxed agent writes nothing while it waits on you.
+  const serving = new Set(active.filter((a) => !a.machine).map((a) => a.id));
   for (const repo of repos) {
     const name = repo.owner ? `${repo.owner}/${repo.name}` : repo.name;
     const found: { at: number; row: Row }[] = [];
     for (const checkout of repo.checkouts ?? []) {
       for (const session of (checkout.sessions ?? []).filter((s) => !s.archived)) {
-        (session.live ? up : found).push({ at: when(session.lastUsed), row: {
+        const live = Boolean(session.live) || serving.has(session.id);
+        (live ? up : found).push({ at: when(session.lastUsed), row: {
           id: session.id,
-          group: session.live ? RUNNING : name,
-          icon: session.live ? "play" : "history",
-          tone: session.live ? ("good" as const) : undefined,
+          group: live ? RUNNING : name,
+          icon: live ? "play" : "history",
+          tone: live ? ("good" as const) : undefined,
           name: session.title || session.branch || session.name,
           // The worktree names itself now the heading does not, and the
           // branch only when it differs, or `fix` on `fix` says it twice.
@@ -310,7 +314,7 @@ export function sessions(
           tag: session.dir === here ? { text: "here", kind: "here" as const } : undefined,
           // A running session can be stopped from its row: it is the
           // thing you want when you see one still going.
-          acts: session.live
+          acts: live
             ? [{ label: "Stop", what: "session-stop" as const, name: session.id }]
             : [],
         } });

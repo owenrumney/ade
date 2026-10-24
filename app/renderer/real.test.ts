@@ -144,6 +144,31 @@ describe("sessions, flattened out of the scan", () => {
     running[0].checkouts![0].sessions![1].lastUsed = "2026-10-23T13:00:00Z";
     expect(sessions(running).rows.map((r) => r.id)).toEqual(order);
   });
+
+  // The scan calls a session live from its transcript's age or the process
+  // table, and a sandboxed agent waiting on you is neither.
+  it("runs what an ade is serving, however old the transcript", () => {
+    const quiet: Repo[] = [
+      {
+        name: "ade",
+        path: "/code/ade",
+        checkouts: [
+          {
+            path: "/code/ade-fix",
+            name: "ade-fix",
+            worktree: true,
+            sessions: [
+              { id: "s9", name: "fix", dir: "/code/ade-fix", title: "fix it", lastUsed: "2026-10-23T09:00:00Z" },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(sessions(quiet).rows[0].group).not.toBe("Running");
+    const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix" }]).rows[0];
+    expect(row.group).toBe("Running");
+    expect(row.acts?.[0].what).toBe("session-stop");
+  });
 });
 
 // A row can say a session is running when nothing is serving it: the
