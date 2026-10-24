@@ -34,6 +34,10 @@ const THEME: monaco.editor.IStandaloneThemeData = {
 
 let made: monaco.editor.IStandaloneCodeEditor | undefined;
 let host: HTMLElement | undefined;
+let diffed: monaco.editor.IStandaloneDiffEditor | undefined;
+let diffHost: HTMLElement | undefined;
+// Whichever of the two is on screen: the selection is read off it.
+let active: monaco.editor.ICodeEditor | undefined;
 let picked: ((line: number) => void) | undefined;
 let showing = "";
 
@@ -110,8 +114,8 @@ export function onJump(then: (to: Where) => void): void {
 // selected is what is highlighted, with where it came from. Empty when
 // nothing is: a verb that asks about a selection has nothing to ask.
 export function selected(): { from: string; text: string } | undefined {
-  const at = made?.getSelection();
-  const text = at && made?.getModel()?.getValueInRange(at);
+  const at = active?.getSelection();
+  const text = at && active?.getModel()?.getValueInRange(at);
   if (!at || !text?.trim()) return undefined;
   const lines =
     at.startLineNumber === at.endLineNumber
@@ -132,16 +136,8 @@ export function mount(
   showing = path;
   if (!host) host = make();
   const editor = made!;
-  // A model per file, so an unsaved edit survives opening another. A
-  // fresh read replaces only what has not been typed over.
-  let held = models.get(path);
-  if (!held) {
-    held = { model: monaco.editor.createModel(source, languageOf(path)), base: source };
-    models.set(path, held);
-  } else if (held.base !== source && !dirty(held)) {
-    held.model.setValue(source);
-    held.base = source;
-  }
+  active = editor;
+  const held = hold(path, source);
   if (editor.getModel() !== held.model) editor.setModel(held.model);
   if (line > 0) editor.revealLineInCenterIfOutsideViewport(line);
   // The element has just been moved in the document, so its size is
@@ -150,25 +146,93 @@ export function mount(
   return host;
 }
 
+// mountDiff is the file against what the diff's left side has, drawn
+// inline and editable: a fix is typed where the change is read.
+export function mountDiff(
+  base: string,
+  source: string,
+  path: string,
+  line: number,
+  onLine: (n: number) => void,
+): HTMLElement {
+  picked = onLine;
+  showing = path;
+  if (!diffHost) diffHost = makeDiff();
+  const editor = diffed!;
+  active = editor.getModifiedEditor();
+  const held = hold(path, source);
+  const was = editor.getModel();
+  if (was?.modified !== held.model) {
+    was?.original.dispose();
+    editor.setModel({
+      original: monaco.editor.createModel(base, languageOf(path)),
+      modified: held.model,
+    });
+  } else if (was.original.getValue() !== base) {
+    was.original.setValue(base);
+  }
+  if (line > 0) editor.revealLineInCenterIfOutsideViewport(line);
+  queueMicrotask(() => editor.layout());
+  return diffHost;
+}
+
+// hold is the model for a file, one per path so an unsaved edit survives
+// opening another. A fresh read replaces only what has not been typed over.
+function hold(path: string, source: string): { model: monaco.editor.ITextModel; base: string } {
+  let held = models.get(path);
+  if (!held) {
+    held = { model: monaco.editor.createModel(source, languageOf(path)), base: source };
+    models.set(path, held);
+  } else if (held.base !== source && !dirty(held)) {
+    held.model.setValue(source);
+    held.base = source;
+  }
+  return held;
+}
+
+const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
+  theme: "ade",
+  automaticLayout: true,
+  fontFamily: "var(--mono)",
+  fontSize: 13,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  renderLineHighlight: "line",
+  smoothScrolling: true,
+  occurrencesHighlight: "off",
+  // The window owns ⌘K, so the editor may not: a chord that reaches
+  // here is one the keymap did not get.
+  quickSuggestions: false,
+};
+
+let themed = false;
+
 function make(): HTMLElement {
   const el = document.createElement("div");
   el.className = "monaco";
-  monaco.editor.defineTheme("ade", THEME);
-  made = monaco.editor.create(el, {
-    theme: "ade",
-    automaticLayout: true,
-    fontFamily: "var(--mono)",
-    fontSize: 13,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    renderLineHighlight: "line",
-    smoothScrolling: true,
-    occurrencesHighlight: "off",
-    // The window owns ⌘K, so the editor may not: a chord that reaches
-    // here is one the keymap did not get.
-    quickSuggestions: false,
-  });
+  if (!themed) monaco.editor.defineTheme("ade", THEME);
+  themed = true;
+  made = monaco.editor.create(el, OPTIONS);
   made.onMouseDown((e) => {
+    const at = e.target.position?.lineNumber;
+    if (at) picked?.(at);
+  });
+  return el;
+}
+
+function makeDiff(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "monaco";
+  if (!themed) monaco.editor.defineTheme("ade", THEME);
+  themed = true;
+  diffed = monaco.editor.createDiffEditor(el, {
+    ...OPTIONS,
+    renderSideBySide: false,
+    originalEditable: false,
+    renderOverviewRuler: false,
+    hideUnchangedRegions: { enabled: true },
+  });
+  diffed.getModifiedEditor().onMouseDown((e) => {
     const at = e.target.position?.lineNumber;
     if (at) picked?.(at);
   });

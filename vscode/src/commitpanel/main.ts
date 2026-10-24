@@ -49,6 +49,9 @@ let baseRef = "";
 let branch = "";
 let busy = "";
 let note = "";
+// Ticked for one push and no more: a rebase needs it, and the push after
+// that does not.
+let lease = false;
 // What you typed, once you have. The agent's draft never overwrites it.
 let typed: string | undefined;
 // The branch name box: undefined until the form is open, so a suggestion can
@@ -134,9 +137,14 @@ function draw(): void {
     button("Commit", () => commit(false), !can.commit || !idle(busy)),
     button("Commit and push", () => commit(true), !can.commit || !idle(busy)),
   );
+  if (can.push) doing.append(pushing());
   if (can.createPR)
     doing.append(
-      button("Create pull request", () => send("createPR"), !idle(busy)),
+      button(
+        busy === "createPR" ? "Opening a pull request…" : "Create pull request",
+        () => send("createPR"),
+        !idle(busy),
+      ),
     );
   if (can.showPR)
     doing.append(
@@ -233,6 +241,28 @@ function button(label: string, go: () => void, off: boolean): HTMLElement {
   node.disabled = off;
   node.addEventListener("click", go);
   return node;
+}
+
+// Push and the one choice it has. A rebase leaves the branch diverged from
+// its upstream, and only a lease push lands after one.
+function pushing(): HTMLElement {
+  const box = el("span", "pushing");
+  box.append(
+    button(busy === "push" ? "Pushing…" : "Push", () => send("push", { force: lease }), !idle(busy)),
+  );
+  const tick = el("input") as HTMLInputElement;
+  tick.type = "checkbox";
+  tick.checked = lease;
+  tick.disabled = !idle(busy);
+  tick.addEventListener("change", () => {
+    lease = tick.checked;
+    paint();
+  });
+  const label = el("label", "lease");
+  label.append(tick, el("span", "", "force with lease"));
+  label.title = "Replaces the branch on the remote, unless somebody else pushed to it first.";
+  box.append(label);
+  return box;
 }
 
 // link is a verb that changes what is on screen rather than doing the thing

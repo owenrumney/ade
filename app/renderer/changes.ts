@@ -74,7 +74,9 @@ export function linesOf(file: Change | undefined, threads: Thread[] = []): Line[
   const out: Line[] = [];
   const mine = threads.filter((t) => t.file === file?.path);
   const under = (side: Side, no: number) => {
-    for (const thread of mine.filter((t) => t.side === side && t.line === no)) {
+    // Not an orphan: it keeps the line it was pinned to, and the tail
+    // below draws it. Both would draw it twice.
+    for (const thread of mine.filter((t) => !t.orphaned && t.side === side && t.line === no)) {
       out.push({ at: "thread", thread });
     }
   };

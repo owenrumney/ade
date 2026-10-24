@@ -337,6 +337,27 @@ describe("the commit panel, where busy names the verb in flight", () => {
     expect(back.busy).toBe("redraft");
   });
 
+  // /api/pr-create answers 202 and an agent writes the pull request, so the
+  // POST returning is not the work finishing.
+  it("stays busy while the agent writes the pull request", async () => {
+    const running = { ...state, agent: { running: true, kind: "pr-create" } };
+    const seen: string[] = [];
+    const panel = WHICH["ade.commitPanel"]({ ...reach(seen), get: async () => running });
+    const back = (await panel.onMessage({ kind: "do", what: "createPR" })) as { busy?: string };
+    expect(back.busy).toBe("createPR");
+    await panel.onMessage({ kind: "do", what: "createPR" });
+    expect(seen).toEqual(["/api/pr-create"]);
+  });
+
+  it("is idle again once that run is over", async () => {
+    let agent: unknown = { running: true, kind: "pr-create" };
+    const panel = WHICH["ade.commitPanel"]({ ...reach(), get: async () => ({ ...state, agent }) });
+    await panel.onMessage({ kind: "do", what: "createPR" });
+    agent = { running: false };
+    const back = (await panel.onMessage({ kind: "do", what: "refresh" })) as { busy?: string };
+    expect(back.busy).toBe("");
+  });
+
   it("refuses a second redraft while the first is running", async () => {
     const seen: string[] = [];
     const panel = WHICH["ade.commitPanel"](reach(seen));
@@ -445,9 +466,11 @@ describe("the commit panel while work is in flight", () => {
     expect(pushed[0].id).toBe("commit");
     expect(pushed[0].busy).toBe("createPR");
 
+    // Still busy when the POST comes back: 202 means the agent has started
+    // writing the pull request, not that it has written one.
     finish();
     const done = (await running) as { busy?: string };
-    expect(done.busy).toBe("");
+    expect(done.busy).toBe("createPR");
   });
 
   // Two presses must not be two pull requests.
@@ -478,6 +501,19 @@ describe("staging from the commit panel", () => {
 
     expect(seen.map((one: { path: string }) => one.path)).toEqual(["/api/stage", "/api/unstage"]);
     expect((seen[0].body as { paths: string[] }).paths).toEqual(["a.go", "b.go"]);
+  });
+
+  // A rebase leaves the branch diverged, so the tickbox has to reach git.
+  it("passes the lease through to the push", async () => {
+    const { reach, seen } = spy();
+    await commit(reach).onMessage({ kind: "do", what: "push", force: true });
+    expect(seen[0]).toEqual({ path: "/api/push", body: { force: true } });
+  });
+
+  it("pushes without the lease when it is not ticked", async () => {
+    const { reach, seen } = spy();
+    await commit(reach).onMessage({ kind: "do", what: "push" });
+    expect(seen[0]).toEqual({ path: "/api/push", body: { force: false } });
   });
 
   it("says so rather than going quiet when a verb really is unknown", async () => {
@@ -559,5 +595,42 @@ describe("the New session panel's Design row", () => {
     });
     expect(opened[0].path).toBe("/api/open");
     expect(opened[0].name).toBe("FIX-818.md");
+  });
+
+  const typed = (name: string) => ({
+    mode: "work",
+    repos: ["/r/coast"],
+    design: "",
+    name,
+    message: "",
+    machine: "",
+    agent: "",
+    model: "",
+    role: "",
+    sandbox: true,
+    ship: false,
+  });
+
+  // A state back is a redraw, and a redraw takes the cursor out of the box.
+  it("answers a keystroke with nothing", async () => {
+    const panel = newSession(reachWith({ designs: [] }), { repos: ["/r/coast"] });
+    expect(await panel.onMessage({ kind: "change", chosen: typed("c") })).toBeUndefined();
+    expect(await panel.onMessage({ kind: "change", chosen: typed("ca") })).toBeUndefined();
+  });
+
+  it("answers a new home with the documents it has", async () => {
+    const panel = newSession(reachWith({ designs: ["FIX-818.md"] }), {});
+    const said = (await panel.onMessage({ kind: "change", chosen: typed("c") })) as {
+      offer: { designs: { file: string }[] };
+    };
+    expect(said.offer.designs.map((d) => d.file)).toEqual(["FIX-818.md"]);
+  });
+
+  it("sends what was pasted into the first message", async () => {
+    const opened: Record<string, unknown>[] = [];
+    const panel = newSession(reachWith({ designs: [] }, opened), {});
+    const file = { name: "shot.png", mediaType: "image/png", data: "AAAA" };
+    await panel.onMessage({ kind: "start", chosen: typed("cancel"), files: [file] });
+    expect(opened[0].files).toEqual([file]);
   });
 });

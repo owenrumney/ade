@@ -905,6 +905,8 @@ export interface Start {
   // brief is a document carried from this machine, written into the session
   // once it is serving.
   brief?: { name: string; body: string };
+  // files go with the first message, as the chat's own attachments do.
+  files?: { name: string; mediaType: string; data: string }[];
 }
 
 // begin returns a failure that still carries a url rather than throwing it:

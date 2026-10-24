@@ -43,6 +43,15 @@ button:disabled { opacity: 0.5; }
 
 .bulk { margin: 0 0 8px; gap: 14px; }
 
+/* Push and its tickbox read as one verb, so they sit together. */
+.pushing { display: inline-flex; align-items: center; gap: 8px; }
+.lease {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* Stage all and Unstage all change what is on screen; they are not the verbs
    this panel is for, and a button each would say they were. */
 .linkish {

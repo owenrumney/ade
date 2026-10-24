@@ -82,6 +82,38 @@ func TestTheListIsTheMachinesUntilACheckoutIsNamed(t *testing.T) {
 	assert.Empty(t, byText(both, "mine").Repo, "the machine's carry no checkout")
 }
 
+// Keyed by the directory, a worktree had a list of its own: the todos filed
+// against coast were invisible from coast-trk-1301.
+func TestAWorktreeReadsTheRepositorysTodos(t *testing.T) {
+	s := todoLauncher(t)
+	dir := todoCheckout(t)
+	gitRun(t, dir, "config", "user.email", "test@example.com")
+	gitRun(t, dir, "config", "user.name", "test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "first")
+	tree := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-trk-1301")
+	gitRun(t, dir, "worktree", "add", "-b", "trk-1301", tree)
+
+	rec := do(t, s, http.MethodPost, "/api/todos", `{"dir":`+quote(dir)+`,"text":"fix the proxy"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	from := todoList(t, s, "?dir="+tree)
+	require.Len(t, from, 1, "the worktree reads the repository's list")
+	assert.Equal(t, "fix the proxy", from[0].Text)
+	assert.Equal(t, filepath.Base(dir), from[0].Repo, "named for the repository, not the worktree")
+}
+
+// Shared todos travel between machines, where the same repository sits under
+// a different path. The remote names it; the folder does not.
+func TestARepositoryIsNamedByItsRemote(t *testing.T) {
+	s := todoLauncher(t)
+	dir := todoCheckout(t)
+	gitRun(t, dir, "remote", "add", "origin", "git@github.com:infracost/coast.git")
+
+	scope, err := s.todoScope(t.Context(), dir)
+	require.NoError(t, err)
+	assert.Equal(t, "infracost/coast", scope)
+}
+
 func TestTheSoonestDueIsReadFirst(t *testing.T) {
 	s := todoLauncher(t)
 	later := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)

@@ -33,6 +33,8 @@ const VIEWS = [
   { name: "app-open-space", place: "Spaces", keys: "k", type: "open space" },
   { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
+  { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },
+  { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item" },
   { name: "app-verbs", place: "Pull requests", keys: "k", type: "review" },
   { name: "app-waiting", place: "Waiting on you" },
   { name: "app-sessions", place: "Sessions" },
@@ -47,6 +49,7 @@ const VIEWS = [
     place: "Sessions",
     row: "Rethink the workflow and the window",
   },
+  { name: "app-review-edit", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".tab.on .swap", settle: 1200 },
   { name: "app-code", place: "Code", session: "Rethink the workflow and the window", twigs: ["internal/web", "web.go"] },
   {
     name: "app-commit",
@@ -129,6 +132,13 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
   await new Promise((done) => setTimeout(done, 150));
   if (view.row) await clicked("row", ".sidebar .row .name", view.row);
   for (const want of view.twigs ?? []) await clicked("twig", ".sidebar .twig .nm", want);
+  if (view.tap) {
+    await page.waitForSelector(view.tap);
+    await page.click(view.tap);
+    await new Promise((done) => setTimeout(done, view.settle ?? 0));
+    if (!view.settle) await page.waitForSelector(".omnibox input");
+  }
+
   if (view.keys) {
     await page.keyboard.down("Control");
     await page.keyboard.press(view.keys);

@@ -80,6 +80,34 @@ func TestTheFirstMessageIsHandedToTheNewSession(t *testing.T) {
 	assert.Contains(t, sent, "fix the failing checks")
 }
 
+// An image pasted into the first message goes with it, and goes alone: the
+// session takes a picture with no words, as its own chat route does.
+func TestWhatWasPastedIntoTheFirstMessageGoesWithIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "code", "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o750))
+	require.NoError(t, settings.Save(settings.Settings{ScanDirs: []string{filepath.Join(home, "code")}}))
+
+	s := newTestLauncher(t)
+	s.open = func(context.Context, string, string, string, string) (string, error) {
+		return "http://127.0.0.1:1234/?t=abc", nil
+	}
+	was := sendFirst
+	var sent string
+	sendFirst = func(_ context.Context, _, body string) error {
+		sent = body
+		return nil
+	}
+	t.Cleanup(func() { sendFirst = was })
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+dir+`","fresh":true,"files":[{"name":"shot.png","mediaType":"image/png","data":"AAAA"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, sent, "shot.png")
+	assert.Contains(t, sent, "AAAA")
+}
+
 // An empty box is the normal case, and must not post an empty message the
 // session would refuse.
 func TestNoFirstMessageIsSentWhenTheBoxIsEmpty(t *testing.T) {

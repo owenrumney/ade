@@ -19,21 +19,34 @@ func (s *Server) todoStore(ctx context.Context, dir string) (*todo.Store, error)
 	if dir == "" {
 		return todo.Global()
 	}
-	gitDir, err := gitdiff.GitDir(ctx, dir)
+	// The repository's git dir, not the worktree's: a todo is the project's
+	// work, and five worktrees of it are not five lists.
+	gitDir, err := gitdiff.CommonGitDir(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
-	return todo.Repo(gitDir, filepath.Base(dir))
+	name, err := s.todoScope(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	return todo.Repo(gitDir, name)
 }
 
+// todoScope names the repository a checkout belongs to. The remote's own
+// owner/name: these are shared, so two people's folder names must not differ.
 func (s *Server) todoScope(ctx context.Context, dir string) (string, error) {
 	if strings.TrimSpace(dir) == "" {
 		return "", nil
 	}
-	if _, err := gitdiff.GitDir(ctx, dir); err != nil {
+	common, err := gitdiff.CommonGitDir(ctx, dir)
+	if err != nil {
 		return "", err
 	}
-	return filepath.Base(dir), nil
+	if owner, name := gitdiff.Origin(ctx, dir); owner != "" && name != "" {
+		return owner + "/" + name, nil
+	}
+	// No remote: the checkout the worktrees were made from.
+	return filepath.Base(filepath.Dir(common)), nil
 }
 
 // handleTodos answers the machine's list, and the checkout's too when one is

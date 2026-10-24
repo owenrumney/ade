@@ -92,6 +92,13 @@ describe("a verb that needs something first", () => {
     }
   });
 
+  // The two that review everything, so the usual answer is one Enter.
+  it("opens the reviewer pick with security and staff-reviewer ticked", () => {
+    const ask = (WIRED["ade.reviewWithAgents"].needs ?? [])[0];
+    expect(ask.ask).toBe("many");
+    expect(ask.ask === "many" && ask.ticks).toEqual(["security", "staff-reviewer"]);
+  });
+
   it("has an answer for every slot in its path", () => {
     for (const [command, what] of Object.entries(WIRED)) {
       if (what.at !== "launcher" && what.at !== "session") continue;

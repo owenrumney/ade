@@ -55,14 +55,16 @@ describe("what a server's agent is doing", () => {
 });
 
 describe("the agents tree", () => {
-  it("puts what wants you first and what it called under it", () => {
+  // By name, whatever each is doing: a row that moves when an agent goes
+  // quiet is a row you cannot click.
+  it("keeps the sessions in name order and puts what each called under it", () => {
     const built = tree(ACTIVE);
-    expect(built.map((b) => b.row.name)).toEqual(["gamma", "beta", "alpha"]);
+    expect(built.map((b) => b.row.name)).toEqual(["alpha", "beta", "gamma"]);
     expect(built[1].children.map((c) => c.name)).toEqual([
       "@security",
       "explore",
     ]);
-    expect(built[2].children).toEqual([]);
+    expect(built[0].children).toEqual([]);
   });
 
   it("keeps a child's session on it, so its row opens that conversation", () => {
@@ -81,7 +83,7 @@ describe("the agents tree", () => {
     const built = tree(ACTIVE);
     expect(detail(built[1].row)).toBe("working · opus · feat/x");
     expect(detail(built[1].children[1])).toBe("sub-agent · reading web.go");
-    expect(detail(built[0].row)).toBe("asking");
+    expect(detail(built[2].row)).toBe("asking");
   });
 
   it("draws a command as a terminal and a question as a question", () => {

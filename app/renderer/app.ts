@@ -34,7 +34,7 @@ import {
   type Layout,
   type Tab,
 } from "./tabs";
-import { edits, mount, reaching, saved, selected } from "./code";
+import { edits, mount, mountDiff, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
 import { page as prPage } from "../../vscode/src/prpage";
@@ -906,7 +906,7 @@ class Ade {
     if (list.length === 0) {
       return this.say(this.pickTrouble || `nothing to pick: no ${first.from} to offer`);
     }
-    if (first.ask === "many") return this.omnibox.many(first.title, list);
+    if (first.ask === "many") return this.omnibox.many(first.title, list, first.ticks);
     return this.omnibox.ask(first.title, list);
   }
 
@@ -1262,6 +1262,7 @@ class Ade {
     // page is open: archiving one is the whole point of the Archive on it.
     if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
     if (view.kind !== "hunks") return "";
+    if (view.editing) return `editing:${view.file.path}`;
     return drawnFrom(view.file.path, this.threads, this.openThreads, Boolean(this.world.status.pr));
   }
 
@@ -1886,12 +1887,50 @@ class Ade {
     await this.read();
   }
 
+  // editInReview swaps a diff tab for the file over the diff's left side,
+  // and back. The editor keeps a model per file, so an unsaved edit survives.
+  private async editInReview(id: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === id);
+    const view = tab?.what;
+    if (!tab || !view || "panel" in view || view.kind !== "hunks") return;
+    if (view.editing) {
+      tab.what = { ...view, editing: false };
+      this.active = id;
+      return this.draw();
+    }
+    if (!window.ade || !this.session) return this.say("pick a session: a file is one checkout's");
+    const path = encodeURIComponent(view.file.path);
+    const [got, left] = await Promise.all([
+      window.ade
+        .read("session", `/api/source?path=${path}`, this.session)
+        .catch((e: Error) => ({ error: e.message })) as Promise<{
+        source?: string;
+        sum?: string;
+        error?: string;
+      }>,
+      window.ade
+        .call("session", `/api/blob?path=${path}&side=left`, "GET", undefined, this.session)
+        .catch((e: Error) => ({ status: 0, error: e.message })) as Promise<{
+        ok?: boolean;
+        text?: string;
+        error?: string;
+      }>,
+    ]);
+    if (got.error) return this.say(got.error);
+    if (left.error || !left.ok) return this.say(left.error ?? `the diff has no left side for ${view.file.path}`);
+    tab.what = { ...view, editing: true, base: left.text ?? "", source: got.source ?? "", sum: got.sum };
+    this.active = id;
+    this.draw();
+  }
+
   // save writes the showing file back to the checkout. The server
   // refuses it when the file changed under you since it was read.
   private async save(): Promise<void> {
     const view = this.showing();
     const changed = edits();
-    if (view?.kind !== "code" || !changed || changed.path !== view.title) return this.say("nothing to save");
+    const editable = view?.kind === "code" || (view?.kind === "hunks" && view.editing);
+    if (!view || !editable || !changed || changed.path !== view.title)
+      return this.say("nothing to save");
     if (!window.ade || !this.session) return;
     const got = await window.ade
       .act("session", "/api/source", { path: changed.path, source: changed.source, was: view.sum ?? "" }, this.session, "PUT")
@@ -1902,6 +1941,8 @@ class Ade {
     view.source = changed.source;
     saved(changed.path, changed.source);
     this.say(`saved ${changed.path}`);
+    // The diff under the tab is now out of date by exactly what was saved.
+    if (view.kind === "hunks") await this.read();
   }
 
   private row(row: Row): HTMLElement {
@@ -2045,6 +2086,17 @@ class Ade {
       const node = el("div", tab.id === this.active ? "tab on" : "tab");
       node.append(icon(tab.icon, 13), el("span", "nm", tab.title));
       node.title = tab.title;
+      const what = tab.what;
+      if (!("panel" in what) && what.kind === "hunks") {
+        const swap = el("span", "x swap");
+        swap.append(icon(what.editing ? "diff" : "edit", 12));
+        swap.title = what.editing ? "Back to the diff" : "Edit this file";
+        swap.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.editInReview(tab.id);
+        });
+        node.append(swap);
+      }
       const x = el("span", "x", "✕");
       x.title = "Close";
       x.addEventListener("click", (e) => {
@@ -2154,6 +2206,9 @@ class Ade {
     if (view.kind === "code") {
       return mount(view.source, view.title, view.line ?? 0, (line) => void this.blame(line));
     }
+    if (view.kind === "hunks" && view.editing) {
+      return mountDiff(view.base ?? "", view.source ?? "", view.title, 0, (line) => void this.blame(line));
+    }
     // A diff is drawn from what is true now, not from what was true when
     // the file was opened, and the jump it carried happens once.
     let drawn: View = view;
@@ -2181,8 +2236,8 @@ class Ade {
 
     const branch = el("div", "item");
     branch.append(icon("branch", 13), el("span", "", status.branch));
-    branch.title = "Switch branch";
-    branch.addEventListener("click", () => this.omnibox.show());
+    branch.title = "Move this session to another worktree";
+    branch.addEventListener("click", () => this.run("ade.switchWorktree"));
 
     bar.push(branch);
     const spent = plan(this.limits, Date.now());

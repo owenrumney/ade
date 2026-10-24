@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/sessions"
 )
 
@@ -18,12 +19,16 @@ const firstMessageWait = 15 * time.Second
 
 // sendFirstMessage gives a new session the task it was started for. A failure
 // is logged, not returned: the session is open either way.
-func sendFirstMessage(ctx context.Context, sessionURL, prompt string) {
+func sendFirstMessage(ctx context.Context, sessionURL, prompt string, files []chat.Incoming) {
 	prompt = strings.TrimSpace(prompt)
-	if prompt == "" || sessionURL == "" {
+	// A picture on its own is a message, as the chat's own route has it.
+	if (prompt == "" && len(files) == 0) || sessionURL == "" {
 		return
 	}
-	body, err := json.Marshal(map[string]string{"message": prompt})
+	body, err := json.Marshal(struct {
+		Message string          `json:"message"`
+		Files   []chat.Incoming `json:"files,omitempty"`
+	}{prompt, files})
 	if err != nil {
 		return
 	}

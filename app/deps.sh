@@ -107,7 +107,36 @@ good() {
   [ -n "$at" ] && [ -e "$at" ] && [ "$(built_for "$at")" = "$want" ]
 }
 
-good && exit 0
+# stalled is what Node 24.16+ and 26.1+ leave: a streams change stops
+# extract-zip a few files in, exit 0, so dist/ exists and path.txt never comes.
+stalled() {
+  [ -d node_modules/electron/dist ] && [ ! -f node_modules/electron/path.txt ]
+}
+
+# unpack finishes that install by hand: the zip electron's own fetcher has
+# already downloaded and checksummed, opened by the system's unzip instead.
+unpack() {
+  local zip dist=node_modules/electron/dist
+  zip=$(node -e '
+    const { downloadArtifact } = require("@electron/get");
+    const { version } = require("./node_modules/electron/package.json");
+    downloadArtifact({
+      version, artifactName: "electron", platform: process.platform, arch: process.arch,
+      checksums: require("./node_modules/electron/checksums.json"),
+    }).then(p => process.stdout.write(p), e => { console.error(e.message); process.exit(1); });
+  ') || return 1
+  echo "electron's installer stopped partway through unpacking under node $(node --version); unpacking $zip here…"
+  rm -rf "$dist" && mkdir -p "$dist" || return 1
+  if [ "$want" = darwin ]; then ditto -xk "$zip" "$dist"; else unzip -q "$zip" -d "$dist"; fi || return 1
+  [ ! -f "$dist/electron.d.ts" ] || mv -f "$dist/electron.d.ts" node_modules/electron/
+  if [ "$want" = darwin ]; then printf 'Electron.app/Contents/MacOS/Electron'; else printf electron; fi \
+    > node_modules/electron/path.txt
+}
+
+# ready is good, or stalled and finished here.
+ready() { good || { stalled && unpack && good; }; }
+
+ready && exit 0
 
 # The binary arrives through electron's postinstall, and npm has two ways
 # of not running one. Newer npm holds every install script behind an
@@ -124,12 +153,12 @@ echo "electron is half-installed; fetching its binary…"
 rm -rf node_modules/electron
 npm install --no-audit --no-fund --foreground-scripts
 
-good && exit 0
+ready && exit 0
 
 # A rebuild as the last go, for an npm that kept the package anyway.
 npm rebuild electron --foreground-scripts || true
 
-good && exit 0
+ready && exit 0
 
 # Still nothing, and every attempt said "Cache hit" in under two
 # seconds: the cached zip is the problem, not the download. An install
@@ -139,7 +168,7 @@ echo "the cached download looks truncated; fetching it again…"
 rm -rf node_modules/electron
 force_no_cache=true npm install --no-audit --no-fund --foreground-scripts
 
-good && exit 0
+ready && exit 0
 
 # Last resort: electron's own installer, run directly so whatever it says
 # is on screen. Through npm its output is swallowed and a silent exit 0
@@ -149,7 +178,7 @@ if [ -f node_modules/electron/install.js ]; then
   (cd node_modules/electron && node install.js) || true
 fi
 
-good && exit 0
+ready && exit 0
 
 cat >&2 <<'WHY'
 

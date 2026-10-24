@@ -43,7 +43,7 @@ func (s *Server) handleConcierge(w http.ResponseWriter, r *http.Request) {
 	}
 	if fresh {
 		markDeskOpened(time.Now())
-		sendFirstMessage(s.ctx, url, brief)
+		sendFirstMessage(s.ctx, url, brief, nil)
 	}
 	if httpx.Wide() {
 		via, ok := s.proxyURL(r, s.announcedFor(dir))

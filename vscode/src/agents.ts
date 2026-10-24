@@ -68,16 +68,11 @@ export interface Branch {
   children: Node[];
 }
 
-// What wants you first, then what is working, then what is quiet.
-const ORDER: State[] = ["failed", "wedged", "asking", "working", "idle"];
-
 export function tree(all: Active[]): Branch[] {
+  // By name alone. Sorting by state first moved a row under the pointer
+  // every time an agent went quiet, which is every few seconds.
   return [...all]
-    .sort(
-      (a, b) =>
-        ORDER.indexOf(stateOf(a.agent)) - ORDER.indexOf(stateOf(b.agent)) ||
-        named(a).localeCompare(named(b)),
-    )
+    .sort((a, b) => named(a).localeCompare(named(b)))
     .map((each) => ({
       row: {
         id: each.id,

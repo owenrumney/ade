@@ -90,6 +90,13 @@ describe("comment threads on the diff", () => {
     ]);
   });
 
+  // It was drawn twice: once under the line it still names, once at the end.
+  it("draws an orphan that still names a drawn line once", () => {
+    const stuck: Thread = { ...threads[3], id: "t5", line: 12 };
+    const drawn = linesOf(file, [stuck]).filter((l) => l.at === "thread");
+    expect(drawn).toHaveLength(1);
+  });
+
   it("leaves another file's threads out", () => {
     expect(linesOf(file, threads).some((l) => l.at === "thread" && l.thread.id === "t3")).toBe(false);
   });

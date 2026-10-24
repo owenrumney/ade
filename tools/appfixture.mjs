@@ -532,6 +532,7 @@ const READS = {
   "/api/agents": {
     agents: [
       { name: "security", description: "trust boundaries and injection", reviews: true, scope: "user" },
+      { name: "staff-reviewer", description: "adversarial design and code critique", reviews: true, scope: "user" },
       { name: "tester", description: "the cases the tests miss", reviews: true, scope: "user" },
     ],
   },
@@ -541,6 +542,14 @@ const READS = {
       { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z", project: "ade" },
       { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
       { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
+    ],
+  },
+  "/api/worktrees/switch": {
+    here: "/Users/owen/code/owenrumney/ade",
+    worktrees: [
+      { name: "ade", path: "/Users/owen/code/owenrumney/ade", branch: "main" },
+      { name: "ade-fix-623", path: "/Users/owen/code/owenrumney/ade-fix-623", branch: "fix-623-cancel-the-running-process" },
+      { name: "ade-editor-bump", path: "/Users/owen/code/owenrumney/ade-editor-bump", branch: "editor-bump" },
     ],
   },
   "/api/tree": {
@@ -605,6 +614,11 @@ export function shell() {
         ],
       }),
       act: async () => ({}),
+      // The raw one: the left side of a diff, as the editor reads it.
+      call: async (at, path) =>
+        path.startsWith("/api/blob")
+          ? { status: 200, ok: true, text: "// internal/web/web.go\\npackage web\\n\\nfunc serve() {\\n}\\n" }
+          : { status: 404, ok: false, text: "" },
       link: async () => ({}),
       tree: async () => ({ files: ["app/renderer/app.ts", "app/renderer/sources.ts", "internal/web/web.go", "README.md"] }),
       file: async (dir, name) => ({ source: "// " + name + "\\npackage web\\n\\nfunc serve() error {\\n  return nil\\n}\\n" }),
