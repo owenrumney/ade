@@ -12,6 +12,8 @@ import (
 
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/limits"
+	"github.com/owenrumney/ade/internal/settings"
+	"github.com/owenrumney/ade/internal/spaces"
 )
 
 // decodeJSON reads a request body, or says so.
@@ -58,7 +60,7 @@ func (s *Server) handleDash(w http.ResponseWriter, _ *http.Request) {
 
 // handleDashRefresh reads all three again now, for the page's refresh button.
 func (s *Server) handleDashRefresh(w http.ResponseWriter, r *http.Request) {
-	s.board.Refresh(r.Context())
+	s.board.RefreshOnly(r.Context(), r.URL.Query().Get("only"))
 	s.handleDash(w, r)
 }
 
@@ -114,7 +116,29 @@ func (s *Server) handleOpenReview(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
 	default:
+		s.openSpaceFor(req.Repo)
 		writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
+	}
+}
+
+// openSpaceFor opens the review's repository as a space, so the checkout it
+// was put in is listed. An empty list hides nothing, so it is left empty.
+func (s *Server) openSpaceFor(repo string) {
+	cfg, err := settings.Load()
+	if err != nil {
+		slog.Debug("open the space for a review", "repo", repo, "err", err)
+		return
+	}
+	if len(spaces.Clean(cfg.Spaces)) == 0 {
+		return
+	}
+	want := spaces.Open(cfg.Spaces, repo)
+	if len(want) == len(cfg.Spaces) {
+		return
+	}
+	cfg.Spaces = want
+	if err := settings.Save(cfg); err != nil {
+		slog.Debug("save the space for a review", "repo", repo, "err", err)
 	}
 }
 
@@ -135,6 +159,7 @@ func (s *Server) handleRunReview(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
 	default:
+		s.openSpaceFor(req.Repo)
 		writeJSON(w, http.StatusAccepted, map[string]any{"path": path})
 	}
 }

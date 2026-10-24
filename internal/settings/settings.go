@@ -75,8 +75,12 @@ type Settings struct {
 	// preview.json overrides the URL.
 	Preview Preview `json:"preview,omitempty"`
 
+	// Spaces are the repositories kept open, as owner/name, in the order
+	// they should be listed. Empty is every repository the scan finds.
+	Spaces []string `json:"spaces,omitempty"`
+
 	// Front is which window `ade .` opens: "editor" or "window". Empty is
-	// the editor, which is where ade has always opened.
+	// the window when it is installed, and the editor otherwise.
 	Front string `json:"front,omitempty"`
 
 	// SharpenOff stops the questions a cheap model asks about a vague prompt

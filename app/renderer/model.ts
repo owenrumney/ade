@@ -1,7 +1,8 @@
-import manifest from "../../vscode/package.json";
-import { entries, type Contributes, type Entry } from "../../vscode/src/menu";
 import { wired } from "./doing";
-import type { Change, Thread } from "./changes";
+import { VOCABULARY } from "./verbs";
+import type { At, Change, Thread } from "./changes";
+import type { PrAct, PrActId } from "./prpage";
+import type { Seen } from "./spacepage";
 
 
 export interface Row {
@@ -37,26 +38,36 @@ export interface Rules {
   file: string;
 }
 
+export type { At } from "./changes";
+
 export type Act =
   | "design-start"
   | "queue-first"
   | "session-stop"
+  | "session-end"
   | "job-run"
   | "job-pause"
-  | "todo-start";
+  | "todo-start"
+  | "space-close"
+  | "space-clone";
 
 export type View =
   | { kind: "diff"; title: string; patch: string }
   // One file of the diff, with the threads anchored in it drawn under
   // the lines they are about.
-  | { kind: "hunks"; title: string; file: Change; threads?: Thread[] }
-  | { kind: "code"; title: string; source: string; line?: number }
+  | { kind: "hunks"; title: string; file: Change; threads?: Thread[]; at?: At }
+  | { kind: "code"; title: string; source: string; line?: number; sum?: string }
   // The session's permission rules, drawn here rather than framed from
   // the server's own page: a frame wears its own stylesheet.
   | { kind: "rules"; title: string; rules: Rules }
   // A document the window drew: read-only. Anything you write goes
   // through the editor instead — see `written()` in panels.ts.
   | { kind: "doc"; title: string; body: string }
+  // A conversation with one person on agentbus, and the box to say more.
+  | { kind: "person"; title: string; who: string; body: string; count: number }
+  | { kind: "pr"; title: string; body: string; acts: PrAct[]; busy?: PrActId }
+  // A repository kept open: its sessions, its designs and its numbers.
+  | { kind: "space"; title: string; seen: Seen }
   | { kind: "term"; title: string }
   | { kind: "none" };
 
@@ -95,6 +106,11 @@ export interface Status {
   elsewhere?: string;
   // Which view of the diff Review is showing.
   scope?: string;
+  // The pull request this branch has, when it has one: nothing can be said
+  // on GitHub without it.
+  pr?: number;
+  // How many commits the base has that this branch does not.
+  behind?: number;
 }
 
 export interface World {
@@ -141,33 +157,45 @@ const ICONS: Record<string, string> = {
   Other: "dot",
 };
 
-function verbsFrom(all: Entry[]): Verb[] {
-  const out: Verb[] = [];
-  let group = "Other";
-  for (const entry of all) {
-    if (entry.separator) {
-      group = entry.label;
-      continue;
-    }
-    if (!entry.command) continue;
-    out.push({
-      command: entry.command,
-      name: entry.label,
-      icon: ICONS[group] ?? "dot",
-      group,
-      // Listed either way, because the vocabulary is ade's; marked,
-      // because a verb that does nothing reads as broken.
-      live: Boolean(wired(entry.command)),
-    });
-  }
-  return out;
-}
-
-// ade's own vocabulary, read from the extension manifest. A list here
-// would be a second answer to what `vscode/src/menu.ts` answers.
-export const VERBS: Verb[] = verbsFrom(
-  entries(manifest.contributes as unknown as Contributes, "ade.omnibox"),
+export const VERBS: Verb[] = VOCABULARY.flatMap(({ group, verbs }) =>
+  verbs.map(([command, name]) => ({
+    command,
+    name,
+    icon: ICONS[group] ?? "dot",
+    group,
+    // Listed either way, because the vocabulary is ade's; marked,
+    // because a verb that does nothing reads as broken.
+    live: Boolean(wired(command)),
+  })),
 );
+
+// BAR is the activity bar, top to bottom. One list, because the order is
+// also what ⌘1…⌘9 mean, and two lists drift.
+export const BAR = [
+  "waiting",
+  "spaces",
+  "sessions",
+  "designs",
+  "prs",
+  "agents",
+  "issues",
+  "todos",
+  "jobs",
+  "inbox",
+  "team",
+  "review",
+  "code",
+];
+
+// inBarOrder puts the places in the bar's order, whatever order they were
+// built in. One the bar does not name goes last, rather than vanishing.
+export function inBarOrder(places: Place[]): Place[] {
+  const at = (p: Place) => {
+    const i = BAR.indexOf(p.id);
+    return i < 0 ? BAR.length : i;
+  };
+  return [...places].sort((a, b) => at(a) - at(b));
+}
 
 export type Hit =
   | { kind: "row"; row: Row; where: string }
@@ -211,12 +239,15 @@ export function hits(places: Place[], query: string): Hit[] {
     .map((s) => s.hit);
 }
 
-// rank is lower for a better match: the start of a name beats the middle of
-// one, and a name beats the place it is in.
-function rank(name: string, where: string, want: string): number {
-  const at = name.toLowerCase().indexOf(want);
+// rank is lower for a better match. Every word counts, in any order, or
+// "open space" misses "Open a space…" and the verb reads as missing.
+export function rank(name: string, where: string, want: string): number {
+  const low = name.toLowerCase();
+  const at = low.indexOf(want);
   if (at === 0) return 0;
   if (at > 0) return 1 + at;
+  const words = want.split(/\s+/).filter(Boolean);
+  if (words.length > 1 && words.every((word) => low.includes(word))) return 200;
   return where.toLowerCase().includes(want) ? 500 : -1;
 }
 

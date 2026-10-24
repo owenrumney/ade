@@ -14,6 +14,8 @@ export interface Asking {
 interface Editor {
   mount(source: string, path: string, line: number, onLine: (n: number) => void): HTMLElement;
   selected(): { from: string; text: string } | undefined;
+  edits(): { path: string; source: string } | undefined;
+  saved(path: string, source: string): void;
   ask(how: Asking): void;
   onJump(then: (to: Where) => void): void;
 }
@@ -101,4 +103,12 @@ export function mount(
 // Nothing is selected until the editor is there to have a selection.
 export function selected(): { from: string; text: string } | undefined {
   return window.adeEditor?.selected();
+}
+
+export function edits(): { path: string; source: string } | undefined {
+  return window.adeEditor?.edits();
+}
+
+export function saved(path: string, source: string): void {
+  window.adeEditor?.saved(path, source);
 }

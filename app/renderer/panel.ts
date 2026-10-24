@@ -154,6 +154,12 @@ export async function stirred(): Promise<void> {
   }
 }
 
+// pushTo posts to one panel unasked. A host that only answers cannot say
+// "I have started", so its buttons stay live under a mashing finger.
+export function pushTo(id: string, said: unknown): void {
+  held.get(id)?.node.querySelector("iframe")?.contentWindow?.postMessage(said, "*");
+}
+
 // tell posts to every panel that is up: one that does not hear the
 // session's events shows what was true when it last fetched.
 export function tell(message: unknown): void {

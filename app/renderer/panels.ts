@@ -1,7 +1,8 @@
 import { UNDER as ASSETS, type Panel } from "./panel";
 import { body as chatBody } from "../../vscode/src/chat/body";
-import { fresh, type Chosen } from "../../vscode/src/newsession/view";
+import { fresh, names, type Chosen } from "../../vscode/src/newsession/view";
 import { BODY as SETTINGS_BODY } from "../../vscode/src/settings/body";
+import { split } from "../../vscode/src/commit";
 
 
 export interface Reach {
@@ -18,6 +19,9 @@ export interface Reach {
     body: Record<string, unknown>,
     method?: "POST" | "PUT",
   ): Promise<unknown>;
+  // push hands a panel a state it did not ask for. A host that only ever
+  // answers cannot say "I have started".
+  push(id: string, said: unknown): void;
   // A panel is a document with no editor and no shell, so opening a
   // file and following a link are the window's.
   open(path: string): void;
@@ -420,6 +424,12 @@ async function waitForQuiz(reach: Reach): Promise<unknown> {
 // `busy` names the verb in flight, so a button can disable itself.
 export function commit(reach: Reach): Panel {
   let busy = "";
+  // Set for the one state that follows a commit. The page keeps what you
+  // typed across every other read, and a message that went must not stay.
+  let committed = false;
+  // The last state handed over, so starting work can say so without a round
+  // trip. The page redraws from each one, so a partial state blanks it.
+  let last: Record<string, unknown> | undefined;
 
   const hand = async (note = "") => {
     const state = (await reach.get("session", "/api/state").catch(() => ({}))) as {
@@ -431,7 +441,7 @@ export function commit(reach: Reach): Panel {
     // Before the state is built, not after as the editor does: the
     // editor gets another push shortly and this host does not.
     if (busy === "redraft" && state.draft) busy = "";
-    return {
+    last = {
       kind: "state",
       tree: state.worktree,
       draft: state.draft,
@@ -441,12 +451,18 @@ export function commit(reach: Reach): Panel {
       base: state.meta?.base ?? "",
       branch: state.meta?.branch ?? "",
       busy,
+      committed,
       note,
     };
+    committed = false;
+    return last;
   };
 
   const doing = async (what: string, run: () => Promise<unknown>) => {
     busy = what;
+    // Said before the work, not after it: the answer below lands when it is
+    // already over, by which time the button has been pressed four times.
+    if (last) reach.push("commit", { ...last, busy, note: "" });
     try {
       await run();
       if (what !== "redraft") busy = "";
@@ -475,6 +491,12 @@ export function commit(reach: Reach): Panel {
       switch (what) {
         case "refresh":
           return hand();
+        // Staging is how anything becomes committable: without these the
+        // Commit button is disabled for ever and says nothing about why.
+        case "stage":
+          return doing("stage", () => reach.send("session", "/api/stage", body));
+        case "unstage":
+          return doing("unstage", () => reach.send("session", "/api/unstage", body));
         case "redraft":
           return doing("redraft", () => reach.send("session", "/api/commit-message", body));
         case "branch":
@@ -485,8 +507,10 @@ export function commit(reach: Reach): Panel {
           return doing("createPR", () => reach.send("session", "/api/pr-create", body));
         case "commit":
           return doing("commit", async () => {
-            await reach.send("session", "/api/commit", body);
+            const message = split(String(body.message ?? ""));
+            await reach.send("session", "/api/commit", message);
             if (body.push) await reach.send("session", "/api/push", { force: false });
+            committed = true;
           });
         case "showPR":
           reach.run("ade.showPR");
@@ -546,6 +570,26 @@ export function prune(reach: Reach): Panel {
   };
 }
 
+// designsIn is home's design documents, for the Design row. A read that
+// failed is said rather than counted as none: "no documents yet" is a lie.
+async function designsIn(
+  reach: Reach,
+  chosen: Chosen,
+): Promise<{ designs: { file: string; ship: boolean }[]; designNote?: string }> {
+  const dir = chosen.repos?.[0];
+  if (!dir || chosen.machine) return { designs: [] };
+  try {
+    const got = (await reach.get("launcher", `/api/designs?dir=${encodeURIComponent(dir)}`)) as {
+      designs?: string[] | null;
+      error?: string;
+    };
+    if (got.error) return { designs: [], designNote: `Could not list them: ${got.error}` };
+    return { designs: (got.designs ?? []).map((file) => ({ file, ship: false })) };
+  } catch (err) {
+    return { designs: [], designNote: `Could not list them: ${String(err)}` };
+  }
+}
+
 export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
   // The extension's own default, plus what the thing you started from
   // knows: a todo's text is the first message.
@@ -557,6 +601,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
       reach.get("launcher", "/api/models").catch(() => ({ models: [] })),
     ]);
     const list = (repos as { repos?: { name: string; path: string }[] }).repos ?? [];
+    const listed = await designsIn(reach, chosen as unknown as Chosen);
     return {
       machines: [],
       repos: list,
@@ -568,7 +613,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         (m) => ({ id: m.id, label: m.label }),
       ),
       roles: ((roles as { roles?: { name: string }[] }).roles ?? []).map((r) => r.name),
-      designs: [],
+      ...listed,
       recent: [],
     };
   };
@@ -602,9 +647,11 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         if (!home) return { kind: "state", chosen, busy: false, note: "tick a repository" };
         // Every default the row showed: one on screen that Start does
         // not send is accepted without being made.
+        // names(), not the name field: on the Design row it is the document,
+        // and a session started without it is a plain one with no brief.
         const got = await reach.send("launcher", "/api/open", {
           dir: home,
-          name: want.name.trim() || undefined,
+          name: names(want) || undefined,
           also: also.length > 0 ? also : undefined,
           fresh: true,
           direct: !want.machine,
@@ -633,6 +680,6 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.purgeWorktrees": from("purge"),
   "ade.disk": from("purge"),
   "ade.purgeDesigns": prune,
-  "ade.newSession": newSession,
+  "ade.newSession": (reach) => newSession(reach),
   "ade.quizMe": quiz,
 };

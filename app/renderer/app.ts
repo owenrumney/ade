@@ -1,11 +1,13 @@
 import "./bridge";
 import { REPORTS } from "./reports";
 import * as real from "./real";
-import type { Dash, Design, Repo } from "./real";
+import type { Dash, Design, Repo, Review } from "./real";
 import { icon } from "./icons";
 import {
   counted,
   grouped,
+  inBarOrder,
+  type At,
   type Place,
   type Row,
   type Rules,
@@ -17,13 +19,37 @@ import { sheet, type Asked } from "./sheets";
 import { build, flatten, squashed, toggled, type Node, type Shown } from "./tree";
 import { owed, wired, type Ask, type Doing } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
-import { changesIn, toneOf, unsent, type Change, type Thread } from "./changes";
-import { frame, stirred, tell } from "./panel";
-import { held, idOf, keepable, live, opened, shut, type Tab } from "./tabs";
-import { mount, reaching, selected } from "./code";
+import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
+import { Kept } from "./kept";
+import { frame, pushTo, stirred, tell } from "./panel";
+import {
+  held,
+  idOf,
+  keepable,
+  live,
+  opened,
+  rebuilt,
+  shut,
+  trimmed,
+  type Layout,
+  type Tab,
+} from "./tabs";
+import { edits, mount, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
 import { page as prPage } from "../../vscode/src/prpage";
+import { prActs, type PrActId } from "./prpage";
+import { plan, type Usage } from "../../vscode/src/usage";
+import { refreshFor } from "./refresh";
+import { keyOf, spaces as spacesPlace, within, type Space } from "./spaces";
+import {
+  designsOf,
+  drawnFrom as spaceDrawnFrom,
+  sessionsOf,
+  type Seen,
+  type SpaceAct,
+} from "./spacepage";
+import type { Repo as Stats } from "../../vscode/src/repo/view";
 import type { BranchPR, Check } from "../../vscode/src/client";
 
 // The shell. It owns the keyboard outright and hands the window named
@@ -44,6 +70,8 @@ interface Gathered {
   active?: real.Active[];
   todos?: real.Todo[];
   jobs?: real.Job[];
+  spaces?: Space[];
+  limits?: Usage;
   trouble?: Record<string, string>;
 }
 
@@ -59,11 +87,24 @@ class Ade {
   private homeDir = "";
   private session = "";
   private repos: Repo[] = [];
+  private openSpaces: Space[] = [];
   private changes: Change[] = [];
   private threads: Thread[] = [];
   private mine: real.Listed[] = [];
   private bus?: real.Bus;
   private pr?: { number: number; title: string; body: string };
+  private reviews: Review[] = [];
+  private pickTrouble = "";
+  // Which threads are unfolded: a thread shows one comment, and the findings
+  // behind it are a click away.
+  private openThreads = new Set<string>();
+  // How much of the review is waiting on GitHub, ready here, or going nowhere.
+  private draft: real.DraftState = { inDraft: 0, ready: 0, notGoing: 0 };
+  // The plan windows, as the launcher last read them.
+  private limits?: Usage;
+  private prShown?: { row: Row; at: { repo: string; number: number }; url: string };
+  // The space whose page is open, for the acts drawn on it.
+  private spaceShown?: Space;
   // Where the picked session's server is up to. "starting" is one
   // this window has in flight, which is not yet a failure.
   private serving: "ok" | "starting" | "failed" = "ok";
@@ -72,16 +113,13 @@ class Ade {
   // knows whether a session it is about to show is served.
   private announced: real.Active[] = [];
   private todoList: real.Todo[] = [];
+  private jobs: real.Job[] = [];
   // The diff is the largest thing the server holds, kept until the
   // version it publishes for exactly this moves.
   private diffNow = "";
-  private diffAt = "";
-  private diffFor = "";
-  private diffWhy = "";
+  private diffHeld = new Kept<Change[]>([]);
   // The file list and the checkout's documents, kept the same way.
-  private files: { path: string }[] = [];
-  private filesAt = "";
-  private filesWhy = "";
+  private filesHeld = new Kept<{ path: string }[]>([]);
   private docsFor = "";
   private docsHeld: string[] = [];
 
@@ -93,12 +131,19 @@ class Ade {
   // A session you just picked, until its server is on it. Cleared once
   // acted on, so a conversation moved by hand afterwards stays put.
   private wants = "";
+  // A checkout just made for a review: the window moves onto it as soon
+  // as the ade in it announces a session.
+  private landing = "";
   private where = new Map<string, string>();
   // What is open in the editor area. A pane is kept once built: moving
   // an iframe reloads it, so switching hides rather than rebuilds.
   private tabs: Tab[] = [];
   private active = "";
-  private panes = new Map<string, { node: HTMLElement; key: string }>();
+  private panes = new Map<string, { node: HTMLElement; key: string; waiting: boolean }>();
+  // What each conversation had open, and which one the tabs now belong
+  // to. Switching closes them and brings back the ones for the new.
+  private keptTabs = new Map<string, Layout>();
+  private tabsFor = "";
   private launcher?: { base: string; token: string };
   private omnibox: Omnibox;
   private sidebarWidth = Number(localStorage.getItem("ade.sidebar")) || 300;
@@ -108,6 +153,7 @@ class Ade {
   private root = document.getElementById("window")!;
 
   constructor() {
+    this.written();
     this.omnibox = new Omnibox(
       () => this.world.places,
       (hit) => {
@@ -120,7 +166,8 @@ class Ade {
     // session, so it does the asking; the editor only says where.
     reaching(
       {
-        hover: (path, line, col) => this.language<string>("hover", path, line, col, "hover"),
+        hover: async (path, line, col) =>
+          (await this.language<string>("hover", path, line, col, "hover")) ?? "",
         definition: async (path, line, col) => {
           const at = await this.language<{ path?: string; line?: number }>(
             "definition",
@@ -176,9 +223,9 @@ class Ade {
       this.openedOn = (await window.ade.opened().catch(() => "")) || "";
       this.homeDir ||= this.openedOn;
     }
-    const got = await window.ade
+    const got = (await window.ade
       .world(this.homeDir)
-      .catch((e: Error) => ({ offline: e.message }));
+      .catch((e: Error) => ({ offline: e.message }))) as Gathered;
     if (got.offline) {
       // No launcher is useless, and nothing else here starts one. Once,
       // then the message says what to do.
@@ -202,13 +249,17 @@ class Ade {
     const repos = got.repos ?? [];
     const trouble = got.trouble ?? {};
     this.repos = repos;
+    this.reviews = got.dash?.reviews ?? [];
+    this.openSpaces = got.spaces ?? [];
+    this.limits = got.limits;
     this.where = real.whereSessionsAre(repos, got.active ?? []);
     // Only when the read brought a list back: a failed scan knows of
     // nothing, and landing off that moved you out of the conversation.
     const known = real.knownSessions(repos, got.active ?? [], got.hosts ?? []);
     if (known.size > 0 && !known.has(this.session)) {
-      this.session = real.landOn(repos, this.openedOn);
+      this.goTo(real.landOn(repos, this.openedOn));
     }
+    this.landing = this.landed();
     this.homeDir = this.where.get(this.session) ?? repos[0]?.path ?? "";
     if (this.session !== this.watching) {
       this.watching = this.session;
@@ -217,43 +268,60 @@ class Ade {
     this.launcher = (await window.ade.where()) ?? undefined;
     this.announced = got.active ?? [];
     this.todoList = got.todos ?? [];
+    this.jobs = got.jobs ?? [];
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
+    // A pass while nothing serves the session shows what was last read.
+    // See `stale` in kept.ts for why it may not write an empty one.
     const starting = this.serving === "starting";
     const [changes, files, docs] = starting
-      ? [{ rows: [], why: coming }, { rows: [], why: coming }, []]
+      ? [this.diffHeld.stale(coming), this.filesHeld.stale(coming), this.docsHeld]
       : await Promise.all([this.diff(), this.tree(), this.docs()]);
+    this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
     this.world = {
-      places: [
+      places: inBarOrder([
         real.waiting(dash, got.active ?? []),
-        real.prs(dash, this.mine, this.repoOf(this.session)),
-        real.designs(got.designs ?? [], docs, this.where.get(this.session) ?? ""),
+        spacesPlace(this.openSpaces),
         note(
-          real.sessions(repos, "", Date.now(), got.hosts ?? []),
+          real.sessions(
+            within(repos, this.openSpaces),
+            "",
+            Date.now(),
+            got.hosts ?? [],
+            got.active ?? [],
+          ),
           trouble.sessions,
           "No session on this machine yet.",
         ),
+        real.designs(
+          got.designs ?? [],
+          docs,
+          this.where.get(this.session) ?? "",
+          this.openSpaces,
+        ),
+        real.prs(dash, this.mine, this.repoOf(this.session)),
         note(real.agents(got.active ?? []), trouble.agents),
+        real.issues(dash),
         note(real.todos(got.todos ?? []), trouble.todos, "Nothing on the list."),
         note(real.jobs(got.jobs ?? []), trouble.jobs, "No jobs on this machine."),
-        real.issues(dash),
         real.inbox(dash),
         real.team(this.bus),
         note(
           {
             id: "review",
             title: "Review",
-            icon: "diff",
+            icon: "review",
             rows: [],
             files: this.changes.map((c) => ({ path: c.path, status: toneOf(c.status) })),
             count: unsent(this.threads),
+            note: real.reviewNote(this.draft),
           },
           changes.why,
         ),
         note({ id: "code", title: "Code", icon: "code", rows: [], files: files.rows }, files.why),
-      ],
+      ]),
       status: {
         ...real.status(dash, repos, doing),
         // One server per checkout: the conversation it is in is not
@@ -266,6 +334,7 @@ class Ade {
     else this.soon(real.busy(doing) ? 3_000 : 30_000);
     this.world.places[2] = note(this.world.places[2], trouble.designs, "The designs store is empty.");
     this.trees.clear();
+    void this.heard();
     this.reopen();
     this.draw();
     // One server per checkout, and it comes up in whatever conversation
@@ -286,15 +355,38 @@ class Ade {
     this.say("ade is running");
   }
 
-  private async again(): Promise<void> {
-    // Asked for by hand, so nothing kept is trusted.
-    this.diffAt = "";
-    this.filesAt = "";
-    this.docsFor = "";
-    this.say("asking GitHub…");
-    await window.ade?.act("launcher", "/api/dash/refresh", {}).catch(() => undefined);
+  // space closes one or clones the checkout an open one is missing.
+  // Closing writes the list and nothing else: no checkout is touched.
+  private async space(what: "close" | "clone", repo: string): Promise<void> {
+    if (!window.ade) return;
+    const got =
+      what === "close"
+        ? await window.ade.act("launcher", "/api/spaces", { repo }, undefined, "DELETE")
+        : await window.ade.act("launcher", "/api/spaces/clone", { repo });
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(what === "close" ? `closed ${repo}` : `cloning ${repo}…`);
     await this.read();
-    this.say("refreshed");
+  }
+
+  // again re-reads the showing place. What it asks first is the service
+  // behind that place, if any: Issues is Linear, Team is agentbus.
+  private async again(place = this.place): Promise<void> {
+    // Asked for by hand, so nothing kept is trusted.
+    this.diffHeld.stale("");
+    this.filesHeld.stale("");
+    this.docsFor = "";
+    const want = refreshFor(place);
+    this.say(want.say);
+    let trouble = "";
+    if (want.at && want.path) {
+      const got = await window.ade
+        ?.act(want.at, want.path, {})
+        .catch((e: Error) => ({ error: e.message }));
+      trouble = real.answered(got as real.Answer).error;
+    }
+    await this.read();
+    this.say(trouble || "refreshed");
   }
 
   private async doing(): Promise<real.Doing> {
@@ -306,7 +398,7 @@ class Ade {
     const got = (await window.ade
       .read("session", "/api/state", this.session)
       .catch((e: Error) => ({ error: e.message }))) as { error?: string };
-    const unserved = /no ade is serving/.test(got.error ?? "");
+    const unserved = real.unserved(got.error);
     if (!unserved) {
       this.serving = "ok";
     } else if (!this.woke.has(this.session)) {
@@ -325,6 +417,23 @@ class Ade {
     return real.doingIn(got);
   }
 
+  // landed moves onto the checkout a review was put in, and shows the
+  // diff. Until its ade announces, there is nothing to move onto.
+  private landed(): string {
+    if (!this.landing) return "";
+    const id = real.servingDir(this.where, this.landing);
+    if (!id) {
+      this.soon(1_000);
+      return this.landing;
+    }
+    this.goTo(id);
+    this.wants = id;
+    this.place = "review";
+    this.picked.set("sessions", id);
+    if (!this.servedAt(id)) this.serving = "starting";
+    return "";
+  }
+
   private soon(ms: number): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.read(), ms);
@@ -335,9 +444,8 @@ class Ade {
     if (!this.session) return { rows: [], why: "Pick a session: the diff is one checkout's." };
     // Only when it has moved: a run writes a step a second and the diff
     // behind it does not change nearly that often.
-    if (this.session === this.diffFor && this.diffNow !== "" && this.diffNow === this.diffAt) {
-      return { rows: this.changes, why: this.diffWhy };
-    }
+    const kept = this.diffHeld.good(`${this.session}:${this.diffNow}`);
+    if (kept) return kept;
     const got = await window.ade
       .read("session", "/api/diff", this.session)
       .catch((e: Error) => ({ error: e.message }));
@@ -352,10 +460,21 @@ class Ade {
       rows.length > 0
         ? ""
         : `Nothing in ${where}${view ? ` · ${view}` : ""}. ⌘K “scope” to change the view.`;
-    this.diffAt = this.diffNow;
-    this.diffFor = this.session;
-    this.diffWhy = why;
-    return { rows, why };
+    return this.diffHeld.keep(`${this.session}:${this.diffNow}`, rows, why);
+  }
+
+  // draftState is how far the review has got, which the Review place says and
+  // the verbs act on.
+  private async draftState(): Promise<real.DraftState> {
+    const none = { inDraft: 0, ready: 0, notGoing: 0 };
+    if (!window.ade || !this.session) return none;
+    const got = (await window.ade
+      .read("session", "/api/review/draft", this.session)
+      .catch((e: Error) => ({ error: e.message }))) as real.DraftState & { error?: string };
+    // A read that failed is said: zeros read as "nothing to say" over a
+    // review with thirteen findings in it.
+    if (got.error) return { ...none, error: got.error };
+    return got;
   }
 
   private async docs(): Promise<string[]> {
@@ -380,17 +499,13 @@ class Ade {
     // On the diff's version too: a file added or removed moves it, and
     // nothing else changes what git lists.
     const at = `${this.session}:${this.diffNow}`;
-    if (at === this.filesAt && this.diffNow !== "") {
-      return { rows: this.files, why: this.filesWhy };
-    }
+    const kept = this.filesHeld.good(at);
+    if (kept) return kept;
     const got = (await window.ade
       .read("session", "/api/tree", this.session)
       .catch((e: Error) => ({ error: e.message }))) as { files?: string[]; error?: string };
     if (got.error) return { rows: [], why: `/api/tree — ${got.error}` };
-    this.files = (got.files ?? []).map((path) => ({ path }));
-    this.filesAt = at;
-    this.filesWhy = "";
-    return { rows: this.files };
+    return this.filesHeld.keep(at, (got.files ?? []).map((path) => ({ path })));
   }
 
   run(command: string): void {
@@ -430,6 +545,9 @@ class Ade {
       this.omnibox.close();
       if (what.verb === "omnibox") return this.omnibox.toggle();
       if (what.verb === "refresh") return void this.again();
+      if (what.verb === "save") return void this.save();
+      if (what.verb === "review-draft") return void this.addToReview();
+      if (what.verb === "review-finish") return void this.finishReview();
       if (what.verb === "start") return void this.up();
       if (what.verb === "resume") return void this.resume();
       if (what.verb === "ask") return void this.ask();
@@ -627,7 +745,7 @@ class Ade {
       got =
         asked.what === "new"
           ? await send("/api/threads", {
-              scope: "diff",
+              scope: "line",
               file: asked.file,
               side: asked.side,
               line: asked.line,
@@ -637,13 +755,28 @@ class Ade {
     } else if (asked.what === "resolve") {
       const now = this.threads.find((t) => t.id === asked.id);
       got = await send(`/api/threads/${id}/resolve`, { resolved: !now?.resolved });
-    } else if (asked.what === "send") {
-      got = await send(`/api/threads/${id}/send-reply`, {});
+    } else if (asked.what === "unfold") {
+      this.openThreads = toggled(this.openThreads, asked.id ?? "");
+      return this.draw();
+    } else if (asked.what === "convert") {
+      this.say("writing it for the author…");
+      got = await send(`/api/threads/${id}/convert`, {});
+    } else if (asked.what === "draft") {
+      const pr = this.world.status.pr;
+      if (!pr) return this.say("this branch has no pull request");
+      got = await send("/api/review/draft", { confirm: pr, thread: asked.id });
+    } else if (asked.what === "take-out") {
+      got = await send(`/api/review/draft/${id}`, {}, "DELETE");
     } else if (asked.what === "drop") {
       got = await send(`/api/threads/${id}`, {}, "DELETE");
     }
     const back = real.answered(got);
     if (back.error) return this.say(back.error);
+    // GitHub refusing one comment is not a failed request, so the answer
+    // has to be read rather than assumed.
+    if (asked.what === "draft") {
+      this.say(real.draftSaid(back.body as real.Drafted, this.world.status.pr ?? 0));
+    }
     await this.read();
     this.redrawThreads();
   }
@@ -721,6 +854,7 @@ class Ade {
       open: (path) => this.fromPanel(path),
       link: (href) => void window.ade!.link(href),
       run: (command) => this.run(command),
+      push: (id, said) => pushTo(id, said),
     };
   }
 
@@ -769,7 +903,9 @@ class Ade {
     const from = first.from;
     const held = from === "repo" || from === "session" || from === "scope";
     const list = held ? this.choices(from) : await this.fetched(from);
-    if (list.length === 0) return this.say(`nothing to pick: no ${first.from} to offer`);
+    if (list.length === 0) {
+      return this.say(this.pickTrouble || `nothing to pick: no ${first.from} to offer`);
+    }
     if (first.ask === "many") return this.omnibox.many(first.title, list);
     return this.omnibox.ask(first.title, list);
   }
@@ -781,7 +917,14 @@ class Ade {
     const of = SOURCES[from];
     const got = (await window.ade
       .read(of.at, of.path, this.session)
-      .catch(() => ({}))) as Record<string, unknown>;
+      .catch((e: Error) => ({ error: e.message }))) as Record<string, unknown>;
+    // A route this ade has not got reads as an empty list, and an empty
+    // picker says "nothing to offer" when the truth is "nothing answered".
+    if (typeof got.error === "string") {
+      this.pickTrouble = got.error;
+      return [];
+    }
+    this.pickTrouble = "";
     return of.rows(got);
   }
 
@@ -826,7 +969,7 @@ class Ade {
     // carries the session it belongs to.
     const want = this.place === "agents" ? row.id.split(":")[0] : row.id;
     if ((this.place === "sessions" || this.place === "agents") && this.session !== want) {
-      this.session = want;
+      this.goTo(want);
       // Picking a conversation means that conversation: one server per
       // checkout, so the read that follows moves it onto this one.
       this.wants = want;
@@ -846,15 +989,31 @@ class Ade {
     // A todo is a thing to do: opening one offers to start it. The
     // omnibox opens rows, so this is its way in as well as the list's.
     if (this.place === "todos") return this.fromTodo(row.id);
+    if (row.id.startsWith("who:")) return void this.conversation(row.id.slice("who:".length));
     const reading = { kind: "doc" as const, title: row.name, body: `# ${row.name}\n\nReading…` };
     if (this.place === "designs") {
       // Either way it opens in the editor: one in this checkout through
       // the session serving it, one from the store through the launcher.
-      const which = row.id.startsWith("here:")
-        ? `design:${row.id.slice("here:".length)}`
-        : `store:${row.id}`;
+      const which = row.id.startsWith("space:")
+        ? `spacedesign:${row.id.slice("space:".length)}`
+        : row.id.startsWith("here:")
+          ? `design:${row.id.slice("here:".length)}`
+          : `store:${row.id}`;
       return this.show({ panel: which }, row.name, "design");
     }
+    if (this.place === "jobs") {
+      const job = this.jobs.find((one) => `job:${one.name}` === row.id);
+      return this.show(
+        {
+          kind: "doc",
+          title: row.name,
+          body: job ? real.jobReport(job) : `# ${row.name}\n\nNo run history.`,
+        },
+        row.name,
+        "eye",
+      );
+    }
+    if (this.place === "spaces") return this.openSpace(row.id.slice("space:".length));
     // The row says which pull request it is, not the list it was in. A
     // notification's id is its own, so the number comes off its url.
     const pr = row.pr ?? prAt(row.id);
@@ -876,19 +1035,163 @@ class Ade {
     );
   }
 
-  // readPR renders the pull request with `vscode/src/prpage.ts`.
+  // openSpace draws a repository. The numbers are a second read, so the
+  // page is shown without them and drawn again when they land.
+  private openSpace(key: string): void {
+    const space = this.openSpaces.find((s) => s.repo === key);
+    if (!space) return;
+    this.spaceShown = space;
+    this.show({ kind: "space", title: space.repo, seen: this.seenOf(space) }, space.repo, "space");
+    if (space.path) void this.spaceStats(space);
+  }
+
+  // nowSeen is a space page's content as it is now, keeping the numbers it
+  // has already read: only the lists move while the page is open.
+  private nowSeen(was: Seen): Seen {
+    const space = this.openSpaces.find((s) => s.repo === was.space.repo);
+    if (!space) return was;
+    return this.seenOf(space, was.stats, was.note);
+  }
+
+  private seenOf(space: Space, stats?: Stats, note?: string): Seen {
+    const repo = this.repos.find((r) => keyOf(r) === space.repo);
+    return { space, sessions: sessionsOf(repo), designs: designsOf(space), stats, note };
+  }
+
+  private async spaceStats(space: Space): Promise<void> {
+    if (!window.ade) return;
+    const at = `/api/repo?dir=${encodeURIComponent(space.path ?? "")}`;
+    const got = (await window.ade
+      .read("launcher", at)
+      .catch((e: Error) => ({ error: e.message }))) as Stats & { error?: string };
+    // Gone elsewhere while it was reading: the page it would redraw is
+    // not the one showing.
+    if (this.spaceShown !== space) return;
+    const seen = this.seenOf(space, got.error ? undefined : got, got.error);
+    this.show({ kind: "space", title: space.repo, seen }, space.repo, "space");
+  }
+
+  // spaceAct is a link or an Archive on that page.
+  private async spaceAct(did: SpaceAct): Promise<void> {
+    const space = this.spaceShown;
+    if (!window.ade || !space) return;
+    if (did.what === "open-session") {
+      const row = this.world.places
+        .find((p) => p.id === "sessions")
+        ?.rows.find((r) => r.id === did.id);
+      if (row) this.open(row, "sessions");
+      return;
+    }
+    if (did.what === "open-design") {
+      const name = did.id.split("|").pop() ?? did.id;
+      return this.show({ panel: `spacedesign:${did.id}` }, name.replace(/\.md$/, ""), "design");
+    }
+    this.say(did.what === "archive-session" ? "archiving the session…" : "archiving the design…");
+    const got =
+      did.what === "archive-session"
+        ? await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true })
+        : await window.ade.act("launcher", "/api/designs/archive", {
+            repo: space.repo,
+            file: did.id,
+          });
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say("archived");
+    await this.read();
+    if (this.spaceShown === space) this.openSpace(space.repo);
+  }
+
+  // readPR renders the pull request with `vscode/src/prpage.ts`, and
+  // what can be done with it as buttons above.
   private async readPR(row: Row, at: { repo: string; number: number }): Promise<void> {
     if (!window.ade) return;
-    const got: { pr?: BranchPR; checks?: Check[] | null; error?: string } = await window.ade
-      .pr(at.repo, at.number)
-      .catch((e: Error) => ({ error: e.message }));
+    const [got, branch] = await Promise.all([
+      window.ade
+        .pr(at.repo, at.number)
+        .catch((e: Error) => ({ error: e.message })) as Promise<{
+        pr?: BranchPR;
+        checks?: Check[] | null;
+        error?: string;
+      }>,
+      this.branchPR(at),
+    ]);
     if (this.picked.get(this.place) !== row.id) return;
-    const body = got.error
-      ? `# ${row.name}\n\n${got.error}`
-      : got.pr
-        ? prPage({ ...got.pr, checks: got.checks ?? null })
-        : "";
-    if (body) this.show({ kind: "doc", title: row.name, body }, row.name, "pr");
+    const requested = this.reviews.find(
+      (r) => r.repo === at.repo && r.number === at.number,
+    );
+    const blocked = branch && {
+      approveBlocked: branch.approveBlocked,
+      requestChangesBlocked: branch.requestChangesBlocked,
+      mergeBlocked: branch.mergeBlocked,
+    };
+    const pr = got.pr ? { ...got.pr, ...blocked, checks: got.checks ?? null } : undefined;
+    const url = pr?.url ?? requested?.url ?? row.url ?? "";
+    const acts = prActs({ url, requested, branch });
+    const body = pr ? prPage(pr) : `# ${row.name}\n\n${got.error ?? "Nothing came back."}`;
+    this.prShown = { row, at, url };
+    this.show({ kind: "pr", title: row.name, body, acts }, row.name, "pr");
+  }
+
+  // branchPR is the session's own pull request when it is this one: the
+  // session holds why a verdict or a merge would be refused.
+  private async branchPR(at: { repo: string; number: number }): Promise<BranchPR | undefined> {
+    if (!window.ade || !this.session) return undefined;
+    const mine = this.repoOf(this.session);
+    if (!mine || !(at.repo === mine || at.repo.endsWith(`/${mine}`))) return undefined;
+    const state = (await window.ade.read("session", "/api/state", this.session).catch(() => ({}))) as {
+      branchPr?: BranchPR;
+    };
+    return state.branchPr?.number === at.number ? state.branchPr : undefined;
+  }
+
+  // prAct is one button on the pull request's page.
+  private async prAct(id: PrActId): Promise<void> {
+    const shown = this.prShown;
+    if (!window.ade || !shown) return;
+    const { at, url } = shown;
+    if (id === "web") return void window.ade.link(url);
+    let got: unknown;
+    if (id === "ade") {
+      this.say(`checking out #${at.number}…`);
+      got = await window.ade.act("launcher", "/api/reviews/open", { repo: at.repo, number: at.number });
+      this.landing = (real.answered(got as real.Answer).body as { path?: string })?.path ?? "";
+    } else if (id === "mute" || id === "unmute") {
+      got = await window.ade.act("launcher", "/api/reviews/mute", {
+        repo: at.repo,
+        number: at.number,
+        muted: id === "mute",
+      });
+    } else {
+      const ask = await this.verdict(id, at.number);
+      if (!ask) return;
+      got = await window.ade.act("session", ask.path, ask.body, this.session);
+    }
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    const path = (back.body as { path?: string } | undefined)?.path;
+    this.say(id === "ade" && path ? `#${at.number} is checked out in ${path}` : `#${at.number}: done`);
+    await this.again();
+    if (this.prShown === shown) await this.readPR(shown.row, at);
+  }
+
+  // verdict asks for what a review or a merge needs, through the box.
+  // Each is public and posted as you, so each names the pull request.
+  private async verdict(
+    id: "approve" | "request-changes" | "merge",
+    number: number,
+  ): Promise<{ path: string; body: Record<string, unknown> } | undefined> {
+    if (id === "merge") {
+      const method = await this.omnibox.type(`Merge #${number}: rebase or merge`, "rebase");
+      this.omnibox.close();
+      if (method !== "rebase" && method !== "merge") return undefined;
+      return { path: "/api/pr/merge", body: { method } };
+    }
+    const words = await this.omnibox.type(
+      id === "approve" ? `Approve #${number}: a comment, or empty` : `Request changes on #${number}: what needs changing`,
+    );
+    this.omnibox.close();
+    if (words === undefined || (id === "request-changes" && !words.trim())) return undefined;
+    return { path: `/api/pr/${id}`, body: { body: words, confirm: number } };
   }
 
   // Built once and updated in place: moving an iframe in the DOM
@@ -924,29 +1227,50 @@ class Ade {
     // iframe reloads when it moves and the terminal reconnects.
     for (const tab of this.tabs) {
       const want = this.paneKey(tab);
+      const wait = Boolean(this.waiting(tab));
       let held = this.panes.get(tab.id);
-      // Built again when the session or the address has moved on.
-      if (held && held.key !== want) {
+      let was = 0;
+      if (held && rebuilt(held, want, wait)) {
+        // Where you had read to: a redrawn diff must not throw it away.
+        was = held.node.scrollTop;
         held.node.remove();
         held = undefined;
       }
       if (!held) {
         const node = el("div", "pane");
         node.append(this.inPane(tab));
-        held = { node, key: want };
+        held = { node, key: want, waiting: wait };
         this.panes.set(tab.id, held);
         sheet.append(node);
+        if (was) node.scrollTop = was;
       }
       held.node.hidden = tab.id !== this.active;
     }
-    const empty = sheet.querySelector(".nothing");
+    // The sheet's own line, not the one a waiting pane holds.
+    const empty = sheet.querySelector(":scope > .nothing");
     if (this.tabs.length === 0 && !empty) sheet.append(nothingOpen());
     if (this.tabs.length > 0 && empty) empty.remove();
   }
 
-  // paneKey is what a pane was built with: a session and an address.
+  // paneKey is what a pane was built with: a session and an address for a
+  // live one, and for a diff everything it draws beyond the diff itself.
   private paneKey(tab: Tab): string {
-    return live(tab) ? `${this.session}:${this.launcher?.base ?? ""}` : "";
+    if (live(tab)) return `${this.session}:${this.launcher?.base ?? ""}`;
+    const view = tab.what;
+    if ("panel" in view) return "";
+    // A space is its documents and its conversations, which move while the
+    // page is open: archiving one is the whole point of the Archive on it.
+    if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
+    if (view.kind !== "hunks") return "";
+    return drawnFrom(view.file.path, this.threads, this.openThreads, Boolean(this.world.status.pr));
+  }
+
+  // waiting is why a panel tab cannot draw its page yet, or empty when
+  // it can: a page built now would fetch the proxy's 404 and print it.
+  private waiting(tab: Tab): string {
+    if (!("panel" in tab.what)) return "";
+    if (!this.sessionAt()) return this.session ? "Waiting for ade…" : "Pick a session.";
+    return this.serving === "starting" ? "Starting ade for this checkout…" : "";
   }
 
   // show opens something in the editor area. The same thing twice is
@@ -967,29 +1291,45 @@ class Ade {
   // tabs it can open from an id alone.
   private remember(): void {
     if (this.only) return;
+    this.keptTabs.set(this.tabsFor, { tabs: keepable(this.tabs), active: this.active });
     localStorage.setItem(
       "ade.window",
       JSON.stringify({
         place: this.place,
         session: this.session,
-        tabs: keepable(this.tabs),
-        active: this.active,
+        kept: trimmed(this.keptTabs, this.tabsFor),
       }),
     );
+  }
+
+  // goTo moves to a conversation: what is open belongs to the one being
+  // left, so it is written down and closed, and that one's comes back.
+  private goTo(session: string): void {
+    if (session === this.session) return;
+    if (this.only) {
+      this.session = session;
+      return;
+    }
+    this.remember();
+    for (const pane of this.panes.values()) pane.node.remove();
+    this.panes.clear();
+    this.tabs = [];
+    this.active = "";
+    this.session = session;
+    this.tabsFor = session;
+    this.reopen();
   }
 
   // again opens what was open, after the first read: a file tab needs
   // the session its checkout belongs to.
   private reopen(): void {
     if (this.only || this.tabs.length > 0) return;
-    let kept: { place?: string; tabs?: string[]; active?: string };
-    try {
-      kept = JSON.parse(localStorage.getItem("ade.window") ?? "{}") as typeof kept;
-    } catch {
-      return;
-    }
-    if (kept.place) this.place = kept.place;
-    for (const id of kept.tabs ?? []) {
+    const kept = this.keptTabs.get(this.tabsFor);
+    if (!kept || kept.tabs.length === 0) return;
+    // Replaying a file tab moves the sidebar to Code, which is how
+    // openFile knows what it is opening. Where you were is not its to change.
+    const was = this.place;
+    for (const id of kept.tabs) {
       const [kind, ...rest] = id.split(":");
       const path = rest.join(":");
       if (kind === "panel") this.run(path === "ade.openChat" ? "ade.openChat" : path);
@@ -1000,9 +1340,34 @@ class Ade {
         this.openFile(path);
       }
     }
+    this.place = was;
     if (kept.active && this.tabs.some((t) => t.id === kept.active)) this.active = kept.active;
-    if (kept.place) this.place = kept.place;
+    this.remember();
     this.draw();
+  }
+
+  // written is what the last run left: the place it was in, and the
+  // tabs each conversation had open.
+  private written(): void {
+    let kept: {
+      place?: string;
+      session?: string;
+      tabs?: string[];
+      active?: string;
+      kept?: [string, Layout][];
+    };
+    try {
+      kept = JSON.parse(localStorage.getItem("ade.window") ?? "{}") as typeof kept;
+    } catch {
+      return;
+    }
+    if (kept.place) this.place = kept.place;
+    for (const [session, one] of kept.kept ?? []) this.keptTabs.set(session, one);
+    // What a run before this change wrote: one set, for whichever
+    // conversation was open when it was written.
+    if (!kept.kept && kept.tabs) {
+      this.keptTabs.set(kept.session ?? "", { tabs: kept.tabs, active: kept.active ?? "" });
+    }
   }
 
   private close(id = this.active): void {
@@ -1065,7 +1430,18 @@ class Ade {
       if (place.id === "review") bar.push(el("div", "gap"));
       bar.push(button);
     }
+    bar.push(this.terminalButton());
     return bar;
+  }
+
+  // Not a place: it opens a tab rather than filling the sidebar.
+  private terminalButton(): HTMLElement {
+    const button = document.createElement("button");
+    button.className = this.tabs.some((tab) => tab.id === "term") ? "on" : "";
+    button.title = "Terminal";
+    button.append(icon("terminal", 21));
+    button.addEventListener("click", () => this.run("ade.openTerminal"));
+    return button;
   }
 
   // grip drags the sidebar wider, by one variable on the root.
@@ -1123,7 +1499,28 @@ class Ade {
       }
       if (rows.length === 0) list.append(this.note(this.empty(place, want)));
     }
-    return [this.head2(place), list];
+    if (place.id !== "review") return [this.head2(place), list];
+    return [this.head2(place), list, this.commentList()];
+  }
+
+  // commentList is the review's open comments under its files, worst first:
+  // the whole of what is to say, without opening each file to find it.
+  private commentList(): HTMLElement {
+    const out = el("div", "comments");
+    const all = listed(this.threads);
+    if (all.length === 0) return out;
+    out.append(el("div", "head", `Comments · ${all.length}`));
+    for (const one of all) {
+      const row = el("div", "comment");
+      row.append(el("span", `sev ${one.severity}`, `${one.severity}:`), el("span", "title", one.title));
+      row.title = `${one.file}:${one.line}`;
+      row.addEventListener("click", () => {
+        this.picked.set("review", one.file);
+        this.openFile(one.file, { thread: one.id, line: one.line });
+      });
+      out.append(row);
+    }
+    return out;
   }
 
   // The heading and its filter. One field per place, kept while away.
@@ -1139,8 +1536,40 @@ class Ade {
       this.filters.set(place.id, find.value);
       this.draw();
     });
-    head.append(find);
-    return head;
+    const again = el("button", "again");
+    again.title = "Refresh: ask GitHub and ade again";
+    again.append(icon("refresh", 14));
+    again.addEventListener("click", () => void this.again());
+    head.append(find, again);
+    if (place.id !== "review") return head;
+    const heads = el("div", "heads");
+    heads.append(head, this.reviewBar());
+    return heads;
+  }
+
+  // reviewBar is where the review stands and the one thing that ends it.
+  private reviewBar(): HTMLElement {
+    const bar = el("div", "review-bar");
+    const said = real.reviewNote(this.draft);
+    bar.append(el("span", "quiet", said || "nothing to say yet"));
+    const behind = this.world.status.behind ?? 0;
+    if (behind > 0) {
+      const up = el("span", "btn quiet", `Catch up · ${behind} behind`);
+      up.title = "Stash, rebase onto the base, bring your work back, settle what conflicts";
+      up.addEventListener("click", () => void this.catchUp());
+      bar.append(up);
+    }
+    if (this.draft.ready > 0) {
+      const add = el("span", "btn quiet", `Add ${this.draft.ready} to the review`);
+      add.addEventListener("click", () => void this.addToReview());
+      bar.append(add);
+    }
+    if (this.draft.inDraft > 0) {
+      const finish = el("span", "btn", "Finish the review");
+      finish.addEventListener("click", () => void this.finishReview());
+      bar.append(finish);
+    }
+    return bar;
   }
 
   // note is what an empty list says, selectable and one click from the
@@ -1293,12 +1722,12 @@ class Ade {
 
   // openFile puts a file in a tab of its own: the diff when it is under
   // review, the file otherwise. The path is the title, since names repeat.
-  private openFile(path: string): void {
+  private openFile(path: string, at?: At): void {
     const name = path.split("/").pop() ?? path;
     if (this.place === "review") {
       const file = this.changes.find((c) => c.path === path);
       if (file) {
-        this.show({ kind: "hunks", title: path, file, threads: this.threads }, name, "diff");
+        this.show({ kind: "hunks", title: path, file, threads: this.threads, at }, name, "diff");
         return;
       }
     }
@@ -1355,12 +1784,124 @@ class Ade {
     if (!window.ade || !this.session) return this.say("pick a session: a file is one checkout's");
     const got = (await window.ade
       .read("session", `/api/source?path=${encodeURIComponent(path)}`, this.session)
-      .catch((e: Error) => ({ error: e.message }))) as { source?: string; error?: string };
+      .catch((e: Error) => ({ error: e.message }))) as { source?: string; sum?: string; error?: string };
     if (this.picked.get(this.place) !== path) return;
     const view: View = got.error
       ? { kind: "doc", title: path, body: `# ${path}\n\n${got.error}` }
-      : { kind: "code", title: path, source: got.source ?? "" };
+      : { kind: "code", title: path, source: got.source ?? "", sum: got.sum };
     this.show(view, path.split("/").pop() ?? path, "file");
+  }
+
+  // conversation is everything said with one person, which this machine kept:
+  // the bus keeps none. Read-only until the bus has a message that is not a question.
+  private async conversation(who: string): Promise<void> {
+    if (!window.ade) return;
+    const got = (await window.ade
+      .read("launcher", `/api/bus/history?with=${encodeURIComponent(who)}`)
+      .catch((e: Error) => ({ error: e.message }))) as { said?: real.Said[]; error?: string };
+    const said = got.said ?? [];
+    const body = got.error ? `# ${who}\n\n${got.error}` : real.historyPage(who, said, Date.now());
+    this.show({ kind: "person", title: who, who, body, count: said.length }, who, "people");
+  }
+
+  // askPerson sends what was typed. The bus has ask and answer and nothing
+  // plainer, so it goes as a question, and the conversation is redrawn with it.
+  private async askPerson(who: string, text: string): Promise<void> {
+    if (!window.ade) return;
+    const got = await window.ade
+      .act("launcher", "/api/bus/ask", { to: who, question: text })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.say(back.error || `asked ${who}`);
+    await this.conversation(who);
+  }
+
+  // heard redraws an open conversation when something new was said in it, and
+  // not while you are typing: a redraw would take the words out of the box.
+  private async heard(): Promise<void> {
+    const open = this.showing();
+    if (open?.kind !== "person" || !window.ade) return;
+    const typing = document.querySelector<HTMLTextAreaElement>(".pane:not([hidden]) .ask-box textarea");
+    if (typing?.value.trim()) return;
+    const got = (await window.ade
+      .read("launcher", `/api/bus/history?with=${encodeURIComponent(open.who)}`)
+      .catch(() => ({}))) as { said?: real.Said[] };
+    if ((got.said ?? []).length !== open.count) await this.conversation(open.who);
+  }
+
+  // catchUp replays the branch on a fresh base over the top of whatever is
+  // uncommitted. The server undoes a rebase it cannot settle.
+  private async catchUp(): Promise<void> {
+    if (!window.ade || !this.session) return;
+    this.say("catching up…");
+    const got = await window.ade
+      .act("session", "/api/base/catch-up", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(real.caughtUp(back.body as real.CaughtUp));
+    await this.read();
+  }
+
+  // addToReview puts every converted comment into the pull request's draft
+  // review, which is where you read what would be submitted.
+  private async addToReview(): Promise<void> {
+    const pr = this.world.status.pr;
+    if (!window.ade || !pr) return this.say("this branch has no pull request");
+    const got = await window.ade
+      .act("session", "/api/review/draft", { confirm: pr }, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(real.draftSaid(back.body as real.Drafted, pr));
+    await this.read();
+  }
+
+  // finishReview submits the draft with a verdict, which is the moment the
+  // author can see any of it.
+  private async finishReview(): Promise<void> {
+    const pr = this.world.status.pr;
+    if (!window.ade || !pr) return this.say("this branch has no pull request");
+    const n = this.draft.inDraft;
+    if (n === 0) return this.say("nothing is in the draft review yet");
+    const event = await this.omnibox.ask(`Finish the review of #${pr}`, [
+      { label: "Approve", value: "approve" },
+      { label: "Request changes", value: "request-changes" },
+      { label: "Comment", value: "comment" },
+    ]);
+    this.omnibox.close();
+    if (typeof event !== "string") return;
+    const body = await this.omnibox.type(
+      `#${pr} — the summary`,
+      event === "approve" ? `Approved with ${n} comment${n === 1 ? "" : "s"}` : "",
+    );
+    this.omnibox.close();
+    if (body === undefined) return;
+    const got = await window.ade
+      .act("session", "/api/review/finish", { confirm: pr, event, body }, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(`#${pr}: ${n} comment${n === 1 ? "" : "s"} are on the pull request`);
+    await this.read();
+  }
+
+  // save writes the showing file back to the checkout. The server
+  // refuses it when the file changed under you since it was read.
+  private async save(): Promise<void> {
+    const view = this.showing();
+    const changed = edits();
+    if (view?.kind !== "code" || !changed || changed.path !== view.title) return this.say("nothing to save");
+    if (!window.ade || !this.session) return;
+    const got = await window.ade
+      .act("session", "/api/source", { path: changed.path, source: changed.source, was: view.sum ?? "" }, this.session, "PUT")
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    view.sum = (back.body as { sum?: string }).sum;
+    view.source = changed.source;
+    saved(changed.path, changed.source);
+    this.say(`saved ${changed.path}`);
   }
 
   private row(row: Row): HTMLElement {
@@ -1389,6 +1930,9 @@ class Ade {
   // ade already has; the row only says which and on what.
   private async rowAct(act: NonNullable<Row["acts"]>[number]): Promise<void> {
     if (act.what === "design-start") return this.startDesign(act.name);
+    if (act.what === "space-close" || act.what === "space-clone") {
+      return this.space(act.what === "space-close" ? "close" : "clone", act.name);
+    }
     if (act.what === "todo-start") return this.fromTodo(act.name);
     if (act.what === "queue-first") {
       await window.ade
@@ -1401,13 +1945,16 @@ class Ade {
         .catch((e: Error) => ({ error: e.message }));
       return void this.read();
     }
+    if (act.what === "session-end") return this.endSession(act.name);
     if (act.what === "session-stop") {
       const got = await window.ade
         ?.act("session", "/api/cancel", {}, act.name)
         .catch((e: Error) => ({ error: e.message }));
       const stop = real.answered(got);
-      if (stop.error) return this.say(stop.error);
-      this.say("stopped");
+      // Nothing behind the row to cancel: the listing is stale, not the
+      // press, so it refreshes rather than refusing.
+      if (stop.error && !real.unserved(stop.error)) return this.say(stop.error);
+      this.say(stop.error ? "no ade was serving it" : "stopped");
       return void this.read();
     }
     // Both are the launcher's, and row-only verbs in the fork too. The
@@ -1421,6 +1968,53 @@ class Ade {
     if (back.error) return this.say(back.error);
     this.say(act.what === "job-run" ? `${act.name} started` : paused ? "paused" : "resumed");
     void this.read();
+  }
+
+  // endSession is the one verb on an agent row: stop the run, stop the ade
+  // under it, or put the conversation away for good.
+  private async endSession(id: string): Promise<void> {
+    if (!window.ade) return;
+    const row = this.world.places.find((p) => p.id === "agents")?.rows.find((r) => r.id === id);
+    const state = this.announced.find((a) => a.id === id);
+    const what = await this.omnibox.ask(
+      `${row?.name ?? id}`,
+      real.endings(real.stateOf(state?.agent)),
+    );
+    this.omnibox.close();
+    if (!what) return;
+    // Deleting is the one that cannot be undone, so it is asked twice.
+    if (what === "delete") {
+      const sure = await this.omnibox.ask(`Delete ${row?.name ?? id}?`, [
+        { label: "Delete it", value: "yes" },
+        { label: "Keep it", value: "no" },
+      ]);
+      this.omnibox.close();
+      if (sure !== "yes") return;
+    }
+    const dir = this.where.get(id) ?? "";
+    const got = await this.ending(what, id, dir);
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(real.ended(what));
+    await this.read();
+  }
+
+  private ending(what: string, id: string, dir: string): Promise<unknown> {
+    const ade = window.ade!;
+    switch (what) {
+      case "agent":
+        return ade.act("session", "/api/cancel", {}, id).catch((e: Error) => ({ error: e.message }));
+      case "ade":
+        return ade.act("launcher", "/api/graph/stop", { dir }).catch((e: Error) => ({ error: e.message }));
+      case "archive":
+        return ade
+          .act("launcher", "/api/archive", { id, archived: true })
+          .catch((e: Error) => ({ error: e.message }));
+      default:
+        return ade
+          .act("launcher", "/api/sessions/delete", { ids: [id] })
+          .catch((e: Error) => ({ error: e.message }));
+    }
   }
 
   // fromTodo opens the New session screen with the todo in it. Not
@@ -1485,6 +2079,21 @@ class Ade {
         },
       };
     }
+    // A design in a space other than the session's: read and written
+    // through the launcher, which takes the checkout it is in.
+    if (which.startsWith("spacedesign:")) {
+      const [dir, file] = which.slice("spacedesign:".length).split("|");
+      const at = `dir=${encodeURIComponent(dir)}&file=${encodeURIComponent(file)}`;
+      return {
+        id: which,
+        title: file.replace(/\.md$/, ""),
+        read: async (reach) =>
+          ((await reach.get("launcher", `/api/design?${at}`)) as { body?: string }).body ?? "",
+        write: async (reach, text) => {
+          await reach.send("launcher", `/api/design?dir=${encodeURIComponent(dir)}`, { file, body: text }, "PUT");
+        },
+      };
+    }
     if (which.startsWith("store:")) {
       const name = which.slice("store:".length);
       return {
@@ -1529,25 +2138,13 @@ class Ade {
           ? (reach: Reach) => newSession(reach, { message: todo })
           : WHICH[which];
       if (!make) return el("div", "nothing", `no panel called ${which}`);
-      // A page reads its address off its own root as it loads, so one
-      // built without it cannot be given one later.
-      if (!this.sessionAt()) {
-        return el("div", "nothing", this.session ? "Waiting for ade…" : "Pick a session.");
-      }
-      // Nothing serves this session yet, and a page built now would
-      // fetch the proxy's 404 and print it. The key below holds it.
-      if (this.serving === "starting") {
-        return el("div", "nothing", "Starting ade for this checkout…");
-      }
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
       // The chat reaches the session's own server, so it is given that
       // address rather than the launcher's.
       return frame(
         make(this.reach(), this.sessionAt()),
-        // Whether there is a page at all, not which state: rebuilding
-        // on that flip reloaded the chat under what was being typed.
-        `${tab.id}:${this.session}:${this.launcher?.base ?? ""}:${
-          this.serving === "starting" ? "starting" : "up"
-        }`,
+        `${tab.id}:${this.session}:${this.launcher?.base ?? ""}`,
       );
     }
     const view = tab.what;
@@ -1557,11 +2154,24 @@ class Ade {
     if (view.kind === "code") {
       return mount(view.source, view.title, view.line ?? 0, (line) => void this.blame(line));
     }
+    // A diff is drawn from what is true now, not from what was true when
+    // the file was opened, and the jump it carried happens once.
+    let drawn: View = view;
+    if (view.kind === "space") drawn = { ...view, seen: this.nowSeen(view.seen) };
+    if (view.kind === "hunks") {
+      const file = this.changes.find((c) => c.path === view.file.path) ?? view.file;
+      drawn = { ...view, file, threads: this.threads };
+      view.at = undefined;
+    }
     return sheet(
-      view,
+      drawn,
       (line) => this.blame(line),
       (rule) => void this.forget(rule),
       (asked) => void this.onThread(asked),
+      (id) => void this.prAct(id),
+      { hasPR: Boolean(this.world.status.pr), open: this.openThreads },
+      (who, text) => void this.askPerson(who, text),
+      (did) => void this.spaceAct(did),
     );
   }
 
@@ -1575,6 +2185,14 @@ class Ade {
     branch.addEventListener("click", () => this.omnibox.show());
 
     bar.push(branch);
+    const spent = plan(this.limits, Date.now());
+    if (spent) {
+      const item = el("div", spent.warn ? "item bad" : "item");
+      item.append(icon("gauge", 13), el("span", "", `${spent.stale ? "~" : ""}${spent.bars}`));
+      item.title = spent.tooltip;
+      item.addEventListener("click", () => this.run("ade.showUsage"));
+      bar.push(item);
+    }
     // Which view of the diff you are on. Review's empty list says the
     // scope too, but by then you have already been surprised by it.
     if (status.scope) {

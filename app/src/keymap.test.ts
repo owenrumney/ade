@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Keymap, chordOf, merge, shared, DEFAULTS, type Binding } from "./keymap";
+import { BAR } from "../renderer/model";
 
 const on = (bindings: Binding[], mac = true) => new Keymap(bindings, mac);
 
@@ -65,11 +66,15 @@ describe("the shipped table", () => {
     expect(on(DEFAULTS).match({ key: "k", meta: true })).toBe("omnibox");
   });
 
-  it("reaches every place in the activity bar", () => {
+  // The digits are read off the bar, so a reordered bar with the old keys
+  // would send ⌘2 somewhere other than the second icon.
+  it("sends each digit to the icon at that position", () => {
     const map = on(DEFAULTS);
-    const places = ["prs", "designs", "sessions", "todos", "issues", "inbox", "review", "code"];
-    const got = places.map((_, i) => map.match({ key: String(i + 1), meta: true }));
-    expect(got).toEqual(places.map((p) => `place.${p}`));
+    for (const [i, place] of BAR.slice(0, 9).entries()) {
+      expect(map.match({ key: String(i + 1), meta: true }), place).toBe(`place.${place}`);
+    }
+    expect(map.match({ key: "0", meta: true })).toBe("place.review");
+    expect(map.match({ key: "0", meta: true, shift: true })).toBe("place.code");
   });
 
   it("binds no chord twice", () => {

@@ -58,6 +58,7 @@ var responseShapes = map[string][]string{
 	"Count":  {"added int", "removed int"},
 	"Thread": {
 		"anchor struct", "category string", "comments slice", "createdAt string", "disputed bool",
+		"draftReview string", "draftThread string",
 		"duplicateOf string", "externalId string", "file string", "id string", "line int",
 		"orphaned bool", "orphanedAt string", "outgoing string", "resolved bool", "scope string",
 		"sentAt string",
@@ -80,7 +81,7 @@ var responseShapes = map[string][]string{
 	"BranchPR": {
 		"approveBlocked string", "author string", "baseRef string", "body string", "bodyHtml string",
 		"checkedAt string", "checks slice", "draft bool", "failing int", "headRef string",
-		"mergeBlocked string", "number int", "requestChangesBlocked string", "reviewDecision string",
+		"headSha string", "mergeBlocked string", "number int", "requestChangesBlocked string", "reviewDecision string",
 		"reviews slice", "state string",
 		"title string", "url string",
 	},
@@ -200,7 +201,10 @@ var responseShapes = map[string][]string{
 		"about string", "dir string", "filter string", "name string",
 		"narrow string", "run string", "tool bool",
 	},
-	"BusState": {"instance string", "offers slice", "online bool", "replies slice", "sent slice", "team slice", "user string"},
+	"BusState": {
+		"instance string", "offers slice", "online bool", "replies slice", "sent slice",
+		"team slice", "user string", "why string",
+	},
 	"BusMember": {
 		"agents int", "harness string", "instance string", "label string", "node string",
 		"presence string", "status string", "takesAsk bool", "takesPr bool", "user string", "you bool",
@@ -243,8 +247,8 @@ var responseShapes = map[string][]string{
 	"ChatInfo":        {"count int", "session string"},
 	"LinearState":     {"checkedAt string", "error string", "issues slice"},
 	"LinearIssue": {
-		"branchName string", "identifier string", "priority int", "started bool", "state string",
-		"title string", "updatedAt string", "url string",
+		"branchName string", "identifier string", "priority int", "project string",
+		"started bool", "state string", "title string", "updatedAt string", "url string",
 	},
 	"SettingsView": {
 		"cleanseOff bool", "colors map", "dashboardClaude string", "dashboardCodex string", "dashboardHost string", "dashboardTokenEnd string", "dashboardTokenSet bool", "dashboardUrl string", "deepBackground bool",

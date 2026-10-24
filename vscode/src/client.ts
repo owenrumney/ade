@@ -31,6 +31,11 @@ export interface Thread {
   outgoing?: string;
   sentAt?: string;
   externalId?: string;
+
+  // GitHub's pending review this is waiting in, and the comment it became
+  // there. In a draft is not sent: only you can see a pending review.
+  draftReview?: string;
+  draftThread?: string;
 }
 
 export interface Comment {
@@ -158,6 +163,9 @@ export interface Check {
 // The pull request for the branch this session is on, with its checks.
 export interface BranchPR {
   number: number;
+  // The commit the pull request is showing. A checkout that is not on it
+  // cannot be commented from: the lines are somebody else's.
+  headSha?: string;
   title: string;
   url: string;
   state: string;

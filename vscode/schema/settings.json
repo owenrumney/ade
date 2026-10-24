@@ -53,10 +53,15 @@
       "type": "boolean",
       "description": "Let a repository publish full prompts in its commit records."
     },
+    "spaces": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+      "description": "The repositories kept open, as owner/name, in the order they should be listed. Empty is every repository ade finds."
+    },
     "front": {
       "type": "string",
       "enum": ["editor", "window"],
-      "description": "Which window `ade .` opens: the editor, or ade's own window. Empty is the editor."
+      "description": "Which window `ade .` opens: the editor, or ade's own window. Empty is the window when it is installed, and the editor otherwise."
     },
     "sharpen_off": {
       "type": "boolean",

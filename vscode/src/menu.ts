@@ -24,6 +24,9 @@ export const GROUPS: { title: string; commands: string[] }[] = [
   {
     title: "Sessions",
     commands: [
+      "ade.spaces",
+      "ade.openSpace",
+      "ade.closeSpace",
       "ade.switchSession",
       "ade.switchSessionHere",
       "ade.findSession",

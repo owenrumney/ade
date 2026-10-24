@@ -1312,3 +1312,83 @@ func FreshBase(ctx context.Context, root string) (ref, note string) {
 	}
 	return fetched, ""
 }
+
+// Stash puts tracked changes aside and says whether there were any. Untracked
+// files are left: -u would sweep up build output nobody meant to keep.
+func Stash(ctx context.Context, dir, label string) (bool, error) {
+	out, err := run(ctx, dir, "stash", "push", "--quiet", "-m", label)
+	if err != nil {
+		return false, fmt.Errorf("stash: %w", err)
+	}
+	return !strings.Contains(out, "No local changes"), nil
+}
+
+// StashPop brings them back, and says what conflicted. A pop that conflicts
+// leaves the entry in the stash, so nothing is lost by stopping there.
+func StashPop(ctx context.Context, dir string) ([]string, error) {
+	if _, err := run(ctx, dir, "stash", "pop"); err == nil {
+		return nil, nil
+	}
+	stuck, err := ConflictedFiles(ctx, dir)
+	if err != nil {
+		return nil, fmt.Errorf("pop the stash: %w", err)
+	}
+	if len(stuck) == 0 {
+		return nil, errors.New("the stash would not come back")
+	}
+	return stuck, nil
+}
+
+// StashDrop removes the entry a conflicted pop left behind, once its changes
+// are in the tree.
+func StashDrop(ctx context.Context, dir string) error {
+	if _, err := run(ctx, dir, "stash", "drop", "--quiet"); err != nil {
+		return fmt.Errorf("drop the stash: %w", err)
+	}
+	return nil
+}
+
+// StartRebase begins a rebase and says what is left conflicted. No conflicts
+// and no error means it landed; the shape StartMerge has.
+func StartRebase(ctx context.Context, dir, ref string) ([]string, error) {
+	if _, err := run(ctx, dir, "rebase", ref); err == nil {
+		return nil, nil
+	}
+	stuck, err := ConflictedFiles(ctx, dir)
+	if err != nil || len(stuck) == 0 {
+		_ = RebaseAbort(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("rebase onto %s failed", ref)
+	}
+	return stuck, nil
+}
+
+// RebaseContinue carries on after the conflicts of one commit are staged, and
+// says what the next commit left conflicted. Empty means the rebase finished.
+func RebaseContinue(ctx context.Context, dir string) ([]string, error) {
+	env := append(os.Environ(), "GIT_EDITOR=true")
+	if _, err := runEnv(ctx, dir, env, "rebase", "--continue"); err == nil {
+		return nil, nil
+	}
+	stuck, err := ConflictedFiles(ctx, dir)
+	if err != nil {
+		return nil, fmt.Errorf("continue the rebase: %w", err)
+	}
+	if len(stuck) == 0 {
+		return nil, errors.New("the rebase stopped for something other than a conflict")
+	}
+	return stuck, nil
+}
+
+// StageAll marks the named files resolved.
+func StageAll(ctx context.Context, dir string, files []string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if _, err := run(ctx, dir, append([]string{"add", "--"}, files...)...); err != nil {
+		return fmt.Errorf("stage the resolved files: %w", err)
+	}
+	return nil
+}

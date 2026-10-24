@@ -978,3 +978,65 @@ func TestASentOrImportedOrphanIsNeverSwept(t *testing.T) {
 		})
 	}
 }
+
+// A pending review is visible only to its author, so a comment waiting in one
+// has not been said to anybody yet and must not count as sent.
+func TestACommentInADraftIsNotSent(t *testing.T) {
+	s, _ := newStore(t)
+	one := addThread(t, s, 3, "the finding")
+	_, err := s.SetOutgoing(one.ID, "the words")
+	require.NoError(t, err)
+	require.NoError(t, s.MarkDrafted(one.ID, "REVIEW1", "THREAD1"))
+
+	got, err2 := s.Get(one.ID)
+	require.NoError(t, err2)
+	assert.True(t, got.Drafted())
+	assert.False(t, got.Sent())
+	assert.Equal(t, "REVIEW1", got.DraftReview)
+
+	assert.Len(t, s.InDraft("REVIEW1"), 1)
+	assert.Empty(t, s.InDraft("REVIEW2"))
+
+	require.NoError(t, s.MarkSent([]string{one.ID}, time.Now()))
+	got, err2 = s.Get(one.ID)
+	require.NoError(t, err2)
+	assert.True(t, got.Sent())
+	assert.False(t, got.Drafted(), "submitted, so no longer waiting in a draft")
+	assert.Empty(t, s.InDraft(""))
+}
+
+// The draft is a real review: it can be submitted or deleted from the GitHub
+// UI between one press and the next, and then it is not ours to add to.
+func TestADraftThatWentCanBeForgotten(t *testing.T) {
+	s, _ := newStore(t)
+	one := addThread(t, s, 3, "one")
+	two := addThread(t, s, 20, "two")
+	require.NoError(t, s.MarkDrafted(one.ID, "GONE", "T1"))
+	require.NoError(t, s.MarkDrafted(two.ID, "GONE", "T2"))
+
+	require.NoError(t, s.ForgetDraft(one.ID, ""))
+	assert.Len(t, s.InDraft(""), 1, "one taken back out, the other still waiting")
+
+	require.NoError(t, s.ForgetDraft("", "GONE"))
+	assert.Empty(t, s.InDraft(""))
+}
+
+// Sendable is what may be passed on to the author. A claim the reviewers
+// themselves took back is not that, however well it was written up.
+func TestWhatTheReviewersTookBackIsNotSendable(t *testing.T) {
+	s, _ := newStore(t)
+	kept := addThread(t, s, 3, "stands")
+	gone := addThread(t, s, 30, "withdrawn")
+	same := addThread(t, s, 60, "a repeat")
+
+	_, err := s.SetVerdict(gone.ID, Verdict{Withdrawn: true})
+	require.NoError(t, err)
+	_, err = s.SetVerdict(same.ID, Verdict{DuplicateOf: kept.ID})
+	require.NoError(t, err)
+
+	ids := []string{}
+	for _, t := range s.Sendable() {
+		ids = append(ids, t.ID)
+	}
+	assert.Equal(t, []string{kept.ID}, ids)
+}

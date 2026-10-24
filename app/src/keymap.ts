@@ -32,15 +32,21 @@ export const DEFAULTS: Binding[] = [
   { keys: "mod+shift+p", command: "omnibox.commands" },
   { keys: "mod+n", command: "session.new" },
   { keys: "mod+shift+l", command: "chat.focus" },
-  { keys: "mod+1", command: "place.prs" },
-  { keys: "mod+2", command: "place.designs" },
+  // The digits follow the activity bar, top to bottom, or they lie about
+  // where they go. Review and Code sit under it and take the last two.
+  { keys: "mod+1", command: "place.waiting" },
+  { keys: "mod+2", command: "place.spaces" },
   { keys: "mod+3", command: "place.sessions" },
-  { keys: "mod+4", command: "place.todos" },
-  { keys: "mod+5", command: "place.issues" },
-  { keys: "mod+6", command: "place.inbox" },
-  { keys: "mod+7", command: "place.review" },
-  { keys: "mod+8", command: "place.code" },
+  { keys: "mod+4", command: "place.designs" },
+  { keys: "mod+5", command: "place.prs" },
+  { keys: "mod+6", command: "place.agents" },
+  { keys: "mod+7", command: "place.issues" },
+  { keys: "mod+8", command: "place.todos" },
+  { keys: "mod+9", command: "place.jobs" },
+  { keys: "mod+0", command: "place.review" },
+  { keys: "mod+shift+0", command: "place.code" },
   { keys: "mod+b", command: "sidebar.toggle" },
+  { keys: "mod+s", command: "save" },
   { keys: "mod+shift+b", command: "branch.switch" },
   { keys: "escape", command: "dismiss" },
 ];
@@ -91,7 +97,7 @@ function named(key: string): string {
 export class Keymap {
   private by = new Map<Chord, Binding>();
 
-  constructor(bindings: Binding[], private mac: boolean) {
+  constructor(bindings: Binding[], mac: boolean) {
     // Later wins, which is what lets ~/.ade/keys.json override a default
     // by naming the same chord.
     for (const binding of bindings) {

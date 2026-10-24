@@ -99,6 +99,11 @@ type Thread struct {
 	// does not duplicate it.
 	ExternalID string `json:"externalId,omitempty"`
 
+	// The pending review this is waiting in, and the comment it became there.
+	// In a draft is not sent: only you can see a pending review.
+	DraftReview string `json:"draftReview,omitempty"`
+	DraftThread string `json:"draftThread,omitempty"`
+
 	// Outgoing is this finding rewritten as something you would say to the
 	// author, waiting for you to read it and decide. Held here rather than in
 	// memory so what you approved is what gets sent, even across a restart.
@@ -119,6 +124,9 @@ type Thread struct {
 func (t Thread) Sent() bool {
 	return t.SentAt != nil && !t.SentAt.IsZero()
 }
+
+// Drafted reports whether this is waiting in a pending review on GitHub.
+func (t Thread) Drafted() bool { return t.DraftReview != "" && !t.Sent() }
 
 // A claim's fate: what became of it, not merely whether it is closed. A
 // resolved flag cannot tell fixed from dismissed.
@@ -683,6 +691,52 @@ func (s *Store) SetOutgoing(id, text string) (Thread, error) {
 
 // MarkSent records that a thread's text reached GitHub. Sending is not
 // reversible, so a thread that has gone is never offered again.
+// MarkDrafted records that a comment is waiting in a pending review.
+func (s *Store) MarkDrafted(id, reviewID, threadID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thread := s.find(id)
+	if thread == nil {
+		return ErrNotFound
+	}
+	thread.DraftReview, thread.DraftThread = reviewID, threadID
+	return s.save()
+}
+
+// InDraft is everything waiting in one pending review, in the order it was
+// filed. Empty reviewID means every draft, whichever review it belongs to.
+func (s *Store) InDraft(reviewID string) []Thread {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Thread
+	for _, thread := range s.threads {
+		if !thread.Drafted() {
+			continue
+		}
+		if reviewID != "" && thread.DraftReview != reviewID {
+			continue
+		}
+		out = append(out, thread.clone())
+	}
+	return out
+}
+
+// ForgetDraft takes comments back out of a draft: one by id, or every comment
+// of a review that is no longer on GitHub.
+func (s *Store) ForgetDraft(id, reviewID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, thread := range s.threads {
+		if !thread.Drafted() {
+			continue
+		}
+		if (id != "" && thread.ID == id) || (reviewID != "" && thread.DraftReview == reviewID) {
+			thread.DraftReview, thread.DraftThread = "", ""
+		}
+	}
+	return s.save()
+}
+
 func (s *Store) MarkSent(ids []string, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -697,7 +751,7 @@ func (s *Store) MarkSent(ids []string, at time.Time) error {
 }
 
 // Sendable is every open thread of your own that could go to GitHub: not
-// already sent, and not one imported from there in the first place.
+// already sent, not imported from there, and not withdrawn or duplicate.
 func (s *Store) Sendable() []Thread {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -705,6 +759,10 @@ func (s *Store) Sendable() []Thread {
 	var out []Thread
 	for _, thread := range s.threads {
 		if thread.Resolved || thread.Orphaned || thread.ExternalID != "" {
+			continue
+		}
+		// A claim the reviewers took back is not one to pass on.
+		if thread.Withdrawn || thread.DuplicateOf != "" {
 			continue
 		}
 		if thread.Sent() || thread.Scope == ScopeRepo {

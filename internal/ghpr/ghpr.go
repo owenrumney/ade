@@ -171,9 +171,18 @@ type Thread struct {
 
 // Fetch reads a pull request's metadata.
 func Fetch(ctx context.Context, dir string, number int) (*PR, error) {
+	return fetch(ctx, dir, "pr", "view", strconv.Itoa(number), "--json", prFields)
+}
+
+// FetchRepo is Fetch for a repository this machine has no checkout of.
+func FetchRepo(ctx context.Context, repo string, number int) (*PR, error) {
+	return fetch(ctx, "", "pr", "view", strconv.Itoa(number), "--repo", repo, "--json", prFields)
+}
+
+func fetch(ctx context.Context, dir string, args ...string) (*PR, error) {
 	// The same fields ForBranch asks for. Diverging left a pull request opened by
 	// number with no description and never marked draft.
-	out, err := run(ctx, dir, "pr", "view", strconv.Itoa(number), "--json", prFields)
+	out, err := run(ctx, dir, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -554,6 +563,23 @@ func Checkout(ctx context.Context, dir string, number int) error {
 	return err
 }
 
+// HeadBranch is the pull request's head branch in this repository. A fork's
+// head is empty: the same name here is somebody else's branch.
+func HeadBranch(ctx context.Context, dir string, number int) string {
+	out, err := run(ctx, dir, "pr", "view", strconv.Itoa(number), "--json", "headRefName,isCrossRepository")
+	if err != nil {
+		return ""
+	}
+	var raw struct {
+		HeadRef string `json:"headRefName"`
+		Fork    bool   `json:"isCrossRepository"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil || raw.Fork {
+		return ""
+	}
+	return strings.TrimSpace(raw.HeadRef)
+}
+
 func Viewer(ctx context.Context, dir string) string { return viewer(ctx, dir) }
 
 func viewer(ctx context.Context, dir string) string {
@@ -611,8 +637,17 @@ func parseIssue(out string) (*Issue, error) {
 // are failing or still pending, which is information rather than an error, so
 // the output is parsed either way.
 func Checks(ctx context.Context, dir string, number int) ([]Check, error) {
-	out, err := run(ctx, dir, "pr", "checks", strconv.Itoa(number),
-		"--json", "name,workflow,state,bucket,description,link")
+	return checks(ctx, dir, strconv.Itoa(number))
+}
+
+// ChecksRepo is Checks for a repository this machine has no checkout of.
+func ChecksRepo(ctx context.Context, repo string, number int) ([]Check, error) {
+	return checks(ctx, "", strconv.Itoa(number), "--repo", repo)
+}
+
+func checks(ctx context.Context, dir string, args ...string) ([]Check, error) {
+	out, err := run(ctx, dir, append(append([]string{"pr", "checks"}, args...),
+		"--json", "name,workflow,state,bucket,description,link")...)
 	if strings.TrimSpace(out) == "" {
 		if err != nil {
 			return nil, err
@@ -620,15 +655,15 @@ func Checks(ctx context.Context, dir string, number int) ([]Check, error) {
 		return nil, nil
 	}
 
-	var checks []Check
-	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+	var got []Check
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		return nil, fmt.Errorf("parse pr checks: %w", err)
 	}
-	sort.SliceStable(checks, func(i, j int) bool {
+	sort.SliceStable(got, func(i, j int) bool {
 		// Failures first: they are the reason to look at this at all.
-		return rankBucket(checks[i].Bucket) < rankBucket(checks[j].Bucket)
+		return rankBucket(got[i].Bucket) < rankBucket(got[j].Bucket)
 	})
-	return checks, nil
+	return got, nil
 }
 
 func rankBucket(bucket string) int {
@@ -1073,6 +1108,18 @@ func brief(args []string) string {
 		return line[:160] + "…"
 	}
 	return line
+}
+
+// NoRepository reports whether gh failed because the origin has no repository
+// on GitHub: a renamed, deleted or never-pushed remote, which no retry fixes.
+func NoRepository(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "could not resolve to a repository") ||
+		strings.Contains(msg, "no git remotes found") ||
+		strings.Contains(msg, "could not determine base repository")
 }
 
 // noPullRequest is gh's answer when a branch simply has none open.

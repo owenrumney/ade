@@ -287,11 +287,21 @@ func (b *Board) cloneForReview(ctx context.Context, nameWithOwner string) (strin
 // same pull request would otherwise both find the worktree missing.
 var reviewWorktreeMu sync.Mutex
 
+// headBranch is swapped in tests, which have git but no gh.
+var headBranch = ghpr.HeadBranch
+
 // ReviewWorktree is ../<repo>-pr-<n>, made detached and handed to gh. See the
 // design doc.
 func ReviewWorktree(ctx context.Context, main string, number int) (string, error) {
 	reviewWorktreeMu.Lock()
 	defer reviewWorktreeMu.Unlock()
+	// Git refuses a second checkout of a branch, so a head already out
+	// somewhere is reviewed there rather than in a worktree gh cannot fill.
+	if head := headBranch(ctx, main, number); head != "" {
+		if at := gitdiff.WorktreeOn(ctx, main, head); at != "" {
+			return at, nil
+		}
+	}
 	path := gitdiff.WorktreePath(main, fmt.Sprintf("pr-%d", number))
 	made := false
 	if _, err := os.Stat(path); err != nil {

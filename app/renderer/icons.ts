@@ -1,12 +1,14 @@
 // The icon set, drawn rather than fetched: one font fewer, and each is the
 // same stroke as the next.
-const PATHS: Record<string, string> = {
+export const PATHS: Record<string, string> = {
   // Two branches and the arrow asking for one to go into the other.
   pr: "M6 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4M6 7v10M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4M18 17V10a3 3 0 0 0-3-3h-4M13 5l-2 2 2 2",
   design: "M5 4h9l5 5v11H5zM14 4v5h5M8 13h8M8 16h5",
   session: "M4 5h16v10H9l-5 4z",
   todo: "M4 7h10M4 12h10M4 17h7M18 6l2 2 3-3",
-  issue: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 8v5M12 16v.01",
+  // A ring with a centre, as Linear and GitHub draw a ticket. The
+  // exclamation this replaced read as something being wrong with it.
+  issue: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5",
   inbox: "M3 13h5l1 3h6l1-3h5M3 13l3-8h12l3 8v6H3z",
   // A robot head: the Agents place, which is not the Team place.
   robot: "M12 3v2M6 5h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2M9 10v2M15 10v2M9.5 15h5",
@@ -29,6 +31,18 @@ const PATHS: Record<string, string> = {
   file: "M6 3h8l5 5v13H6zM14 3v5h5",
   chevron: "M9 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
+  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
+  // A dial: how much of the plan window has gone.
+  gauge: "M4 18a8 8 0 1 1 16 0M12 14l4-4",
+  // Lines being looked over: the Review place, and a review asked for on the bus.
+  review: "M4 5h8M4 9h5M4 13h6M4 17h4M16.5 10.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8M19.4 17.4 22 20",
+  // Sheets stacked: a space is one repository and all its worktrees.
+  space: "M12 3 3 7.5l9 4.5 9-4.5zM3 12l9 4.5L21 12M3 16.5 12 21l9-4.5",
+  history: "M12 3a9 9 0 1 0 8.5 6M21 3v6h-6M12 7v5l3 2",
+  ask: "M4 5h16v11H9l-5 4V5M12 13v.01M10 9a2 2 0 1 1 2 2",
+  answer: "M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7",
+  // A prompt and a caret: a shell, not the chevrons that mean source.
+  terminal: "M3 5h18v14H3zM7 10l3 2.5-3 2.5M12.5 15H17",
 };
 
 // icon is one glyph at the size asked for, or nothing drawn at all when the

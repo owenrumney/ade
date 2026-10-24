@@ -1,4 +1,4 @@
-.PHONY: private full editor-fetch editor-prepare editor-dev editor-sync editor-package editor-reh editor-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
+.PHONY: private full editor-fetch editor-prepare editor-dev editor-sync editor-package editor-reh editor-install app-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
 
 # What `ade --version` reports. A tag when there is one, the commit otherwise,
 # and -dirty for a working tree that is not the commit it claims to be.
@@ -86,6 +86,8 @@ app-build:
 			--platform=node --external:electron --format=cjs \
 		&& $(ESBUILD) src/preload.ts --bundle --outfile=dist/preload.js \
 			--platform=node --external:electron --format=cjs \
+		&& $(ESBUILD) src/webview.ts --bundle --outfile=dist/webview.js \
+			--platform=node --external:electron --format=cjs \
 		&& $(ESBUILD) src/keymap.ts --bundle --outfile=dist/keymap.js \
 			--platform=node --format=cjs \
 		&& $(ESBUILD) renderer/app.ts --bundle --outfile=dist/renderer.js \
@@ -96,7 +98,8 @@ app-build:
 			--loader:.ttf=dataurl --external:vs/*
 
 app-test:
-	cd app && ../vscode/node_modules/.bin/vitest run --root . --reporter=dot
+	cd app && ../vscode/node_modules/.bin/tsc -p . \
+		&& ../vscode/node_modules/.bin/vitest run --root . --reporter=dot
 
 # Starts the real window headless and checks it drew. Needs a display, or
 # xvfb-run on a machine without one.
@@ -109,10 +112,13 @@ app-smoke: app-deps app-build
 app-shots: app-build
 	node tools/appshots.mjs $(VIEWS)
 
-# The window as something launchable: ADE Window.app on a Mac. Its own
+# The window as something launchable: ADE.app on a Mac. Its own
 # bundle id, because the cli's is pinned to the cli.
 app-package: app-deps app-build
 	cd app && ./pack.sh
+
+app-install: app-package
+	cd app && ./install.sh
 
 app: app-deps app-build
 	cd app && ./node_modules/.bin/electron .

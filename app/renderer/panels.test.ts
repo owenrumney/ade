@@ -1,16 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { WHICH, type Reach } from "./panels";
+import { commit, newSession, WHICH, type Reach } from "./panels";
 
 // What a panel's page actually sends. Read off its own `send(...)`
 // calls rather than guessed: six panels answered "not wired yet"
 // because the host had invented names for their buttons.
 function verbsOf(panel: string): string[] {
-  const src = readFileSync(join(__dirname, "..", "..", "vscode", "src", panel, "main.ts"), "utf8");
+  const src = readFileSync(
+    join(__dirname, "..", "..", "vscode", "src", panel, "main.ts"),
+    "utf8",
+  );
   const sent = [...src.matchAll(/send\("([a-zA-Z-]+)"/g)].map((m) => m[1]);
-  const direct = [...src.matchAll(/kind: "do", what: "([a-zA-Z-]+)"/g)].map((m) => m[1]);
-  return [...new Set([...sent, ...direct])];
+  const direct = [...src.matchAll(/kind: "do", what: "([a-zA-Z-]+)"/g)].map(
+    (m) => m[1],
+  );
+  // send(on ? "stage" : "unstage"). Missing this shape is how Stage all
+  // reached a host that had never heard of it.
+  const picked = [
+    ...src.matchAll(/send\([^)]*?\?\s*"([a-zA-Z-]+)"\s*:\s*"([a-zA-Z-]+)"/g),
+  ].flatMap((m) => [m[1], m[2]]);
+  return [...new Set([...sent, ...direct, ...picked])];
 }
 
 // said is what the page would post, and seen is where it went.
@@ -26,6 +36,7 @@ function spy(): { reach: Reach; seen: { path: string; body: unknown }[] } {
     open: () => {},
     link: () => {},
     run: () => {},
+    push: () => {},
   };
   return { reach, seen };
 }
@@ -41,12 +52,17 @@ describe("a panel answers every button its page has", () => {
 
   for (const [command, page] of cases) {
     it(`answers ${page}`, async () => {
-      const { reach } = spy();
-      const panel = WHICH[command](reach);
       for (const what of verbsOf(page)) {
         // `open` and `stop` are the window's own, not a route.
         if (what === "open" || what === "stop") continue;
-        const back = (await panel.onMessage({ kind: "do", what })) as { note?: string };
+        // A panel each: a verb that leaves the host busy makes every verb
+        // after it answer with the state instead, and the check passes
+        // without having checked anything.
+        const { reach } = spy();
+        const back = (await WHICH[command](reach).onMessage({
+          kind: "do",
+          what,
+        })) as { note?: string };
         expect(back?.note ?? "", `${page}: ${what}`).not.toContain("not wired");
       }
     });
@@ -57,14 +73,38 @@ describe("the verbs that are more than one call", () => {
   it("commits, and pushes when the form asked for both", async () => {
     const { reach, seen } = spy();
     const commit = WHICH["ade.commitPanel"](reach);
-    await commit.onMessage({ kind: "do", what: "commit", title: "a change", push: true });
+    await commit.onMessage({
+      kind: "do",
+      what: "commit",
+      message: "a change\n\nThe body.",
+      push: true,
+    });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit", "/api/push"]);
+    expect(seen[0].body).toEqual({ title: "a change", body: "The body." });
+  });
+
+  // The server clears its draft when the commit lands, but the page keeps
+  // what you typed across every other read, so the host has to say which
+  // state is the one that followed a commit.
+  it("says the commit landed, once", async () => {
+    const { reach } = spy();
+    const commit = WHICH["ade.commitPanel"](reach);
+    const after = (await commit.onMessage({
+      kind: "do",
+      what: "commit",
+      title: "a change",
+    })) as { committed?: boolean };
+    expect(after.committed).toBe(true);
+    const next = (await commit.onMessage({ kind: "do", what: "refresh" })) as {
+      committed?: boolean;
+    };
+    expect(next.committed).toBe(false);
   });
 
   it("does not push when it did not", async () => {
     const { reach, seen } = spy();
     const commit = WHICH["ade.commitPanel"](reach);
-    await commit.onMessage({ kind: "do", what: "commit", title: "a change" });
+    await commit.onMessage({ kind: "do", what: "commit", message: "a change" });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit"]);
   });
 
@@ -90,7 +130,9 @@ describe("refresh", () => {
   it("is a read, in every panel that has one", async () => {
     const { reach, seen } = spy();
     const repo = WHICH["ade.showRepo"](reach);
-    const back = (await repo.onMessage({ kind: "do", what: "refresh" })) as { note?: string };
+    const back = (await repo.onMessage({ kind: "do", what: "refresh" })) as {
+      note?: string;
+    };
     expect(seen).toEqual([]);
     expect(back.note).toBe("");
   });
@@ -105,6 +147,7 @@ describe("the quiz, which posts rather than reads", () => {
     open: () => {},
     link: () => {},
     run: () => {},
+    push: () => {},
   });
 
   it("asks on ready and hands the questions straight to the page", async () => {
@@ -141,7 +184,9 @@ describe("the quiz, which posts rather than reads", () => {
         throw new Error("nothing to quiz: the diff is empty");
       },
     };
-    const back = (await WHICH["ade.quizMe"](reach).onMessage({ kind: "ready" })) as {
+    const back = (await WHICH["ade.quizMe"](reach).onMessage({
+      kind: "ready",
+    })) as {
       note?: string;
     };
     expect(back.note).toContain("the diff is empty");
@@ -149,7 +194,10 @@ describe("the quiz, which posts rather than reads", () => {
 
   it("opens a file through the window, since a page has no editor", async () => {
     const opened: string[] = [];
-    const reach: Reach = { ...held(undefined), open: (path) => opened.push(path) };
+    const reach: Reach = {
+      ...held(undefined),
+      open: (path) => opened.push(path),
+    };
     await WHICH["ade.quizMe"](reach).onMessage({
       kind: "do",
       what: "open",
@@ -170,6 +218,7 @@ describe("the sandbox, which redraws from state and nothing else", () => {
       open: () => {},
       link: () => {},
       run: () => {},
+      push: () => {},
     };
     const back = (await WHICH["ade.sandboxPanel"](reach).onMessage({
       kind: "save",
@@ -188,6 +237,7 @@ describe("the sandbox, which redraws from state and nothing else", () => {
       open: () => {},
       link: () => {},
       run: () => {},
+      push: () => {},
     };
     const back = (await WHICH["ade.sandboxPanel"](reach).onMessage({
       kind: "save",
@@ -218,8 +268,10 @@ describe("every panel is handed the key its page reads", () => {
       "utf8",
     );
     const out = new Set<string>();
-    for (const m of src.matchAll(/\b(?:said|state)\.([a-zA-Z]+)/g)) out.add(m[1]);
-    for (const skip of ["kind", "busy", "note", "path", "id", "error", "text"]) out.delete(skip);
+    for (const m of src.matchAll(/\b(?:said|state)\.([a-zA-Z]+)/g))
+      out.add(m[1]);
+    for (const skip of ["kind", "busy", "note", "path", "id", "error", "text"])
+      out.delete(skip);
     return out;
   }
 
@@ -227,14 +279,20 @@ describe("every panel is handed the key its page reads", () => {
     it(`${page} is sent something it reads`, async () => {
       const { reach } = spy();
       const panel = WHICH[command](reach);
-      const sent = (await panel.onMessage({ kind: "ready" })) as Record<string, unknown>;
+      const sent = (await panel.onMessage({ kind: "ready" })) as Record<
+        string,
+        unknown
+      >;
       const keys = Object.keys(sent).filter(
         (k) => !["kind", "busy", "note"].includes(k),
       );
       // Every field it reads, not merely one of them: the commit page
       // was sent `tree` and read six more, and drew half a screen.
       const missing = [...reads(page)].filter((k) => !keys.includes(k));
-      expect(missing, `${page} reads these and the host sends none of them`).toEqual([]);
+      expect(
+        missing,
+        `${page} reads these and the host sends none of them`,
+      ).toEqual([]);
     });
   }
 });
@@ -254,13 +312,13 @@ describe("the commit panel, where busy names the verb in flight", () => {
     open: () => {},
     link: () => {},
     run: () => {},
+    push: () => {},
   });
 
   it("hands the page the seven things it draws from", async () => {
-    const back = (await WHICH["ade.commitPanel"](reach()).onMessage({ kind: "ready" })) as Record<
-      string,
-      unknown
-    >;
+    const back = (await WHICH["ade.commitPanel"](reach()).onMessage({
+      kind: "ready",
+    })) as Record<string, unknown>;
     expect(back.tree).toEqual(state.worktree);
     expect(back.base).toBe("main");
     expect(back.branch).toBe("feat/x");
@@ -271,7 +329,9 @@ describe("the commit panel, where busy names the verb in flight", () => {
 
   it("stays busy after a redraft, so the button disables itself", async () => {
     const panel = WHICH["ade.commitPanel"](reach());
-    const back = (await panel.onMessage({ kind: "do", what: "redraft" })) as { busy?: string };
+    const back = (await panel.onMessage({ kind: "do", what: "redraft" })) as {
+      busy?: string;
+    };
     // The draft has not arrived, so the work is still in flight: the
     // page reads this and will not start a second drafting agent.
     expect(back.busy).toBe("redraft");
@@ -294,7 +354,9 @@ describe("the commit panel, where busy names the verb in flight", () => {
     });
     await panel.onMessage({ kind: "do", what: "redraft" });
     draft = { title: "a change" };
-    const back = (await panel.onMessage({ kind: "do", what: "refresh" })) as { busy?: string };
+    const back = (await panel.onMessage({ kind: "do", what: "refresh" })) as {
+      busy?: string;
+    };
     expect(back.busy).toBe("");
   });
 
@@ -318,10 +380,184 @@ describe("a panel hears about work that finished elsewhere", () => {
       open: () => {},
       link: () => {},
       run: () => {},
+      push: () => {},
     };
     expect(WHICH["ade.commitPanel"](reach).stirs).toBe(true);
     // The sweep is a `gh pr list` per repository and events arrive
     // every few seconds: it is asked for, never pushed at.
     expect(WHICH["ade.purgeDesigns"](reach).stirs).toBeFalsy();
+  });
+});
+
+// One page, two hosts. The window's half is driven above; the editor's is
+// the same page's other host, and a verb only one of them answers is a
+// button that does nothing and says nothing.
+describe("the commit page's verbs, in the editor's host too", () => {
+  it("is answered by commitview.ts", () => {
+    const host = readFileSync(
+      join(__dirname, "..", "..", "vscode", "src", "commitview.ts"),
+      "utf8",
+    );
+    const missing = verbsOf("commitpanel").filter(
+      (what) => !host.includes(`case "${what}"`),
+    );
+    expect(missing).toEqual([]);
+  });
+});
+
+// The page disables its buttons on `busy`. The host used to say so only in
+// its answer, which lands when the work is already over — so Create PR could
+// be pressed four times while the first press was still running.
+describe("the commit panel while work is in flight", () => {
+  const stateReply = {
+    worktree: { ahead: 0, behind: 0, staged: ["a.go"], unstaged: [] },
+    meta: { base: "main", branch: "feature" },
+  };
+
+  function panelWithSlowSend() {
+    const pushed: Record<string, unknown>[] = [];
+    let finish = () => {};
+    const waited = new Promise<void>((done) => {
+      finish = done;
+    });
+    const reach: Reach = {
+      get: async () => stateReply,
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async () => {
+        await waited;
+        return {};
+      },
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: (id, said) => pushed.push({ id, ...(said as Record<string, unknown>) }),
+    };
+    return { panel: commit(reach), pushed, finish };
+  }
+
+  it("says it is busy before the work is done, not after", async () => {
+    const { panel, pushed, finish } = panelWithSlowSend();
+    await panel.onMessage({ kind: "ready" });
+
+    const running = panel.onMessage({ kind: "do", what: "createPR" });
+    await Promise.resolve();
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0].id).toBe("commit");
+    expect(pushed[0].busy).toBe("createPR");
+
+    finish();
+    const done = (await running) as { busy?: string };
+    expect(done.busy).toBe("");
+  });
+
+  // Two presses must not be two pull requests.
+  it("ignores a second press while the first is running", async () => {
+    const { panel, pushed, finish } = panelWithSlowSend();
+    await panel.onMessage({ kind: "ready" });
+
+    const first = panel.onMessage({ kind: "do", what: "createPR" });
+    const second = (await panel.onMessage({ kind: "do", what: "createPR" })) as { busy?: string };
+    expect(second.busy).toBe("createPR");
+    expect(pushed, "the second press started nothing").toHaveLength(1);
+
+    finish();
+    await first;
+  });
+});
+
+// Stage all sends `stage` with the loose paths. Checking the case exists in
+// the source is not the same as the verb reaching the server.
+describe("staging from the commit panel", () => {
+  it("sends the paths to the staging routes", async () => {
+    const { reach, seen } = spy();
+    const panel = commit(reach);
+    await panel.onMessage({ kind: "ready" });
+
+    await panel.onMessage({ kind: "do", what: "stage", paths: ["a.go", "b.go"] });
+    await panel.onMessage({ kind: "do", what: "unstage", paths: ["a.go"] });
+
+    expect(seen.map((one: { path: string }) => one.path)).toEqual(["/api/stage", "/api/unstage"]);
+    expect((seen[0].body as { paths: string[] }).paths).toEqual(["a.go", "b.go"]);
+  });
+
+  it("says so rather than going quiet when a verb really is unknown", async () => {
+    const { reach } = spy();
+    const said = (await commit(reach).onMessage({ kind: "do", what: "fly" })) as { note?: string };
+    expect(said.note).toContain("fly is not wired yet");
+  });
+});
+
+// The window's host listed no documents at all — `designs: []`, hard-coded —
+// so the Design row said "No design documents in coast yet" over a repository
+// with forty of them.
+describe("the New session panel's Design row", () => {
+  function reachWith(designs: unknown, opened: Record<string, unknown>[] = []): Reach {
+    return {
+      get: async (_at, path) => {
+        if (path.startsWith("/api/designs?dir=")) {
+          if (designs instanceof Error) throw designs;
+          return designs;
+        }
+        if (path === "/api/repos") return { repos: [{ name: "coast", path: "/r/coast" }] };
+        return {};
+      },
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async (_at, path, body) => {
+        opened.push({ path, ...body });
+        return { path: "/r/coast-x" };
+      },
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: () => {},
+    };
+  }
+
+  const offerOf = async (reach: Reach, seed: Record<string, unknown>) => {
+    const got = (await newSession(reach, seed).onMessage({ kind: "ready" })) as {
+      offer: { designs: { file: string }[]; designNote?: string };
+    };
+    return got.offer;
+  };
+
+  it("lists home's documents", async () => {
+    const offer = await offerOf(reachWith({ designs: ["FIX-818.md", "TRK-1065.md"] }), {
+      mode: "design",
+      repos: ["/r/coast"],
+    });
+    expect(offer.designs.map((d) => d.file)).toEqual(["FIX-818.md", "TRK-1065.md"]);
+  });
+
+  it("says a failed read failed, rather than that there are none", async () => {
+    const offer = await offerOf(reachWith(new Error("404 Not Found")), {
+      mode: "design",
+      repos: ["/r/coast"],
+    });
+    expect(offer.designs).toEqual([]);
+    expect(offer.designNote).toContain("Could not list them");
+  });
+
+  // Picking a document and pressing Start has to start on that document.
+  it("starts on the document that was picked", async () => {
+    const opened: Record<string, unknown>[] = [];
+    const panel = newSession(reachWith({ designs: ["FIX-818.md"] }, opened), {});
+    await panel.onMessage({
+      kind: "start",
+      chosen: {
+        mode: "design",
+        repos: ["/r/coast"],
+        design: "FIX-818.md",
+        name: "",
+        message: "",
+        machine: "",
+        agent: "",
+        model: "",
+        role: "",
+        sandbox: true,
+        ship: false,
+      },
+    });
+    expect(opened[0].path).toBe("/api/open");
+    expect(opened[0].name).toBe("FIX-818.md");
   });
 });

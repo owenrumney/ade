@@ -22,7 +22,11 @@ export function idOf(what: Tab["what"]): string {
       return "term";
     case "rules":
       return "rules";
+    case "space":
+      return `space:${what.seen.space.repo}`;
     case "doc":
+    case "pr":
+    case "person":
       return `doc:${what.title}`;
     default:
       return "none";
@@ -59,6 +63,38 @@ export function held(tabs: Tab[], active: string): Tab | undefined {
 // reloads, a terminal reconnects. Those are hidden, not rebuilt.
 export function live(tab: Tab): boolean {
   return "panel" in tab.what || tab.what.kind === "term";
+}
+
+// Pane is a built tab. `waiting` is one that could only say why it
+// cannot draw its page yet.
+export interface Pane {
+  key: string;
+  waiting: boolean;
+}
+
+// rebuilt: the key moved, or it was waiting and the page can now be
+// drawn. Never the other way, which would lose what was being typed.
+export function rebuilt(held: Pane, key: string, waiting: boolean): boolean {
+  return held.key !== key || (held.waiting && !waiting);
+}
+
+// Layout is what one conversation had open: tab ids, and which was in
+// front. Ids, because a tab is rebuilt from its id and nothing else.
+export interface Layout {
+  tabs: string[];
+  active: string;
+}
+
+// trimmed is the sets as they are written down: the one just used
+// first, the oldest dropped. localStorage is not a filing cabinet.
+export function trimmed(kept: Map<string, Layout>, first: string, max = 20): [string, Layout][] {
+  const out: [string, Layout][] = [];
+  const one = kept.get(first);
+  if (one) out.push([first, one]);
+  for (const [session, held] of kept) {
+    if (session !== first) out.push([session, held]);
+  }
+  return out.slice(0, max);
 }
 
 // What is worth remembering between runs: a tab the window can open

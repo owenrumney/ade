@@ -1,9 +1,12 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,7 +77,93 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": name, "source": string(body)})
+	writeJSON(w, http.StatusOK, map[string]any{"path": name, "source": string(body), "sum": sourceSum(body)})
+}
+
+// handleSaveSource writes one file the window has open. Only a file that
+// is already there, and only if nobody changed it since it was read.
+func (s *Server) handleSaveSource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path   string `json:"path"`
+		Source string `json:"source"`
+		Was    string `json:"was"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	ws := s.space()
+	if ws.snapshot {
+		writeError(w, http.StatusConflict, "this pull request is not checked out; there is nothing to save into")
+		return
+	}
+	name := strings.TrimSpace(req.Path)
+	if ws.homeRoot == "" || name == "" || inGitDir(name) {
+		writeError(w, http.StatusBadRequest, "path is a file in this checkout")
+		return
+	}
+	path, err := safepath.Inside(ws.homeRoot, name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "that is not a file in this checkout")
+		return
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		writeError(w, http.StatusNotFound, "no such file")
+		return
+	}
+	if len(req.Source) > maxSource {
+		writeError(w, http.StatusRequestEntityTooLarge, "too large to save from here")
+		return
+	}
+	now, err := os.ReadFile(path) // #nosec G304 -- resolved inside the checkout
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sourceSum(now) != req.Was {
+		writeError(w, http.StatusConflict, name+" changed on disk since it was opened; reopen it before saving")
+		return
+	}
+	if err := replace(path, []byte(req.Source), info.Mode().Perm()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": name, "sum": sourceSum([]byte(req.Source))})
+}
+
+func sourceSum(body []byte) string {
+	at := sha256.Sum256(body)
+	return hex.EncodeToString(at[:])
+}
+
+func inGitDir(name string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(name)), "/") {
+		if part == ".git" {
+			return true
+		}
+	}
+	return false
+}
+
+// replace writes beside the file and renames over it, so a failed write
+// never leaves half a file.
+func replace(path string, body []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".ade-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // A file's history is `/api/history`, which was already here.

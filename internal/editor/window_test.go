@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 func TestWhichFrontEndAdeOpens(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	// Nothing said: the editor, which is where ade has always opened.
+	// Nothing said: the window when installed, then the editor.
 	assert.Equal(t, "", Wanted())
 
 	require.NoError(t, settings.Save(settings.Settings{Front: "window"}))
@@ -26,5 +27,6 @@ func TestWhichFrontEndAdeOpens(t *testing.T) {
 func TestTheWindowIsNotOpenedWhenItIsNotInstalled(t *testing.T) {
 	// The fallback is the editor, so this has to be an error and not a
 	// silent nothing: `ade .` opening no window at all is the worst of it.
+	windowApp = filepath.Join(t.TempDir(), "ADE.app")
 	assert.ErrorIs(t, OpenWindow(t.TempDir()), ErrNoWindow)
 }

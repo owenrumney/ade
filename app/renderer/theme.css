@@ -78,6 +78,9 @@
      it crisp. `vscode/media/chat.css:7` sets the same pair. */
   --ui: -apple-system, "Segoe UI", Ubuntu, "Droid Sans", sans-serif;
   --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* The shell draws prompt icons, which only a Nerd Font has. */
+  --term-mono: "CaskaydiaCove NFM", "CaskaydiaCove Nerd Font Mono", "Cascadia Mono NF",
+    "MesloLGS NF", "JetBrainsMono Nerd Font Mono", ui-monospace, Menlo, monospace;
   --ui-size: 13px;
   --read-size: 13px;
   --read-line: 1.65;

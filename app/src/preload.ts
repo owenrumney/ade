@@ -20,13 +20,17 @@ contextBridge.exposeInMainWorld("ade", {
   // The terminal: its socket is the shell's, the screen is the page's.
   term: (session: string, pane: string) =>
     ipcRenderer.invoke("ade.term", session, pane) as Promise<unknown>,
-  termSend: (data: string) => ipcRenderer.send("ade.term.send", data),
+  termSend: (pane: string, data: string) => ipcRenderer.send("ade.term.send", pane, data),
+  termResize: (pane: string, cols: number, rows: number) =>
+    ipcRenderer.send("ade.term.resize", pane, cols, rows),
   // A window of its own, holding one panel.
   link: (href: string) => ipcRenderer.invoke("ade.link", href) as Promise<unknown>,
   float: (panel: string, session: string) =>
     ipcRenderer.invoke("ade.float", panel, session) as Promise<unknown>,
-  onTerm: (then: (data: string) => void) =>
-    ipcRenderer.on("term", (_e, data: string) => then(data)),
+  onTerm: (then: (pane: string, data: string) => void) =>
+    ipcRenderer.on("term", (_e, pane: string, data: string) => then(pane, data)),
+  onTermClosed: (then: (pane: string, why: string) => void) =>
+    ipcRenderer.on("term.closed", (_e, pane: string, why: string) => then(pane, why)),
   act: (
     at: "launcher" | "session",
     path: string,

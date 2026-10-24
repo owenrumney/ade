@@ -4,6 +4,8 @@
 export type From =
   | "repo"
   | "session"
+  | "space"
+  | "openspace"
   | "scope"
   | "model"
   | "role"
@@ -30,13 +32,16 @@ export type Verb =
   | "omnibox"
   | "dismiss"
   | "refresh"
+  | "save"
   | "start"
   | "resume"
   | "ask"
   | "dictate"
   | "history"
   | "terminal"
-  | "float";
+  | "float"
+  | "review-draft"
+  | "review-finish";
 
 export type Method = "PUT" | "DELETE";
 
@@ -89,14 +94,19 @@ const many = (from: From, as: string, title: string): Ask => ({
   as,
   title,
 });
-const soon = (needs: string): Doing => ({ at: "soon", needs });
 
 export const WIRED: Record<string, Doing> = {
   // ── The window's own, which have no extension command behind them ──
   omnibox: W(undefined, "omnibox"),
   dismiss: W(undefined, "dismiss"),
+  save: W(undefined, "save"),
+  // The review as GitHub builds one: comments join a draft, a verdict ends it.
+  "ade.addToReview": W(undefined, "review-draft"),
+  "ade.finishReview": W(undefined, "review-finish"),
   "ade.menu": W(undefined, "omnibox"),
   "place.waiting": W("waiting"),
+  "place.spaces": W("spaces"),
+  "place.agents": W("agents"),
   "place.prs": W("prs"),
   "place.designs": W("designs"),
   "place.sessions": W("sessions"),
@@ -205,6 +215,14 @@ export const WIRED: Record<string, Doing> = {
   "ade.push": S("/api/push"),
   "ade.createPR": S("/api/pr-create", { draft: true }),
   "ade.showPR": W("prs"),
+  "ade.spaces": W("spaces"),
+  "ade.openSpace": L("/api/spaces", undefined, pick("space", "repo", "Open which repository as a space?")),
+  "ade.closeSpace": {
+    at: "launcher",
+    path: "/api/spaces",
+    how: "DELETE",
+    needs: [pick("openspace", "repo", "Close which space? Nothing on disk goes with it…")],
+  },
   "ade.checkoutPR": S("/api/pr/checkout"),
   // The title through the box, the description in the sheet: editing
   // rendered markdown is what the window is for.

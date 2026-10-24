@@ -2,51 +2,111 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
-// A terminal in the window: xterm here, the websocket in main, ipc
-// between them, because the server refuses a non-loopback origin.
+// xterm here, the websocket in main, ipc between them: the server
+// refuses a non-loopback origin. One screen per pane id.
+type Pane = {
+  id: string;
+  host: HTMLElement;
+  term: Terminal;
+  fit: FitAddon;
+  on: string;
+  cols: number;
+  rows: number;
+};
 
-// One instance across draws: one rebuilt per read reconnects per read.
+const panes = new Map<string, Pane>();
+let routed = false;
 
-let made: Terminal | undefined;
-let fit: FitAddon | undefined;
-let host: HTMLElement | undefined;
-let on = "";
+// The window's own prefix: a reconnect finds the shell it left.
+const WINDOW = `app-${Math.random().toString(36).slice(2, 8)}`;
 
-// The pane names this window's shell, so a reconnect finds the one it
-// left rather than starting another beside it.
-const PANE = `app-${Math.random().toString(36).slice(2, 8)}`;
-
-export function pane(): string {
-  return PANE;
+export function pane(n = 0): string {
+  return n === 0 ? WINDOW : `${WINDOW}-${n}`;
 }
 
-// open is the terminal, connected to the session if it is not already.
-export function open(session: string, say: (why: string) => void): HTMLElement {
-  if (!host) host = build();
+export function open(
+  session: string,
+  say: (why: string) => void,
+  id: string = pane(),
+): HTMLElement {
+  route();
+  const it = panes.get(id) ?? build(id);
+  panes.set(id, it);
   if (!session) {
     say("pick a session: a terminal runs in a checkout");
-    return host;
+    return it.host;
   }
-  if (on !== session) {
-    on = session;
-    made?.reset();
-    void window.ade
-      ?.term(session, PANE)
-      .then((got) => {
-        const why = (got as { error?: string })?.error;
-        if (why) say(why);
-      })
-      .catch((e: Error) => say(e.message));
+  if (it.on !== session) {
+    it.on = session;
+    it.term.reset();
+    connect(it, session, say);
   }
-  queueMicrotask(() => fit?.fit());
-  return host;
+  queueMicrotask(() => {
+    resize(it);
+    it.term.focus();
+  });
+  return it.host;
 }
 
-function build(): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "term";
-  made = new Terminal({
-    fontFamily: "var(--mono)",
+// The tab went, so its socket goes with it.
+export function close(id: string = pane()): void {
+  const it = panes.get(id);
+  if (!it) return;
+  it.on = "";
+  it.term.reset();
+  void window.ade?.term("", id);
+}
+
+function connect(it: Pane, session: string, say: (why: string) => void): void {
+  void window.ade
+    ?.term(session, it.id)
+    .then((got) => {
+      const why = (got as { error?: string })?.error;
+      if (why) {
+        say(why);
+        return;
+      }
+      resize(it, true);
+    })
+    .catch((e: Error) => say(e.message));
+}
+
+// force resends after a reconnect, which starts at the pty default.
+function resize(it: Pane, force = false): void {
+  it.fit.fit();
+  const { cols, rows } = it.term;
+  if (!cols || !rows) return;
+  if (!force && cols === it.cols && rows === it.rows) return;
+  it.cols = cols;
+  it.rows = rows;
+  window.ade?.termResize(it.id, cols, rows);
+}
+
+// xterm writes this into a canvas font string, where a CSS variable is
+// not resolved and the whole spec is dropped. Read the value instead.
+function mono(): string {
+  const css = getComputedStyle(document.documentElement).getPropertyValue("--term-mono").trim();
+  return css || "ui-monospace, Menlo, monospace";
+}
+
+// One listener for the window: ipcRenderer.on adds, it does not replace.
+function route(): void {
+  if (routed) return;
+  routed = true;
+  window.ade?.onTerm((id, data) => panes.get(id)?.term.write(data));
+  window.ade?.onTermClosed((id, why) => {
+    const it = panes.get(id);
+    if (!it) return;
+    it.on = "";
+    if (why) it.term.write(`\r\n\x1b[31m${why}\x1b[0m\r\n`);
+  });
+}
+
+function build(id: string): Pane {
+  const host = document.createElement("div");
+  host.className = "term";
+  const term = new Terminal({
+    fontFamily: mono(),
     fontSize: 13,
     cursorBlink: true,
     // Ayu Dark Unbordered, the same values the window uses.
@@ -65,19 +125,11 @@ function build(): HTMLElement {
       white: "#bfbdb6",
     },
   });
-  fit = new FitAddon();
-  made.loadAddon(fit);
-  made.open(el);
-  made.onData((data) => window.ade?.termSend(data));
-  window.ade?.onTerm((data) => made?.write(data));
-  new ResizeObserver(() => fit?.fit()).observe(el);
-  return el;
-}
-
-// close drops the connection. The tab went, so the shell's socket
-// should go with it rather than sit open until the window does.
-export function close(): void {
-  on = "";
-  made?.reset();
-  void window.ade?.term("", PANE);
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
+  term.onData((data) => window.ade?.termSend(id, data));
+  new ResizeObserver(() => resize(it)).observe(host);
+  return it;
 }

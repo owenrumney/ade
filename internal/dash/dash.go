@@ -60,10 +60,20 @@ func New(deps Deps) *Board {
 // Refresh reads all three, in parallel: they are three different services and
 // none of them needs the others.
 func (b *Board) Refresh(ctx context.Context) {
+	b.RefreshOnly(ctx, "")
+}
+
+// RefreshOnly reads one of the three. A place asks for the service behind
+// it, so refreshing Issues does not also spend a GitHub round trip.
+func (b *Board) RefreshOnly(ctx context.Context, only string) {
+	by := map[string]func(context.Context){
+		readReviews:       b.RefreshReviews,
+		readNotifications: b.RefreshNotifications,
+		readTickets:       b.RefreshTickets,
+	}
 	var wg sync.WaitGroup
-	for _, read := range []func(context.Context){
-		b.RefreshReviews, b.RefreshNotifications, b.RefreshTickets,
-	} {
+	for _, name := range ReadsFor(only) {
+		read := by[name]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -71,6 +81,25 @@ func (b *Board) Refresh(ctx context.Context) {
 		}()
 	}
 	wg.Wait()
+}
+
+// The three services behind the board, as a refresh names them.
+const (
+	readReviews       = "reviews"
+	readNotifications = "notifications"
+	readTickets       = "tickets"
+)
+
+// ReadsFor is which services a refresh asks. A name nobody recognises asks
+// all three: a stale list is worse than a wasted round trip.
+func ReadsFor(only string) []string {
+	all := []string{readReviews, readNotifications, readTickets}
+	for _, name := range all {
+		if only == name {
+			return []string{name}
+		}
+	}
+	return all
 }
 
 func (b *Board) changed() {

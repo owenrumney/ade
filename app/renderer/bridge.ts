@@ -17,8 +17,10 @@ export interface Bridge {
   onStream(then: (open: boolean) => void): void;
   // The terminal: the socket is the shell's, the screen is the page's.
   term(session: string, pane: string): Promise<unknown>;
-  termSend(data: string): void;
-  onTerm(then: (data: string) => void): void;
+  termSend(pane: string, data: string): void;
+  termResize(pane: string, cols: number, rows: number): void;
+  onTerm(then: (pane: string, data: string) => void): void;
+  onTermClosed(then: (pane: string, why: string) => void): void;
   // A window of its own, holding one panel.
   float(panel: string, session: string): Promise<unknown>;
   // A link from a panel, opened in the browser.

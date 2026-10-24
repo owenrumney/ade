@@ -91,7 +91,9 @@ type Sent struct {
 
 // State is this machine's standing on the bus, for the page.
 type State struct {
-	Online   bool     `json:"online"`
+	Online bool `json:"online"`
+	// Why there is no connection, when there is none.
+	Why      string   `json:"why,omitempty"`
 	User     string   `json:"user,omitempty"`
 	Instance string   `json:"instance,omitempty"`
 	Offers   []Offer  `json:"offers,omitempty"`

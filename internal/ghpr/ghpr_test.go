@@ -2,6 +2,7 @@ package ghpr
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -698,4 +699,12 @@ func TestABranchWithNoPullRequestIsNotAFailureWorthWarningAbout(t *testing.T) {
 	assert.True(t, noPullRequest("GraphQL: no pull requests found\n"))
 	assert.False(t, noPullRequest("gh: command not found"))
 	assert.False(t, noPullRequest(""))
+}
+
+func TestAnOriginWithNoRepositoryBehindItIsToldApartFromARealFailure(t *testing.T) {
+	assert.True(t, NoRepository(errors.New(
+		"gh pr list: exit status 1: GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)")))
+	assert.True(t, NoRepository(errors.New("gh pr list: exit status 1: no git remotes found")))
+	assert.False(t, NoRepository(errors.New("gh pr list: exit status 1: HTTP 502")))
+	assert.False(t, NoRepository(nil))
 }

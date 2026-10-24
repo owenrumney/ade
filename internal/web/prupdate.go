@@ -1,12 +1,13 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
-	"context"
 	"github.com/owenrumney/ade/internal/agentbus"
 	"github.com/owenrumney/ade/internal/ghpr"
 )
@@ -134,10 +135,56 @@ type verdict struct {
 	cached  func(*BranchPR) string
 	blocked func(*ghpr.PR, string) string
 	send    func(context.Context, string, int, string) error
-	result  string
+	// event is this verdict as GitHub names it, for finishing a draft review
+	// rather than starting a second one beside it.
+	event  string
+	result string
 	// bus is this verdict as agentbus names it, for a review the team asked
 	// for here rather than GitHub.
 	bus string
+}
+
+// giveVerdict finishes the draft review when there is one. `gh pr review`
+// would start a second, stranding the draft and posting an empty one.
+func (s *Server) giveVerdict(
+	ctx context.Context,
+	root string,
+	number int,
+	body string,
+	v verdict,
+) error {
+	owner, repo, err := repoOf(ctx, root)
+	if err != nil {
+		return v.send(ctx, root, number, body)
+	}
+	draft, err := pendingReview(ctx, root, owner, repo, number)
+	if err != nil || draft.ID == "" {
+		return v.send(ctx, root, number, body)
+	}
+	if err := submitDraft(ctx, root, draft.ID, v.event, body); err != nil {
+		return err
+	}
+	return s.markDraftSent(ctx, number, draft.ID)
+}
+
+// markDraftSent records that everything in the draft is now on the pull
+// request for the author to read.
+func (s *Server) markDraftSent(ctx context.Context, number int, reviewID string) error {
+	ws := s.space()
+	sent := ws.store.InDraft(reviewID)
+	ids := make([]string, 0, len(sent))
+	for _, thread := range sent {
+		ids = append(ids, thread.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := ws.store.MarkSent(ids, time.Now()); err != nil {
+		return err
+	}
+	s.stampSentExternalIDs(ctx, ws, number, sent)
+	s.hub.Broadcast("threads", nil)
+	return nil
 }
 
 // handleApprovePR records your approval of the pull request under review.
@@ -147,6 +194,7 @@ func (s *Server) handleApprovePR(w http.ResponseWriter, r *http.Request) {
 		cached:  func(pr *BranchPR) string { return pr.ApproveBlocked },
 		blocked: (*ghpr.PR).ApproveBlocked,
 		send:    ghpr.Approve,
+		event:   ghpr.EventApprove,
 		result:  "approved",
 		bus:     agentbus.ReviewApproved,
 	})
@@ -160,6 +208,7 @@ func (s *Server) handleRequestChangesPR(w http.ResponseWriter, r *http.Request) 
 		cached:  func(pr *BranchPR) string { return pr.RequestChangesBlocked },
 		blocked: (*ghpr.PR).RequestChangesBlocked,
 		send:    ghpr.RequestChanges,
+		event:   ghpr.EventRequestChanges,
 		result:  "changesRequested",
 		bus:     agentbus.ReviewChangesRequested,
 	})
@@ -214,7 +263,7 @@ func (s *Server) review(w http.ResponseWriter, r *http.Request, v verdict) {
 		return
 	}
 
-	if err := v.send(r.Context(), root, pr.Number, req.Body); err != nil {
+	if err := s.giveVerdict(r.Context(), root, pr.Number, req.Body, v); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
