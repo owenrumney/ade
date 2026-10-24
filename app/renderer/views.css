@@ -360,3 +360,24 @@
 .space-page .person .who { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-page .track { flex: 1; height: 6px; border-radius: 3px; background: var(--tint-dim); }
 .space-page .fill { display: block; height: 100%; border-radius: 3px; background: var(--info); }
+
+/* The context menu at the pointer. The omnibox floats over a scrim; this
+   does not — it is about the thing beneath it, which stays in sight. */
+.menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 170px;
+  padding: 4px 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  font: 12px/1.6 var(--ui);
+  color: var(--ink);
+  outline: none;
+}
+.menu .item { padding: 5px 14px; cursor: pointer; white-space: nowrap; }
+.menu .item:hover { background: var(--hover); }
+.menu .item.off { color: var(--ink-dim); cursor: default; }
+.menu .item.off:hover { background: transparent; }
+.menu .rule { height: 1px; margin: 4px 0; background: var(--line); }

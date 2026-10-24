@@ -30,10 +30,14 @@ import {
   opened,
   rebuilt,
   shut,
+  shutMany,
+  sweeping,
   trimmed,
   type Layout,
+  type Sweep,
   type Tab,
 } from "./tabs";
+import { menu, type Row as MenuRow } from "./menu";
 import { edits, mount, mountDiff, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
@@ -399,8 +403,12 @@ class Ade {
       .read("session", "/api/state", this.session)
       .catch((e: Error) => ({ error: e.message }))) as { error?: string };
     const unserved = real.unserved(got.error);
+    const was = this.serving;
     if (!unserved) {
       this.serving = "ok";
+      // A chat built while nothing answered gave up on its own. The pane
+      // is kept across a restart, so it is told rather than rebuilt.
+      if (was !== "ok") pushTo("chat", { kind: "reconnect" });
     } else if (!this.woke.has(this.session)) {
       // Once per session: one that will not come up would otherwise be
       // started again every three seconds.
@@ -1375,11 +1383,45 @@ class Ade {
     const gone = shut(this.tabs, id, this.active);
     this.tabs = gone.tabs;
     this.active = gone.active;
-    this.panes.get(id)?.node.remove();
-    this.panes.delete(id);
-    if (id === "term") closeTerm();
+    this.dropPanes([id]);
     this.remember();
     this.draw();
+  }
+
+  // tabMenu is the strip's context menu. A sweep that would take nothing
+  // is listed and dead, so the rows are always in the same places.
+  private tabMenu(id: string, at: { x: number; y: number }): void {
+    const sweep = (which: Sweep): MenuRow => {
+      const ids = sweeping(this.tabs, id, which);
+      const label = { others: "Close others", right: "Close to the right", left: "Close to the left", all: "Close all" };
+      return { label: label[which], off: ids.length === 0, run: () => this.closeMany(ids) };
+    };
+    menu(at, [
+      { label: "Close", run: () => this.close(id) },
+      sweep("others"),
+      sweep("right"),
+      sweep("left"),
+      { ...sweep("all"), apart: true },
+    ]);
+  }
+
+  private closeMany(ids: string[]): void {
+    const gone = shutMany(this.tabs, ids, this.active);
+    this.tabs = gone.tabs;
+    this.active = gone.active;
+    this.dropPanes(gone.gone);
+    this.remember();
+    this.draw();
+  }
+
+  // A pane is held by tab id, so every id that closed has to let its own
+  // go: a live one leaves an iframe or a terminal behind otherwise.
+  private dropPanes(ids: string[]): void {
+    for (const id of ids) {
+      this.panes.get(id)?.node.remove();
+      this.panes.delete(id);
+      if (id === "term") closeTerm();
+    }
   }
 
   private showing(): View | undefined {
@@ -2107,6 +2149,10 @@ class Ade {
       node.addEventListener("click", () => {
         this.active = tab.id;
         this.draw();
+      });
+      node.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        this.tabMenu(tab.id, { x: e.clientX, y: e.clientY });
       });
       return node;
     });
