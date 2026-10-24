@@ -46,10 +46,9 @@ done
 # Electron: the package, the binary, and whether this machine can run it.
 at=$(node -e 'try{process.stdout.write(require("electron"))}catch{}' 2>/dev/null)
 if [ -z "$at" ] && [ -d node_modules/electron/dist ]; then
-  # Unzipped but never finished: extractFile writes path.txt last, so a
-  # dist with no path.txt is an extract that was cut off, usually by two
-  # installs racing on this directory.
-  no "electron install" "half-extracted — dist/ exists, path.txt does not; make app-deps redoes it"
+  # Unzipped but never finished: extractFile writes path.txt last, so a dist
+  # with no path.txt is an extract cut off, by Node 24.16+/26.1+ breaking extract-zip.
+  no "electron install" "half-extracted — dist/ exists, path.txt does not; make app-deps finishes it from the cached zip"
 elif [ -z "$at" ]; then
   no "electron package" "not installed; run make app-deps"
 elif [ ! -e "$at" ]; then
