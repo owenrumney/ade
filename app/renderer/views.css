@@ -86,7 +86,7 @@
 
 /* A document is read, so it keeps the coding font the sheet set and takes
    a measure: prose the width of the window reads badly at any size. */
-.doc { padding: 10px 40px 40px; max-width: 76ch; position: relative; }
+.doc { padding: 10px 5% 40px; margin: 0 auto; position: relative; }
 .doc h1 { font: 600 1.5em/1.35 var(--mono); color: var(--ink-bright); margin: 18px 0 10px; }
 .doc h2 { font: 600 1.2em/1.4 var(--mono); color: var(--ink-bright); margin: 24px 0 8px; }
 .doc h3 { font: 600 1.05em/1.4 var(--mono); color: var(--ink); margin: 18px 0 6px; }
