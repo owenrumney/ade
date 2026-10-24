@@ -50,6 +50,7 @@ const VIEWS = [
     row: "Rethink the workflow and the window",
   },
   { name: "app-review-edit", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".tab.on .swap", settle: 1200 },
+  { name: "app-tab-menu", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], right: ".tab.on" },
   { name: "app-code", place: "Code", session: "Rethink the workflow and the window", twigs: ["internal/web", "web.go"] },
   {
     name: "app-commit",
@@ -137,6 +138,14 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     await page.click(view.tap);
     await new Promise((done) => setTimeout(done, view.settle ?? 0));
     if (!view.settle) await page.waitForSelector(".omnibox input");
+  }
+
+  // A context menu is the one thing the omnibox cannot stand in for, so
+  // the shot has to open it the way a hand does.
+  if (view.right) {
+    await page.waitForSelector(view.right);
+    await page.click(view.right, { button: "right" });
+    await page.waitForSelector(".menu");
   }
 
   if (view.keys) {

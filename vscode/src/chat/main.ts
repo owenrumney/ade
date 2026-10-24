@@ -13,6 +13,7 @@ import { avatar } from "./avatar";
 import { answered, idle, questionsOf as sharpenedOf, type Question } from "./sharpen";
 import { inputs, record } from "./mic";
 import { base64, spliced } from "./wav";
+import { delayFor } from "./retry";
 import {
   type Act,
   acts,
@@ -1225,17 +1226,28 @@ async function refresh(): Promise<void> {
 let drew = false;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let tries = 0;
-const RETRIES = 10;
 
 // again is the first read, tried until it brings something: the page
 // redraws on the host's events, and an idle session sends none.
 function again(): void {
-  if (drew || closed || retry || tries >= RETRIES) return;
+  if (drew || closed || retry) return;
   tries++;
   retry = setTimeout(() => {
     retry = undefined;
     void refresh();
-  }, 1000);
+  }, delayFor(tries));
+}
+
+// reconnect is the host saying the session is reachable again, or the
+// person asking. A stuck page has no other way back.
+function reconnect(): void {
+  clearTimeout(retry);
+  retry = undefined;
+  tries = 0;
+  drew = false;
+  closed = false;
+  say(CONNECTING);
+  void refresh();
 }
 
 // An attachment is held by the server until somebody takes it. Taking it
@@ -1426,6 +1438,10 @@ window.addEventListener("message", (event: MessageEvent) => {
   if (said?.kind === "closed") {
     closed = true;
     say("Session closed.");
+    return;
+  }
+  if (said?.kind === "reconnect") {
+    reconnect();
     return;
   }
   if (said?.kind === "event") {

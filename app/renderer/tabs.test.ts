@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { held, idOf, keepable, live, opened, rebuilt, shut, trimmed, type Tab } from "./tabs";
+import {
+  held,
+  idOf,
+  keepable,
+  live,
+  opened,
+  rebuilt,
+  shut,
+  shutMany,
+  sweeping,
+  trimmed,
+  type Tab,
+} from "./tabs";
 
 const tab = (id: string): Tab => ({ id, title: id, icon: "file", what: { kind: "none" } });
 
@@ -50,6 +62,59 @@ describe("closing", () => {
 
   it("ignores one that is not open", () => {
     expect(shut(three, "nope", "a")).toEqual({ tabs: three, active: "a" });
+  });
+});
+
+describe("closing a sweep of them", () => {
+  const four = [tab("a"), tab("b"), tab("c"), tab("d")];
+
+  it("takes the ones to one side of the one picked, in strip order", () => {
+    expect(sweeping(four, "b", "right")).toEqual(["c", "d"]);
+    expect(sweeping(four, "c", "left")).toEqual(["a", "b"]);
+    expect(sweeping(four, "b", "others")).toEqual(["a", "c", "d"]);
+    expect(sweeping(four, "b", "all")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("takes none to the right of the last, or left of the first", () => {
+    expect(sweeping(four, "d", "right")).toEqual([]);
+    expect(sweeping(four, "a", "left")).toEqual([]);
+  });
+
+  // All four is the only sweep that means anything from a tab that went.
+  it("takes nothing from a tab that is not open", () => {
+    expect(sweeping(four, "nope", "right")).toEqual([]);
+    expect(sweeping(four, "nope", "others")).toEqual([]);
+    expect(sweeping(four, "nope", "all")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("keeps the one picked, whichever was active", () => {
+    const out = shutMany(four, sweeping(four, "b", "others"), "d");
+    expect(out.tabs.map((t) => t.id)).toEqual(["b"]);
+    expect(out.active).toBe("b");
+    expect(out.gone).toEqual(["a", "c", "d"]);
+  });
+
+  it("leaves the active one in front when it survives the sweep", () => {
+    const out = shutMany(four, sweeping(four, "b", "right"), "a");
+    expect(out.tabs.map((t) => t.id)).toEqual(["a", "b"]);
+    expect(out.active).toBe("a");
+  });
+
+  // Closing everything to the left of c while a was in front has to land
+  // somewhere, and c is the one the sweep was named from.
+  it("lands on a survivor when the active one is swept", () => {
+    const out = shutMany(four, sweeping(four, "c", "left"), "a");
+    expect(out.tabs.map((t) => t.id)).toEqual(["c", "d"]);
+    expect(out.active).toBe("c");
+  });
+
+  it("ends with nothing open and nothing in front", () => {
+    const out = shutMany(four, sweeping(four, "b", "all"), "b");
+    expect(out).toEqual({ tabs: [], active: "", gone: ["a", "b", "c", "d"] });
+  });
+
+  it("reports only what closed, so no pane is left behind", () => {
+    expect(shutMany(four, ["b", "nope"], "a").gone).toEqual(["b"]);
   });
 });
 

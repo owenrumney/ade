@@ -54,6 +54,37 @@ export function shut(tabs: Tab[], id: string, active: string): { tabs: Tab[]; ac
   return { tabs: out, active: next?.id ?? "" };
 }
 
+// A sweep closes more than one tab, named from the one picked.
+export type Sweep = "others" | "right" | "left" | "all";
+
+// sweeping is which tabs a sweep takes, in strip order.
+export function sweeping(tabs: Tab[], id: string, which: Sweep): string[] {
+  if (which === "all") return tabs.map((t) => t.id);
+  const at = tabs.findIndex((t) => t.id === id);
+  if (at < 0) return [];
+  if (which === "others") return tabs.filter((t) => t.id !== id).map((t) => t.id);
+  const rest = which === "right" ? tabs.slice(at + 1) : tabs.slice(0, at);
+  return rest.map((t) => t.id);
+}
+
+// shutMany closes a set, one at a time, so where it lands is the rule
+// `shut` already has. `gone` is what actually closed: a pane is kept by
+// id and the closing side has to drop every one of them.
+export function shutMany(
+  tabs: Tab[],
+  ids: string[],
+  active: string,
+): { tabs: Tab[]; active: string; gone: string[] } {
+  let out = { tabs, active };
+  const gone: string[] = [];
+  for (const id of ids) {
+    const before = out.tabs.length;
+    out = shut(out.tabs, id, out.active);
+    if (out.tabs.length < before) gone.push(id);
+  }
+  return { ...out, gone };
+}
+
 // held is the tab that is showing, which is the active one or nothing.
 export function held(tabs: Tab[], active: string): Tab | undefined {
   return tabs.find((t) => t.id === active);
