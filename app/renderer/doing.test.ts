@@ -175,6 +175,13 @@ describe("what is left", () => {
   });
 });
 
+describe("a new conversation", () => {
+  // Posted bare, /api/chat/new answers "say what the new session is for".
+  it("is the window's verb, so it can ask what it is for", () => {
+    expect(wired("ade.newChat")).toMatchObject({ at: "window", verb: "new-chat" });
+  });
+});
+
 describe("what the status bar clicks", () => {
   // The bar shows these two as facts and offers them as verbs. Unwire
   // either and the click becomes a tooltip promising nothing.

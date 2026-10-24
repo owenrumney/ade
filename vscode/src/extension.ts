@@ -2460,15 +2460,35 @@ async function pickModel(): Promise<void> {
 // The first message is required: without one there is nothing to tell the
 // new session from the one it replaced.
 async function newChat(): Promise<void> {
+  const message = await firstMessage();
+  if (!message) return;
   if (!client) {
+    await newChatCold(message);
+    return;
+  }
+  await newChatHere(message);
+}
+
+// newChatCold is the same verb with nothing serving the folder yet.
+async function newChatCold(message: string): Promise<void> {
+  const dir = live?.root ?? openFolder();
+  if (!dir) {
     void vscode.window.showErrorMessage(
-      "ade: nothing is running for this folder yet.",
+      "ade: no checkout is open here, so there is nowhere to start it.",
     );
     return;
   }
-  const message = await firstMessage();
-  if (!message) return;
-  await newChatHere(message);
+  const server = await deskServer();
+  if (!server) return;
+  try {
+    await openSessionAt(server, dir, true, "", message);
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `ade: could not start a session (${String(err)})`,
+    );
+    return;
+  }
+  await attach({ path: dir, chat: true });
 }
 
 // clearChat empties the conversation in place. Unlike newChat it asks for

@@ -36,6 +36,7 @@ export type Verb =
   | "save"
   | "start"
   | "resume"
+  | "new-chat"
   | "ask"
   | "dictate"
   | "history"
@@ -128,7 +129,9 @@ export const WIRED: Record<string, Doing> = {
   "ade.dashboard": W("waiting"),
   "ade.diffTurn": W("review"),
   "ade.ask": W(undefined, "ask"),
-  "ade.newChat": S("/api/chat/new"),
+  // The first message is the verb's: a new conversation with nothing said
+  // is one the session server refuses.
+  "ade.newChat": W(undefined, "new-chat"),
   "ade.clearChat": S("/api/chat/clear"),
   "ade.stop": S("/api/cancel"),
   "ade.stopAgent": S("/api/sides/{id}/cancel", {}, pick("agent", "id", "Stop which agent?")),

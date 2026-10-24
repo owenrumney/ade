@@ -138,6 +138,9 @@ class Ade {
   // A checkout just made for a review: the window moves onto it as soon
   // as the ade in it announces a session.
   private landing = "";
+  // What to show once it announces: the diff, or the conversation.
+  private landingFor: "review" | "chat" = "review";
+  private landingSince = 0;
   private where = new Map<string, string>();
   // What is open in the editor area. A pane is kept once built: moving
   // an iframe reloads it, so switching hides rather than rebuilds.
@@ -431,15 +434,34 @@ class Ade {
     if (!this.landing) return "";
     const id = real.servingDir(this.where, this.landing);
     if (!id) {
+      // A wait with nothing on screen reads as a verb that did nothing.
+      if (Date.now() - this.landingSince > 30_000) {
+        this.say(`started in ${this.landing}, but it has not announced yet: pick it in Sessions`);
+        this.landingFor = "review";
+        return "";
+      }
       this.soon(1_000);
       return this.landing;
     }
     this.goTo(id);
     this.wants = id;
-    this.place = "review";
     this.picked.set("sessions", id);
     if (!this.servedAt(id)) this.serving = "starting";
+    if (this.landingFor === "chat") this.run("ade.openChat");
+    else this.place = "review";
+    this.landingFor = "review";
     return "";
+  }
+
+  // follow is a session the New session panel just started.
+  private follow(dir: string): void {
+    this.close(idOf({ panel: "ade.newSession" }));
+    this.landing = dir;
+    this.landingFor = "chat";
+    this.landingSince = Date.now();
+    this.say(`started in ${dir}; waiting for it`);
+    this.landing = this.landed();
+    this.draw();
   }
 
   private soon(ms: number): void {
@@ -558,6 +580,7 @@ class Ade {
       if (what.verb === "review-finish") return void this.finishReview();
       if (what.verb === "start") return void this.up();
       if (what.verb === "resume") return void this.resume();
+      if (what.verb === "new-chat") return void this.newChat();
       if (what.verb === "ask") return void this.ask();
       if (what.verb === "dictate") return this.dictate();
       if (what.verb === "history") return void this.history();
@@ -720,6 +743,32 @@ class Ade {
     this.soon(900);
   }
 
+  // The provider is carried over, not defaulted: a codex session asked to
+  // start again on claude is not the conversation that was asked for.
+  private async newChat(): Promise<void> {
+    if (!window.ade) return;
+    // Nothing picked, so there is no conversation to replace: the panel
+    // that starts one is the answer.
+    if (!this.session) return this.run("ade.newSession");
+    const message = await this.omnibox.type("What is the new conversation for?");
+    this.omnibox.close();
+    if (!message?.trim()) return;
+    const doing = await this.doing();
+    this.say("starting a new conversation…");
+    const got = await window.ade
+      .act(
+        "session",
+        "/api/chat/new",
+        { message: message.trim(), provider: doing.provider || "claude" },
+        this.session,
+      )
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got);
+    if (back.error) return this.say(back.error);
+    this.run("ade.openChat");
+    await this.read();
+  }
+
   private async resume(): Promise<void> {
     if (!window.ade || !this.session) return;
     const doing = await this.doing();
@@ -863,6 +912,7 @@ class Ade {
       link: (href) => void window.ade!.link(href),
       run: (command) => this.run(command),
       push: (id, said) => pushTo(id, said),
+      follow: (dir) => this.follow(dir),
     };
   }
 
@@ -1163,6 +1213,7 @@ class Ade {
       this.say(`checking out #${at.number}…`);
       got = await window.ade.act("launcher", "/api/reviews/open", { repo: at.repo, number: at.number });
       this.landing = (real.answered(got as real.Answer).body as { path?: string })?.path ?? "";
+      this.landingSince = Date.now();
     } else if (id === "mute" || id === "unmute") {
       got = await window.ade.act("launcher", "/api/reviews/mute", {
         repo: at.repo,

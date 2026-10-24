@@ -29,6 +29,8 @@ export interface Reach {
   // One of ade's own commands, which a page sometimes asks for:
   // the commit panel's Show pull request is the window's verb.
   run(command: string): void;
+  // follow moves the window onto a session just started in a checkout.
+  follow(dir: string): void;
 }
 
 export function sandbox(reach: Reach): Panel {
@@ -305,11 +307,15 @@ function picked(want: Chosen, files?: unknown[]): Record<string, unknown> {
 }
 
 // started is where it went, or why it did not: the launcher answers a
-// failure that still opened a session, so both can be true.
-function started(got: unknown): string {
+// failure that still opened a session, so both can be true. A plain start
+// is followed instead of said.
+function started(reach: Reach, got: unknown, dir: string): string {
   const back = (got ?? {}) as { error?: string; path?: string };
   if (back.error) return back.error;
-  return back.path ? `started in ${back.path}` : "started";
+  const at = back.path ?? dir;
+  if (!at) return "started";
+  reach.follow(at);
+  return "";
 }
 
 // The design editor: the fork's own CodeMirror, markdown drawn and the
@@ -656,7 +662,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
             name: want.name.trim(),
             ...picked(want, files),
           });
-          return { kind: "state", chosen, busy: false, note: started(got) };
+          return { kind: "state", chosen, busy: false, note: started(reach, got, "") };
         }
         const [home, ...also] = want.repos;
         if (!home) return { kind: "state", chosen, busy: false, note: "tick a repository" };
@@ -672,7 +678,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
           direct: !want.machine,
           ...picked(want, files),
         });
-        return { kind: "state", chosen, busy: false, note: started(got) };
+        return { kind: "state", chosen, busy: false, note: started(reach, got, home) };
       }
       return undefined;
     },

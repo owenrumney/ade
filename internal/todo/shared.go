@@ -206,7 +206,17 @@ func (s *Shared) sync(ctx context.Context) error {
 	}
 	_, _ = git(ctx, s.root, "add", "events")
 	_, _ = git(ctx, s.root, "commit", "-m", "todos")
-	if _, err := git(ctx, s.root, "fetch", "origin", sharedBranch); err == nil {
+	_, fetchErr := git(ctx, s.root, "fetch", "origin", sharedBranch)
+	if _, err := git(ctx, s.root, "rev-parse", "--verify", "HEAD"); err != nil {
+		// Never push an empty branch: git calls that a bad refspec.
+		if fetchErr == nil {
+			if _, err := git(ctx, s.root, "reset", "--hard", "origin/"+sharedBranch); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if fetchErr == nil {
 		if _, err := git(ctx, s.root, "merge", "--no-edit", "origin/"+sharedBranch); err != nil {
 			return err
 		}
