@@ -183,6 +183,42 @@ body.dragging { cursor: col-resize; user-select: none; }
 .main .head .tab:hover .x, .main .head .tab.on .x { color: var(--ink-dim); }
 .main .head .tab .x:hover { color: var(--ink-bright); }
 
+/* The chat's toggle sits at the end of the strip, away from the tabs. */
+.main .head .chattoggle {
+  margin-left: auto; flex: none;
+  display: flex; align-items: center;
+  padding: 0 12px; cursor: pointer;
+  border-left: 1px solid var(--line);
+}
+.main .head .chattoggle:hover { background: var(--hover); }
+.main .head .chattoggle.on { color: var(--ink-bright); }
+
+/* The chat: a dock on the right, its width dragged and kept. It holds
+   its minimum as the window narrows — the editor area gives up the room. */
+.dock {
+  width: var(--chat-w);
+  min-width: 280px;
+  flex: none;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  background: var(--bg-chrome);
+  border-left: 1px solid var(--edge);
+}
+.dock[hidden] { display: none; }
+.dock .dockhead {
+  height: 34px; flex: none;
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-dim); font-size: 12px;
+}
+.dock .dockhead .nm { flex: 1; color: var(--ink-bright); }
+.dock .dockhead .x { display: flex; padding: 2px 4px; cursor: pointer; font-size: 10px; }
+.dock .dockhead .x:hover { color: var(--ink-bright); }
+.dock .dockbody { flex: 1; min-height: 0; overflow: hidden; }
+/* The grip the dock is dragged by, on its left edge and over the border. */
+.grip[hidden] { display: none; }
+
 .main .sheet { flex: 1; min-height: 0; position: relative; }
 /* Every open tab keeps its pane; only the active one is shown. */
 .main .sheet .pane { position: absolute; inset: 0; overflow: auto; }
