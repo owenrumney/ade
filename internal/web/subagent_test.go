@@ -539,8 +539,10 @@ func TestThePlanLimitsRideOnTheStateOnceRead(t *testing.T) {
 }
 
 func TestASessionsTitleFollowsItOntoTheRunner(t *testing.T) {
-	s := newTestServer(t)
+	// HOME before the server: cleanups run last-first, so this way the
+	// server is closed before the directory its goroutines write under goes.
 	t.Setenv("HOME", t.TempDir())
+	s := newTestServer(t)
 	require.NoError(t, settings.SetTitle("sess-1", "Rate limit the webhook"))
 
 	s.agent.resume("sess-1")
