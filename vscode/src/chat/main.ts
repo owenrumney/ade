@@ -14,6 +14,7 @@ import { answered, idle, questionsOf as sharpenedOf, type Question } from "./sha
 import { inputs, record } from "./mic";
 import { base64, spliced } from "./wav";
 import { delayFor } from "./retry";
+import { draftOf, keepDraft } from "./draft";
 import {
   type Act,
   acts,
@@ -1117,6 +1118,7 @@ async function submit(): Promise<void> {
     },
   ];
   box.value = "";
+  keepDraft(localStorage, base, "");
   held = [];
   looked = "";
   drawQuestions([]);
@@ -1139,6 +1141,7 @@ async function submit(): Promise<void> {
     // back, because the box is the only copy.
     messages = messages.filter((m) => m.id !== pendingID);
     box.value = message;
+    keepDraft(localStorage, base, message);
     held = sent.files;
     context = sent.context;
     drawTray();
@@ -1289,6 +1292,7 @@ box.addEventListener("keydown", (event) => {
 });
 
 box.addEventListener("input", () => {
+  keepDraft(localStorage, base, box.value);
   clearTimeout(settling);
   settling = setTimeout(() => void look(), idle);
 });
@@ -1477,6 +1481,8 @@ window.addEventListener("message", (event: MessageEvent) => {
   token = said.token;
   start();
 });
+
+box.value = draftOf(localStorage, base);
 
 say(CONNECTING);
 host.postMessage({ kind: "ready" });

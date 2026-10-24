@@ -59,13 +59,25 @@ export const SOURCES: Record<Choice, Source> = {
   },
   // The list the switch is gated on, so nothing offered is refused. The
   // checkout the session is already in is not somewhere to move it to.
+  // Worktrees move the session to another checkout; branches switch the one
+  // it is in. Each row carries the field the switch takes.
   worktree: {
     at: "session",
     path: "/api/worktrees/switch",
-    rows: (got) =>
-      list(got.worktrees)
+    rows: (got) => [
+      ...list(got.worktrees)
         .filter((t) => t.path !== got.here)
-        .map((t) => ({ label: str(t.name), note: str(t.branch) || str(t.path), value: t.path })),
+        .map((t) => ({
+          label: str(t.name),
+          note: str(t.branch) || str(t.path),
+          value: { path: str(t.path) },
+        })),
+      ...list(got.branches).map((b) => ({
+        label: str(b.name),
+        note: b.stashed ? `${String(b.stashed)} files set aside · ${str(b.at)}` : str(b.at),
+        value: { branch: str(b.name) },
+      })),
+    ],
   },
   agent: {
     at: "session",

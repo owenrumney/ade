@@ -16,7 +16,9 @@ describe("a picker's list", () => {
       here: "/a",
       worktrees: [{ name: "a", path: "/a" }, { name: "b", path: "/b", branch: "fix" }],
     };
-    expect(SOURCES.worktree.rows(trees)).toEqual([{ label: "b", note: "fix", value: "/b" }]);
+    expect(SOURCES.worktree.rows(trees)).toEqual([
+      { label: "b", note: "fix", value: { path: "/b" } },
+    ]);
 
     const threads = {
       threads: [
@@ -62,5 +64,31 @@ describe("a picker's list", () => {
       expect(source.rows({}), name).toEqual([]);
       expect(source.path, name).toMatch(/^\/api\//);
     }
+  });
+});
+
+// The switcher is one list of two kinds: a worktree moves the session, a
+// branch switches the checkout, and each row carries the field it needs.
+describe("the branch switcher", () => {
+  const got = {
+    here: "/a",
+    worktrees: [{ name: "a", path: "/a" }, { name: "b", path: "/b", branch: "fix" }],
+    branches: [
+      { name: "feat/x", at: "2 hours ago" },
+      { name: "old", at: "3 weeks ago", stashed: 4 },
+    ],
+  };
+
+  it("offers worktrees and branches, worktrees first", () => {
+    expect(SOURCES.worktree.rows(got)).toEqual([
+      { label: "b", note: "fix", value: { path: "/b" } },
+      { label: "feat/x", note: "2 hours ago", value: { branch: "feat/x" } },
+      { label: "old", note: "4 files set aside \u00b7 3 weeks ago", value: { branch: "old" } },
+    ]);
+  });
+
+  it("offers branches even where there are no other worktrees", () => {
+    const rows = SOURCES.worktree.rows({ here: "/a", worktrees: [], branches: got.branches });
+    expect(rows.map((r) => r.value)).toEqual([{ branch: "feat/x" }, { branch: "old" }]);
   });
 });

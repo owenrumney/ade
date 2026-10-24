@@ -48,12 +48,18 @@ export type SpaceAct =
   | { what: "open-design"; id: string }
   | { what: "archive-design"; id: string };
 
-// sessionsOf is every conversation in the repository, newest first. An
-// archived one is put away, so it is not a link.
-export function sessionsOf(repo: Repo | undefined, now = Date.now()): SessionLine[] {
+// sessionsOf is every conversation in the repository, newest first. `gone` is
+// what this window archived, which a read has not caught up with yet.
+export function sessionsOf(
+  repo: Repo | undefined,
+  now = Date.now(),
+  gone: ReadonlySet<string> = new Set(),
+): SessionLine[] {
   const out: (SessionLine & { at: number })[] = [];
   for (const checkout of repo?.checkouts ?? []) {
-    for (const session of (checkout.sessions ?? []).filter((s: Session) => !s.archived)) {
+    for (const session of (checkout.sessions ?? []).filter(
+      (s: Session) => !s.archived && !gone.has(s.id),
+    )) {
       out.push({
         id: session.id,
         name: session.title || session.name || session.id,
@@ -75,8 +81,8 @@ export function sessionsOf(repo: Repo | undefined, now = Date.now()): SessionLin
 
 // designsOf is the documents written anywhere in the repository. The id
 // is the one the designs list uses, so both open the same editor.
-export function designsOf(space: Space): DesignLine[] {
-  return (space.designs ?? []).map((file) => ({
+export function designsOf(space: Space, gone: ReadonlySet<string> = new Set()): DesignLine[] {
+  return (space.designs ?? []).filter((file) => !gone.has(file)).map((file) => ({
     file,
     id: `${space.path ?? ""}|${file}`,
     name: file.replace(/\.md$/, ""),
@@ -87,7 +93,7 @@ export function designsOf(space: Space): DesignLine[] {
 // built from one of these is stale the moment it changes.
 export function drawnFrom(seen: Seen): string {
   return [
-    (seen.space.designs ?? []).join(","),
+    seen.designs.map((one) => one.file).join(","),
     seen.sessions.map((one) => `${one.id}.${one.live ? 1 : 0}.${one.meta}`).join(","),
     seen.stats ? "stats" : (seen.note ?? "reading"),
   ].join("|");

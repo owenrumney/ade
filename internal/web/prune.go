@@ -69,23 +69,35 @@ func (s *Server) handlePruneWorktrees(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSwitchableWorktrees is where the status bar switcher can go: the
-// same list the switch itself is gated on, so nothing offered is refused.
+// worktrees the switch is gated on, and the branches this checkout can move
+// onto, so nothing offered is refused.
 func (s *Server) handleSwitchableWorktrees(w http.ResponseWriter, r *http.Request) {
 	found, err := worktrees.Switchable(r.Context(), s.space().homeRoot)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"worktrees": found, "here": s.space().homeRoot})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"worktrees": found,
+		"here":      s.space().homeRoot,
+		"branches":  s.switchableBranches(r.Context()),
+	})
 }
 
 // handleSwitchWorktree moves ade into another checkout of the repository,
 // taking the agent. The path must be one a fresh scan offered, as prune gates.
 func (s *Server) handleSwitchWorktree(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path string `json:"path"`
+		Path   string `json:"path"`
+		Branch string `json:"branch"`
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	// One meaning per field: a path moves the session to another checkout, a
+	// branch switches the one it is in.
+	if req.Branch != "" {
+		s.handleSwitchBranch(w, r, req.Branch)
 		return
 	}
 	found, err := worktrees.Switchable(r.Context(), s.space().homeRoot)

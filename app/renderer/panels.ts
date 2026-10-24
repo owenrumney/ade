@@ -3,6 +3,7 @@ import { body as chatBody } from "../../vscode/src/chat/body";
 import { fresh, names, type Chosen } from "../../vscode/src/newsession/view";
 import { BODY as SETTINGS_BODY } from "../../vscode/src/settings/body";
 import { split } from "../../vscode/src/commit";
+import { byRepo, chosen, confirm, rows, told, type Sweep } from "../../vscode/src/purgepanel/view";
 
 
 export interface Reach {
@@ -31,6 +32,9 @@ export interface Reach {
   run(command: string): void;
   // follow moves the window onto a session just started in a checkout.
   follow(dir: string): void;
+  // Everything ade puts to a person goes through the omnibox, which a
+  // panel cannot reach. Optional: a host without one is not asked.
+  ask?(title: string, rows: { label: string; note?: string; value: string }[]): Promise<string | undefined>;
 }
 
 export function sandbox(reach: Reach): Panel {
@@ -176,6 +180,9 @@ interface Stateful {
   of?: string;
   at: "launcher" | "session";
   path: string;
+  // again is the path Refresh reads, where the server serves a cache
+  // otherwise: the purge sweep is minutes old until it is asked to rescan.
+  again?: string;
   // acts maps the page's buttons to paths. The name is the page's own
   // word, off its `send(...)` calls: guessing it wires nothing.
   acts?: Record<string, Act>;
@@ -185,15 +192,34 @@ interface Stateful {
 // or a routine where one route is not enough.
 type Act =
   | { at: "launcher" | "session"; path: string; how?: "PUT" }
-  | { run: (reach: Reach, said: Record<string, unknown>) => Promise<void> };
+  // A routine's answer is the note the page shows.
+  | { run: (reach: Reach, said: Record<string, unknown>) => Promise<string | void> };
+
+// The window's act answers an error rather than throwing one, so a route
+// that refused has to be read off what it returned.
+async function sent(
+  reach: Reach,
+  at: "launcher" | "session",
+  path: string,
+  body: Record<string, unknown>,
+  how?: "PUT",
+): Promise<Record<string, unknown>> {
+  const got = ((await reach.send(at, path, body, how)) ?? {}) as Record<string, unknown>;
+  if (typeof got.error === "string" && got.error) throw new Error(got.error);
+  return got;
+}
 
 // part is the answer, or the one field of it the page was written for.
-async function part(reach: Reach, spec: Stateful): Promise<unknown> {
-  const got = (await reach.get(spec.at, spec.path)) as Record<string, unknown>;
+async function part(reach: Reach, spec: Stateful, fresh = false): Promise<unknown> {
+  const path = fresh ? (spec.again ?? spec.path) : spec.path;
+  const got = (await reach.get(spec.at, path)) as Record<string, unknown>;
   return spec.of ? got?.[spec.of] : got;
 }
 
 function stateful(spec: Stateful, reach: Reach): Panel {
+  // What the page is showing, so a scan can say it is running without
+  // taking the table away while it does.
+  let last: unknown;
   return {
     id: spec.id,
     title: spec.title,
@@ -203,24 +229,26 @@ function stateful(spec: Stateful, reach: Reach): Panel {
     stirs: true,
     async onMessage(said) {
       if (said.kind === "ready") {
-        return { kind: "state", [spec.key]: await part(reach, spec), busy: false, note: "" };
+        last = await part(reach, spec);
+        return { kind: "state", [spec.key]: last, busy: false, note: "" };
       }
       if (said.kind !== "do") return undefined;
       const what = String(said.what ?? "");
-      const again = async (note = "") => ({
-        kind: "state",
-        [spec.key]: await part(reach, spec),
-        busy: false,
-        note,
-      });
-      if (what === "refresh") return again();
+      const again = async (note = "", fresh = false) => {
+        last = await part(reach, spec, fresh);
+        return { kind: "state", [spec.key]: last, busy: false, note };
+      };
+      if (what === "refresh") {
+        reach.push(spec.id, { kind: "state", [spec.key]: last, busy: true, note: "" });
+        return again("", true);
+      }
       const act = spec.acts?.[what];
       if (!act) return { kind: "state", busy: false, note: `${what} is not wired yet` };
       try {
-        if ("run" in act) await act.run(reach, said as Record<string, unknown>);
-        else await reach.send(act.at, act.path, said as Record<string, unknown>, act.how);
+        if ("run" in act) return again((await act.run(reach, said as Record<string, unknown>)) || "");
+        await sent(reach, act.at, act.path, said as Record<string, unknown>, act.how);
       } catch (err) {
-        return { kind: "state", busy: false, note: String(err) };
+        return { kind: "state", busy: false, note: err instanceof Error ? err.message : String(err) };
       }
       return again();
     },
@@ -281,8 +309,44 @@ const STATEFUL: Stateful[] = [
     key: "sweep",
     at: "launcher",
     path: "/api/worktrees/all",
-    // The page calls it remove; the launcher calls it prune.
-    acts: { remove: { at: "launcher", path: "/api/prune" } },
+    again: "/api/worktrees/all?fresh=1",
+    // The page calls it remove; the launcher calls it prune, one
+    // repository at a time, so a failure in one leaves the rest done.
+    acts: {
+      remove: {
+        async run(reach, said) {
+          const force = Boolean(said.force);
+          const sweep = (await reach.get("launcher", "/api/worktrees/all")) as Sweep;
+          const picked = chosen(rows(sweep, force), new Set((said.paths ?? []) as string[]));
+          if (picked.length === 0) return "Nothing to remove: the sweep has moved on.";
+          const yes = await reach.ask?.(
+            `Remove ${picked.length} worktree${picked.length === 1 ? "" : "s"}?`,
+            [
+              { label: "Remove", note: confirm(picked).replace(/\n+/g, " "), value: "yes" },
+              { label: "Cancel", value: "no" },
+            ],
+          );
+          if (reach.ask && yes !== "yes") return "";
+          const removed: string[] = [];
+          const kept: { path: string; why: string }[] = [];
+          for (const group of byRepo(picked)) {
+            try {
+              const out = await sent(reach, "launcher", "/api/prune", {
+                repo: group.repo,
+                paths: group.paths,
+                force,
+              });
+              removed.push(...((out.removed ?? []) as string[]));
+              kept.push(...((out.kept ?? []) as { path: string; why: string }[]));
+            } catch (err) {
+              const why = err instanceof Error ? err.message : String(err);
+              for (const path of group.paths) kept.push({ path, why });
+            }
+          }
+          return told(removed, kept);
+        },
+      },
+    },
   },
 ];
 

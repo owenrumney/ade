@@ -46,7 +46,7 @@ export const VOCABULARY: Group[] = [
       ["ade.portScratch", "Move this scratch session's work into a repository"],
       ["ade.newScratch", "Start on something with no repository yet"],
       ["ade.combineSessions", "Combine finished conversations…"],
-      ["ade.switchWorktree", "Move this session to a worktree"],
+      ["ade.switchWorktree", "Switch branch or worktree"],
       ["ade.worktrees", "Worktrees…"],
       ["ade.worktreeGraph", "Show how the worktrees overlap"],
       ["ade.showAllSessions", "Show every session"],

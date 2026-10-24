@@ -37,6 +37,7 @@ import {
   type Sweep,
   type Tab,
 } from "./tabs";
+import { isChat, sideWidth } from "./dock";
 import { menu, type Row as MenuRow } from "./menu";
 import { edits, mount, mountDiff, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
@@ -64,6 +65,9 @@ const startingFor = 8_000;
 
 // What every list says while that server is on its way up.
 const coming = "Starting ade for this checkout…";
+
+// The dock asks a panel tab's question — is there a server to fetch from.
+const CHAT_TAB: Tab = { id: "chat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
 
 interface Gathered {
   offline?: string;
@@ -109,6 +113,9 @@ class Ade {
   private prShown?: { row: Row; at: { repo: string; number: number }; url: string };
   // The space whose page is open, for the acts drawn on it.
   private spaceShown?: Space;
+  // Archived from a space page, until a read brings a list that agrees.
+  private goneSessions = new Set<string>();
+  private goneDesigns = new Set<string>();
   // Where the picked session's server is up to. "starting" is one
   // this window has in flight, which is not yet a failure.
   private serving: "ok" | "starting" | "failed" = "ok";
@@ -154,6 +161,9 @@ class Ade {
   private launcher?: { base: string; token: string };
   private omnibox: Omnibox;
   private sidebarWidth = Number(localStorage.getItem("ade.sidebar")) || 300;
+  // The chat dock: its own width, and shut only because you shut it.
+  private chatWidth = Number(localStorage.getItem("ade.chat")) || 400;
+  private chatShut = localStorage.getItem("ade.chat.shut") === "1";
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
   private watching = "";
@@ -169,6 +179,7 @@ class Ade {
       },
     );
     document.documentElement.style.setProperty("--sidebar-w", `${this.sidebarWidth}px`);
+    document.documentElement.style.setProperty("--chat-w", `${this.chatWidth}px`);
     // How the editor reaches a language server. The window holds the
     // session, so it does the asking; the editor only says where.
     reaching(
@@ -258,6 +269,7 @@ class Ade {
     this.repos = repos;
     this.reviews = got.dash?.reviews ?? [];
     this.openSpaces = got.spaces ?? [];
+    this.goneSessions = real.stillListed(repos, this.goneSessions);
     this.limits = got.limits;
     this.where = real.whereSessionsAre(repos, got.active ?? []);
     // Only when the read brought a list back: a failed scan knows of
@@ -543,6 +555,7 @@ class Ade {
     if (!what || what.at === "soon") return this.say(owed(command));
     if (what.at === "panel") {
       this.omnibox.close();
+      if (isChat(what.panel)) return this.chat();
       const made = WHICH[what.panel];
       const title = made ? made(this.reach(), this.sessionAt()).title : what.panel;
       return this.show({ panel: what.panel }, title, "session");
@@ -611,7 +624,10 @@ class Ade {
       const said = await this.askFor(need);
       if (said === undefined) return this.omnibox.close();
       const slot = `{${need.as}}`;
-      if (path.includes(slot)) path = path.replace(slot, encodeURIComponent(String(said)));
+      // A row whose answer is an object names its own fields: the switcher
+      // offers worktrees, which take a path, and branches, which take a name.
+      if (said !== null && typeof said === "object") Object.assign(body, said);
+      else if (path.includes(slot)) path = path.replace(slot, encodeURIComponent(String(said)));
       else body[need.as] = said;
     }
     this.omnibox.close();
@@ -716,8 +732,63 @@ class Ade {
     tell({ kind: "dictate" });
   }
 
+  // Chat is the dock on the right, not a tab: every command that used to
+  // open one opens that instead.
   private chat(): void {
-    this.show({ panel: "ade.openChat" }, "Chat", "session");
+    if (this.only) return;
+    this.chatShut = false;
+    localStorage.removeItem("ade.chat.shut");
+    this.draw();
+    pushTo("chat", { kind: "focus" });
+  }
+
+  private shutChat(): void {
+    this.chatShut = true;
+    localStorage.setItem("ade.chat.shut", "1");
+    this.draw();
+  }
+
+  // The head redraws every pass; the page below it only when the
+  // conversation or the server it reaches has moved.
+  private drawDock(): void {
+    if (!this.shell) return;
+    const { dock, dockHead, dockBody, chatGrip } = this.shell;
+    dock.hidden = this.chatShut;
+    chatGrip.hidden = this.chatShut;
+    if (this.chatShut) return;
+    dockHead.replaceChildren(...this.dockHead());
+    const wait = this.waiting(CHAT_TAB);
+    if (wait) {
+      const now = dockBody.firstElementChild;
+      if (now?.className !== "nothing" || now.textContent !== wait) {
+        dockBody.replaceChildren(el("div", "nothing", wait));
+      }
+      return;
+    }
+    const made = WHICH["ade.openChat"](this.reach(), this.sessionAt());
+    const node = frame(made, `chat:${this.session}:${this.launcher?.base ?? ""}`);
+    if (dockBody.firstElementChild !== node) dockBody.replaceChildren(node);
+  }
+
+  private dockHead(): HTMLElement[] {
+    const name = el("div", "nm", "Chat");
+    const again = el("div", "x");
+    again.append(icon("refresh", 12));
+    again.title = "Read the conversation again";
+    again.addEventListener("click", () => pushTo("chat", { kind: "reconnect" }));
+    const shut = el("div", "x", "✕");
+    shut.title = "Hide the chat";
+    shut.addEventListener("click", () => this.shutChat());
+    return [name, again, shut];
+  }
+
+  // In the tab strip, so the dock comes back by mouse as well as omnibox.
+  private chatToggle(): HTMLElement {
+    const node = el("div", this.chatShut ? "chattoggle" : "chattoggle on");
+    node.append(icon("session", 13));
+    node.title = this.chatShut ? "Show the chat" : "Hide the chat";
+    node.addEventListener("click", () => (this.chatShut ? this.chat() : this.shutChat()));
+    return node;
   }
 
   // wake starts the ade that serves the picked session's checkout.
@@ -913,6 +984,7 @@ class Ade {
       run: (command) => this.run(command),
       push: (id, said) => pushTo(id, said),
       follow: (dir) => this.follow(dir),
+      ask: (title, rows) => this.omnibox.ask(title, rows),
     };
   }
 
@@ -1096,7 +1168,10 @@ class Ade {
   // openSpace draws a repository. The numbers are a second read, so the
   // page is shown without them and drawn again when they land.
   private openSpace(key: string): void {
-    const space = this.openSpaces.find((s) => s.repo === key);
+    // The space shown stands in when a read came back without it.
+    const space =
+      this.openSpaces.find((s) => s.repo === key) ??
+      (this.spaceShown?.repo === key ? this.spaceShown : undefined);
     if (!space) return;
     this.spaceShown = space;
     this.show({ kind: "space", title: space.repo, seen: this.seenOf(space) }, space.repo, "space");
@@ -1106,14 +1181,19 @@ class Ade {
   // nowSeen is a space page's content as it is now, keeping the numbers it
   // has already read: only the lists move while the page is open.
   private nowSeen(was: Seen): Seen {
-    const space = this.openSpaces.find((s) => s.repo === was.space.repo);
-    if (!space) return was;
+    const space = this.openSpaces.find((s) => s.repo === was.space.repo) ?? was.space;
     return this.seenOf(space, was.stats, was.note);
   }
 
   private seenOf(space: Space, stats?: Stats, note?: string): Seen {
     const repo = this.repos.find((r) => keyOf(r) === space.repo);
-    return { space, sessions: sessionsOf(repo), designs: designsOf(space), stats, note };
+    return {
+      space,
+      sessions: sessionsOf(repo, Date.now(), this.goneSessions),
+      designs: designsOf(space, this.goneDesigns),
+      stats,
+      note,
+    };
   }
 
   private async spaceStats(space: Space): Promise<void> {
@@ -1144,19 +1224,29 @@ class Ade {
       const name = did.id.split("|").pop() ?? did.id;
       return this.show({ panel: `spacedesign:${did.id}` }, name.replace(/\.md$/, ""), "design");
     }
-    this.say(did.what === "archive-session" ? "archiving the session…" : "archiving the design…");
-    const got =
-      did.what === "archive-session"
-        ? await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true })
-        : await window.ade.act("launcher", "/api/designs/archive", {
-            repo: space.repo,
-            file: did.id,
-          });
+    // Off the page first, then the request: a row that stays put reads as a
+    // button that did nothing.
+    const session = did.what === "archive-session";
+    const gone = session ? this.goneSessions : this.goneDesigns;
+    gone.add(did.id);
+    this.say(session ? "archiving the session…" : "archiving the design…");
+    this.openSpace(space.repo);
+
+    const got = session
+      ? await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true })
+      : await window.ade.act("launcher", "/api/designs/archive", {
+          repo: space.repo,
+          file: did.id,
+        });
     const back = real.answered(got as real.Answer);
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      gone.delete(did.id);
+      this.openSpace(space.repo);
+      return this.say(back.error);
+    }
     this.say("archived");
-    await this.read();
-    if (this.spaceShown === space) this.openSpace(space.repo);
+    // Not awaited: the read is the whole world, and the page is already right.
+    void this.read();
   }
 
   // readPR renders the pull request with `vscode/src/prpage.ts`, and
@@ -1268,6 +1358,7 @@ class Ade {
     }
     if (!this.shell) this.shell = this.build();
     const { titlebar, activity, sidebar, head, sheet, statusbar } = this.shell;
+    this.drawDock();
     titlebar.replaceChildren(...this.titlebar());
     activity.replaceChildren(...this.activity());
     // The filter keeps the keyboard across a redraw.
@@ -1392,7 +1483,11 @@ class Ade {
     for (const id of kept.tabs) {
       const [kind, ...rest] = id.split(":");
       const path = rest.join(":");
-      if (kind === "panel") this.run(path === "ade.openChat" ? "ade.openChat" : path);
+      // A layout kept before the dock still names the chat, which the dock
+      // remembers for itself.
+      if (kind === "panel") {
+        if (!isChat(path)) this.run(path);
+      }
       else if (kind === "term") this.run("ade.openTerminal");
       else if (kind === "code" || kind === "hunks") {
         this.place = kind === "hunks" ? "review" : "code";
@@ -1489,11 +1584,17 @@ class Ade {
     const statusbar = el("div", "statusbar");
     const main = el("div", "main");
     main.append(head, sheet);
+    // Built once and filled in place: its iframe reloads if it is moved.
+    const dockHead = el("div", "dockhead");
+    const dockBody = el("div", "dockbody");
+    const dock = el("div", "dock");
+    dock.append(dockHead, dockBody);
+    const chatGrip = this.grip("chat");
     const body = el("div", "body");
-    body.append(activity, sidebar, this.grip(), main);
+    body.append(activity, sidebar, this.grip(), main, chatGrip, dock);
     this.root.replaceChildren(titlebar, body, statusbar);
     this.root.className = "window";
-    return { titlebar, activity, sidebar, head, sheet, statusbar };
+    return { titlebar, activity, sidebar, head, sheet, statusbar, dock, dockHead, dockBody, chatGrip };
   }
 
   private titlebar(): HTMLElement[] {
@@ -1538,9 +1639,11 @@ class Ade {
     return button;
   }
 
-  // grip drags the sidebar wider, by one variable on the root.
-  private grip(): HTMLElement {
+  // grip drags one side wider, by one variable on the root. The chat is
+  // on the right, so a pointer moving left widens it.
+  private grip(which: "sidebar" | "chat" = "sidebar"): HTMLElement {
     const grip = el("div", "grip");
+    const chat = which === "chat";
     // Pointer capture, and the panes made deaf: an iframe hit-tests the
     // pointer itself, so a drag over one never saw the mouse come up.
     grip.addEventListener("pointerdown", (down) => {
@@ -1548,18 +1651,26 @@ class Ade {
       grip.setPointerCapture(down.pointerId);
       grip.classList.add("held");
       document.body.classList.add("dragging");
-      const from = this.sidebarWidth;
+      const from = chat ? this.chatWidth : this.sidebarWidth;
       const at = down.clientX;
       const move = (e: PointerEvent) => {
-        this.sidebarWidth = Math.min(720, Math.max(180, from + e.clientX - at));
-        document.documentElement.style.setProperty("--sidebar-w", `${this.sidebarWidth}px`);
+        const width = sideWidth(which, from + (chat ? at - e.clientX : e.clientX - at));
+        if (chat) this.chatWidth = width;
+        else this.sidebarWidth = width;
+        document.documentElement.style.setProperty(
+          chat ? "--chat-w" : "--sidebar-w",
+          `${width}px`,
+        );
       };
       const done = () => {
         grip.classList.remove("held");
         document.body.classList.remove("dragging");
         grip.removeEventListener("pointermove", move);
         grip.removeEventListener("lostpointercapture", done);
-        localStorage.setItem("ade.sidebar", String(this.sidebarWidth));
+        localStorage.setItem(
+          chat ? "ade.chat" : "ade.sidebar",
+          String(chat ? this.chatWidth : this.sidebarWidth),
+        );
       };
       grip.addEventListener("pointermove", move);
       // Not pointerup: a capture lost any other way — the window
@@ -2174,8 +2285,8 @@ class Ade {
   }
 
   private head(): Element[] {
-    if (this.tabs.length === 0) return [el("span", "", "Nothing open")];
-    return this.tabs.map((tab) => {
+    if (this.tabs.length === 0) return [el("span", "", "Nothing open"), this.chatToggle()];
+    const tabs = this.tabs.map((tab) => {
       const node = el("div", tab.id === this.active ? "tab on" : "tab");
       node.append(icon(tab.icon, 13), el("span", "nm", tab.title));
       node.title = tab.title;
@@ -2207,6 +2318,7 @@ class Ade {
       });
       return node;
     });
+    return [...tabs, this.chatToggle()];
   }
 
   // writable is the document a panel id names: a design, or a pull
@@ -2333,7 +2445,7 @@ class Ade {
 
     const branch = el("div", "item");
     branch.append(icon("branch", 13), el("span", "", status.branch));
-    branch.title = "Move this session to another worktree";
+    branch.title = "Switch branch, or move this session to another worktree";
     branch.addEventListener("click", () => this.run("ade.switchWorktree"));
 
     bar.push(branch);
@@ -2438,6 +2550,10 @@ interface Shell {
   head: HTMLElement;
   sheet: HTMLElement;
   statusbar: HTMLElement;
+  dock: HTMLElement;
+  dockHead: HTMLElement;
+  dockBody: HTMLElement;
+  chatGrip: HTMLElement;
 }
 
 // prAt reads a pull request out of a row id of the window's own

@@ -1221,3 +1221,41 @@ describe("ending a session from the agents list", () => {
     expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "archive", "delete"]);
   });
 });
+
+// The set has to empty as reads agree, or a session archived and brought back
+// would stay invisible.
+describe("what this window has archived but not yet read back", () => {
+  const repos: real.Repo[] = [
+    {
+      name: "ade",
+      owner: "owenrumney",
+      path: "/code/ade",
+      checkouts: [
+        {
+          path: "/code/ade",
+          name: "ade",
+          sessions: [
+            { id: "listed", name: "still here", dir: "/code/ade" },
+            { id: "agreed", name: "put away", dir: "/code/ade", archived: true },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("keeps an id the read still lists as live", () => {
+    expect([...real.stillListed(repos, new Set(["listed"]))]).toEqual(["listed"]);
+  });
+
+  it("forgets one the read now calls archived", () => {
+    expect(real.stillListed(repos, new Set(["agreed"])).size).toBe(0);
+  });
+
+  it("forgets one the read has stopped listing at all", () => {
+    expect(real.stillListed(repos, new Set(["vanished"])).size).toBe(0);
+  });
+
+  it("does nothing when nothing is waiting", () => {
+    expect(real.stillListed(repos, new Set()).size).toBe(0);
+  });
+});

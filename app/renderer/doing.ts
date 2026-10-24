@@ -162,7 +162,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.switchWorktree": S(
     "/api/worktrees/switch",
     {},
-    pick("worktree", "path", "Move this session to which worktree?"),
+    pick("worktree", "path", "Switch to which branch or worktree?"),
   ),
   "ade.worktrees": { at: "panel", panel: "ade.worktrees" },
   "ade.worktreeGraph": { at: "panel", panel: "ade.worktreeGraph" },

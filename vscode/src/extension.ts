@@ -387,6 +387,7 @@ import {
   type Doc,
 } from "./newsession/view";
 import { PurgePage } from "./purgeview";
+import { switchSaid } from "./switched";
 import type { Sweep } from "./purgepanel/view";
 import { DesignPrunePage, type Archived } from "./designpruneview";
 import type { Prunable, WikiState } from "./designprunepanel/view";
@@ -6075,16 +6076,36 @@ async function switchWorktree(): Promise<void> {
     return;
   }
   const picked = await pick(
-    offered.worktrees
-      .filter((t) => t.path !== offered.here)
-      .map((t) => ({
-        label: t.name,
-        description: t.branch ?? t.path,
-        path: t.path,
+    [
+      ...offered.worktrees
+        .filter((t) => t.path !== offered.here)
+        .map((t) => ({
+          label: t.name,
+          description: t.branch ?? t.path,
+          path: t.path,
+          branch: "",
+        })),
+      ...offered.branches.map((b) => ({
+        label: b.name,
+        description: b.stashed
+          ? `branch · ${b.stashed} files set aside · ${b.at ?? ""}`
+          : `branch · ${b.at ?? ""}`,
+        path: "",
+        branch: b.name,
       })),
-    { title: "Move this session to which worktree?" },
+    ],
+    { title: "Move this session where?" },
   );
   if (!picked) return;
+  if (picked.branch) {
+    await verb(`switched to ${picked.branch}`, async (c) => {
+      const out = await c.switchBranch(picked.branch);
+      void vscode.window.showInformationMessage(`ade: ${switchSaid(out)}`);
+      return out;
+    });
+    await sessions.refresh();
+    return;
+  }
   await verb(`moved to ${picked.label}`, (c) => c.switchTo(picked.path));
   await sessions.refresh();
 }
