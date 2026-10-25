@@ -336,8 +336,7 @@ describe("the menus this extension contributes to", () => {
   const declared = pkg.enabledApiProposals ?? [];
 
   // A gated menu renders nothing unless the manifest declares its proposal
-  // and the editor grants it: product.json in the ade editor, argv.json in
-  // VS Code. The entry is in the manifest and the button is nowhere otherwise.
+  // and the editor grants it, which in VS Code is argv.json.
   it("declares the proposal behind every gated menu it uses", () => {
     const missing = ids
       .map((id) => PROPOSED_MENUS[id] ?? ADE_EDITOR_MENUS[id])
@@ -442,58 +441,3 @@ it("gives dictation a command, a group and a chord", () => {
   expect(keys.find((k) => k.command === "ade.dictate")?.mac).toBe("cmd+alt+v");
 });
 
-// A pin that moves without a server published for it leaves every host
-// refusing the next window with "Client refused: version mismatch".
-describe("the editor server's version", () => {
-  const env = readFileSync(
-    join(__dirname, "..", "..", "editor", "env.sh"),
-    "utf8",
-  );
-  const workflow = readFileSync(
-    join(__dirname, "..", "..", ".github", "workflows", "editor-reh.yml"),
-    "utf8",
-  );
-  const version = /RELEASE_VERSION="([^"]+)"/.exec(env)?.[1] ?? "";
-
-  it("lives in editor/env.sh and nowhere else", () => {
-    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(workflow).toContain("editor/env.sh");
-    expect(workflow, "the workflow must read the pin, not carry one").not.toContain(
-      version,
-    );
-  });
-
-  it("is published as a pre-release in this repository", () => {
-    expect(workflow).toContain("--prerelease");
-  });
-
-  it("is built for the two arches ade publishes", () => {
-    expect(workflow).toContain("ubuntu-24.04-arm");
-    expect(workflow).toContain("arm64");
-    expect(workflow).toContain("x64");
-  });
-});
-
-// A link in the chat is handed to openExternal, which the editor guards with
-// its trusted-domains prompt. The fork trusts where ade's own links point.
-describe("the domains a chat link opens without asking", () => {
-  const product = JSON.parse(
-    readFileSync(join(__dirname, "..", "..", "editor", "product.json"), "utf8"),
-  ) as { linkProtectionTrustedDomains?: string[] };
-  const trusted = product.linkProtectionTrustedDomains ?? [];
-
-  it("trusts github, which is where a PR or issue row goes", () => {
-    expect(trusted).toContain("https://github.com");
-  });
-
-  // The agent writes the chat, so trusting every domain would hand it the
-  // browser. The prompt is the protection for anywhere it invents.
-  it("trusts no wildcard that would cover the whole web", () => {
-    for (const domain of trusted) {
-      expect(domain).toMatch(/^https:\/\//);
-      expect(domain).not.toBe("*");
-      expect(domain).not.toMatch(/^https:\/\/\*$/);
-      expect(domain).not.toMatch(/^https:\/\/\*\.[a-z]+$/);
-    }
-  });
-});

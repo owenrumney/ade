@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuilds app/icon.icns from editor/icon/ade.svg. Run by hand after the
+# Rebuilds app/icon.icns from app/icon/ade.svg. Run by hand after the
 # artwork changes: the .icns is committed so a build needs no browser.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -26,8 +26,8 @@ export ADE_CHROME
 [ -d tools/shots/node_modules ] || (cd tools/shots && npm install --silent)
 
 for sz in 16 32 64 128 256 512; do
-  node tools/shots/icon.mjs editor/icon/ade.svg "$work/ade.iconset/icon_${sz}x${sz}.png" "$sz"
-  node tools/shots/icon.mjs editor/icon/ade.svg "$work/ade.iconset/icon_${sz}x${sz}@2x.png" "$((sz * 2))"
+  node tools/shots/icon.mjs app/icon/ade.svg "$work/ade.iconset/icon_${sz}x${sz}.png" "$sz"
+  node tools/shots/icon.mjs app/icon/ade.svg "$work/ade.iconset/icon_${sz}x${sz}@2x.png" "$((sz * 2))"
 done
 iconutil -c icns "$work/ade.iconset" -o app/icon.icns
 echo "wrote app/icon.icns"

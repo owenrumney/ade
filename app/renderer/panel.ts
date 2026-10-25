@@ -146,10 +146,13 @@ const held = new Map<
 
 // stirred asks every panel that takes a push what it is now, and posts
 // it. Work that finishes elsewhere reaches the page no other way.
+// Quiet: nobody pressed, so the page is not told it is busy once a second.
 export async function stirred(): Promise<void> {
   for (const { node, panel } of held.values()) {
     if (!panel.stirs) continue;
-    const said = await panel.onMessage({ kind: "do", what: "refresh" }).catch(() => undefined);
+    const said = await panel
+      .onMessage({ kind: "do", what: "refresh", quiet: true })
+      .catch(() => undefined);
     if (said) node.querySelector("iframe")?.contentWindow?.postMessage(said, "*");
   }
 }

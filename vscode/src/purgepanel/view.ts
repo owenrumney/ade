@@ -108,6 +108,11 @@ export function chosen(all: Row[], ticked: Set<string>): Row[] {
   return all.filter((row) => ticked.has(row.path) && row.removable);
 }
 
+// selectable is every row Remove would take: what the header's tick picks.
+export function selectable(all: Row[]): string[] {
+  return all.filter((row) => row.removable).map((row) => row.path);
+}
+
 // byRepo groups what to remove, because prune is per repository: a failure in
 // one leaves the rest done.
 export function byRepo(picked: Row[]): { repo: string; paths: string[] }[] {

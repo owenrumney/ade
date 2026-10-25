@@ -8,6 +8,7 @@ import {
   port,
   removable,
   rows,
+  selectable,
   state,
   summary,
   told,
@@ -179,6 +180,16 @@ describe("chosen", () => {
     const all = rows(sweep);
     const ticked = new Set(["/code/ade-old", "/code/ade-live"]);
     expect(chosen(all, ticked).map((r) => r.path)).toEqual(["/code/ade-old"]);
+  });
+});
+
+describe("selectable", () => {
+  it("is the removable rows, which is what the header ticks", () => {
+    expect(selectable(rows(sweep))).toEqual(["/code/ade-old"]);
+  });
+
+  it("grows with force, as the rows do", () => {
+    expect(selectable(rows(sweep, true))).toEqual(["/code/ade-old", "/code/coast-wip"]);
   });
 });
 

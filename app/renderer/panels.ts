@@ -239,11 +239,14 @@ function stateful(spec: Stateful, reach: Reach): Panel {
         return { kind: "state", [spec.key]: last, busy: false, note };
       };
       if (what === "refresh") {
+        if (said.quiet) return again();
         reach.push(spec.id, { kind: "state", [spec.key]: last, busy: true, note: "" });
         return again("", true);
       }
       const act = spec.acts?.[what];
       if (!act) return { kind: "state", busy: false, note: `${what} is not wired yet` };
+      // A live button through a long removal takes a second press.
+      reach.push(spec.id, { kind: "state", [spec.key]: last, busy: true, note: "" });
       try {
         if ("run" in act) return again((await act.run(reach, said as Record<string, unknown>)) || "");
         await sent(reach, act.at, act.path, said as Record<string, unknown>, act.how);

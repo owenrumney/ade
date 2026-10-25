@@ -30,19 +30,4 @@ describe("the extension's quick inputs", () => {
     ).toEqual([]);
   });
 
-  // large() swallows a missing command, so a lost patch draws every box small.
-  it("ask for a command some editor patch registers", () => {
-    const facade = readFileSync(join(__dirname, "pick.ts"), "utf8");
-    const asked = facade.match(/executeCommand\("([^"]+)"\)/)?.[1];
-    expect(asked).toBeDefined();
-    const patches = join(__dirname, "..", "..", "editor", "patches");
-    const registered = readdirSync(patches)
-      .filter((f) => f.endsWith(".patch"))
-      .some((f) =>
-        readFileSync(join(patches, f), "utf8").includes(
-          `registerCommand('${asked}'`,
-        ),
-      );
-    expect(registered, `no patch registers ${asked}`).toBe(true);
-  });
 });

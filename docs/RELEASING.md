@@ -77,10 +77,11 @@ browser host, and the Keychain branch all assume macOS or Linux. This is not a
 
 ## The VS Code extension — **undecided**
 
-The extension ships built into `ADE.app` (`make editor-package editor-install`);
-`make vscode-remote HOST=<host>` carries `vscode/ade.vsix` to a Remote-SSH host.
-That is the whole distribution story. Nothing publishes it to a
-marketplace, and a release archive does not carry it.
+`make vscode-package` builds `vscode/ade.vsix` and
+`make vscode-remote HOST=<host>` carries it to a Remote-SSH host. That is the
+whole distribution story. Nothing publishes it to a marketplace, and a release
+archive does not carry it. The window, `make app-install`, is the front end
+that is actually used.
 
 ## The sandbox image
 

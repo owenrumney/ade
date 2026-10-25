@@ -1,4 +1,4 @@
-.PHONY: private full editor-fetch editor-prepare editor-dev editor-sync editor-package editor-reh editor-install app-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
+.PHONY: private full app-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
 
 # What `ade --version` reports. A tag when there is one, the commit otherwise,
 # and -dirty for a working tree that is not the commit it claims to be.
@@ -37,8 +37,8 @@ sign-setup:
 private:
 	@./tools/private.sh
 
-# The binary and the extension together, which is what a change to either
-# needs: the editor is the only front end, so neither is useful alone.
+# The binary and the extension together. The extension is a stock editor's
+# front end now that the fork is gone; the window is `make app-install`.
 ui: killall
 	go install -ldflags "$(LDFLAGS)" ./cmd/ade
 	@./tools/sign.sh "$(GOBIN)/ade"
@@ -130,11 +130,10 @@ test:
 # The binary and the app, in order: a rebuild after a pull.
 full:
 	$(MAKE) install
-	$(MAKE) editor-package
-	$(MAKE) editor-install
+	$(MAKE) app-install
 
-# Everything a new machine needs: both images, the binary, and the editor.
-quick-start: sandbox-image worker-image install editor-fetch editor-prepare editor-package editor-install
+# Everything a new machine needs: both images, the binary, and the window.
+quick-start: sandbox-image worker-image install app-install
 
 fmt:
 	gofmt -s -w .
@@ -195,7 +194,7 @@ vscode-package: vscode
 	cd vscode && npx vsce package --out ade.vsix
 
 # Installs the extension into another machine's editor server, for a Remote-SSH
-# window: there the extension runs on the remote host, not in ADE.app.
+# window: there the extension runs on the remote host.
 vscode-remote: vscode-package
 	@test -n "$(HOST)" || { echo "usage: make vscode-remote HOST=<ssh host>"; exit 1; }
 	@./tools/vscode-remote.sh "$(HOST)" vscode/ade.vsix
@@ -209,32 +208,3 @@ release-snapshot:
 clean:
 	rm -rf ./bin ./dist ./extension/web-ext-artifacts
 
-# The editor fork: VSCodium's build scripts over a pinned vscode, with ade's
-# patches in editor/patches and the extension built in. See
-# .git/ade/docs/editor-fork.md. Fetch once, prepare after a patch or vscode
-# bump (it runs npm ci, about ten minutes), dev to compile and run from source.
-editor-fetch:
-	tools/editor/fetch.sh
-
-editor-prepare:
-	tools/editor/prepare.sh
-
-editor-dev:
-	tools/editor/dev.sh $(if $(COMPILE),-c) $(ARGS)
-
-editor-sync:
-	tools/editor/sync.sh
-
-editor-package:
-	tools/editor/package.sh
-
-# The editor server a window on another machine runs. Linux only, and the
-# server must be built from the same commit as the client, which is why CI
-# builds it from this tree: .github/workflows/editor-reh.yml.
-editor-reh:
-	tools/editor/reh.sh $(ARCH)
-
-# The packaged app into /Applications and its cli on PATH. A nightly is
-# make editor-package editor-install.
-editor-install:
-	tools/editor/install.sh

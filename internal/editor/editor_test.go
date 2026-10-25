@@ -27,8 +27,7 @@ func TestFindingTheEditor(t *testing.T) {
 		want    string
 		wantErr string
 	}{
-		{name: "ADE before anything else", have: []string{"code", "ade-editor"}, want: "/usr/local/bin/ade-editor"},
-		{name: "code when there is no ADE", have: []string{"cursor", "code"}, want: "/usr/local/bin/code"},
+		{name: "code before the rest", have: []string{"cursor", "code"}, want: "/usr/local/bin/code"},
 		{name: "the next one when code is missing", have: []string{"cursor"}, want: "/usr/local/bin/cursor"},
 		{name: "the one that is named", named: "cursor", have: []string{"code", "cursor"}, want: "/usr/local/bin/cursor"},
 		{name: "a named one that is missing is not replaced", named: "zed", have: []string{"code"}, wantErr: "ADE_EDITOR names zed"},
