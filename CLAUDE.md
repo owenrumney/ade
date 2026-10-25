@@ -63,16 +63,15 @@ binary without that: `go install -ldflags "-X main.version=$(git describe
 Replacing the file does not disturb the running process; the next start picks
 it up.
 
-**`make install` is the Go binary and nothing else.** Not the editor extension.
-Change anything under `vscode/src` and telling someone to `make install` ships
-them none of it — the symptom is a backend that plainly works and a UI that
-cannot draw it. `make ui` is the one that builds both.
+**`make install` is the Go binary and nothing else.** Not the pages. Change
+anything under `vscode/src` or `app/renderer` and telling someone to `make
+install` ships them none of it — the symptom is a backend that plainly works
+and a UI that cannot draw it.
 
-**Building the extension is not installing it.** `make ui` only writes
-`vscode/dist`; ADE.app runs the copy built into it. A change under `vscode/src`
-reaches it through `make editor-package && make editor-install`, or `make
-editor-dev` from source. A Remote-SSH window runs the extension on the remote
-host: `make vscode-remote HOST=<host>`.
+**Building is not installing.** `make app-build` only writes `app/dist`;
+`/Applications/ADE.app` runs the copy inside it, which `make app-install`
+replaces. The extension's own bundles are `make ui`, and a Remote-SSH host
+takes them through `make vscode-remote HOST=<host>`.
 
 **Local Network is granted to the editor, not the binary.** macOS judges a
 connection by the process it holds responsible, which for an `ade` the
@@ -209,39 +208,18 @@ There is no stylesheet of ade's own any more. `internal/ui/tokens.css` went with
 the pages it dressed; what the editor draws wears `--vscode-*` variables, in
 `vscode/media/chat.css`. Take a colour from the theme rather than naming one.
 
-## The editor
+## The front end
 
-ade is its own editor: VSCodium's scripts over a pinned vscode, ade's patches
-in `editor/patches`, the extension built in. The plan and the reasoning are in
-`.git/ade/docs/editor-fork.md`; the ignored build tree is `editor/vscodium`.
+ade's own window is the front end: `app/`, an Electron shell over a renderer
+that talks to the launcher and the session servers over HTTP. `make app` runs
+it from source, `make app-install` puts it in /Applications. The VSCodium fork
+is gone; `.git/ade/docs/editor-removal.md` is the plan it went by.
 
-**The build tree is shared by every worktree**, beside the main checkout, so a
-worktree never fetches or `npm ci`s its own. It holds one branch's patches at a
-time: `editor-dev`, `editor-package` and `editor-reh` refuse when the tree was
-prepared from another checkout, and the answer is `make editor-prepare` here.
-See `.git/ade/docs/shared-editor-build-tree.md`.
+The extension under `vscode/` still builds for a stock VS Code, but the
+proposed APIs the fork granted it are not granted there, so some menus do not
+draw. The pages it holds are what the window loads, which is why the directory
+is still here — see stage 3 of the same document.
 
-- `make editor-fetch` once per machine; `make editor-prepare` after a patch or pin change
-  (ten minutes, it is `npm ci`); `make editor-dev` runs from source,
-  `COMPILE=1` after a source change; `make editor-package` builds `ADE.app`.
-- The vscode tree holds one `ADE BASELINE` commit. Edit source, then
-  `git diff > editor/patches/NN-name.patch`. Patches apply in name order after
-  VSCodium's, so a later one is diffed against the earlier ones applied.
-- The scripts are bash. Run them, do not source them in zsh: an empty glob
-  aborts the run halfway through the patches.
-- Never launch the dev editor with HOME pointed elsewhere; macOS raises a
-  keychain dialog on the user's screen. Isolate with `--user-data-dir`.
-- Pictures: `CDP=9333 tools/editor/dev.sh <folder>` opens the debugging port
-  and `tools/editor/drive.mjs` sends keys, clicks and captures the window.
-  The terminal is not allowed to send keystrokes.
-- A proposed API the extension uses goes in `enabledApiProposals` and in
-  `editor/product.json`; the editor grants it from there, and `menu.test.ts`
-  checks the two agree. Stock VS Code needs `argv.json` instead.
-- Anything put to the person goes through `vscode/src/pick.ts`: `pick()`,
-  `input()`, `quickPick()` or `inputBox()`, never the stock four. The
-  omnibox is the picker for everything, and `pick.test.ts` fails the build
-  on a stock one.
-- The monthly bump to VSCodium's pin is the job `.ade/jobs/editor-bump.md`,
-  run by hand from the worktree it should branch from: `ade jobs run
-  editor-bump` there, or "Run it now" from the editor's job pick. It makes
-  a worktree and a session and leaves the branch for you to look at.
+- Anything the extension puts to the person goes through `vscode/src/pick.ts`:
+  `pick()`, `input()`, `quickPick()` or `inputBox()`, never the stock four,
+  and `pick.test.ts` fails the build on a stock one.

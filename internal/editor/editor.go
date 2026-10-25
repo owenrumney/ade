@@ -17,10 +17,7 @@ import (
 var ErrNone = errors.New("no editor cli on PATH")
 
 // candidates are tried in order when ADE_EDITOR does not name one.
-var candidates = []string{"ade-editor", "code", "cursor", "codium"} //nolint:gochecknoglobals // a table, not state
-
-// appCLI is ADE.app's own cli, for when make editor-install could not link it onto PATH.
-const appCLI = "/Applications/ADE.app/Contents/Resources/app/bin/ade-editor"
+var candidates = []string{"code", "cursor", "codium"} //nolint:gochecknoglobals // a table, not state
 
 // OpenDesk shows dir in the one window: the desk's workspace, with dir among
 // its folders. The extension attaches to the folder as it arrives.
@@ -35,7 +32,7 @@ func OpenDesk(dir string) error {
 // Open shows dir in the editor: a window already on it comes forward, and
 // otherwise a new one opens. It does not wait for the window.
 func Open(dir string) error {
-	bin, err := find(os.Getenv("ADE_EDITOR"), lookPath)
+	bin, err := find(os.Getenv("ADE_EDITOR"), exec.LookPath)
 	if err != nil {
 		return err
 	}
@@ -45,14 +42,6 @@ func Open(dir string) error {
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
-}
-
-func lookPath(name string) (string, error) {
-	bin, err := exec.LookPath(name)
-	if err != nil && name == "ade-editor" {
-		return exec.LookPath(appCLI)
-	}
-	return bin, err
 }
 
 // find is which cli to run. A named one that is missing is an error rather

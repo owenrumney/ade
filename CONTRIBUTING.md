@@ -282,25 +282,18 @@ This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md), version
 Apache-2.0. Your contribution arrives under the same terms, by §5 of the
 licence — there is no separate CLA to sign.
 
-## The editor
+## The front end
 
-ade ships as its own editor, built from vscode with VSCodium's scripts and
-ade's own patches under `editor/patches`. `make editor-fetch` pulls the
-sources once per machine, `make editor-prepare` applies the patches and
-installs (about ten minutes), `make editor-dev` runs it from source, and `make
-editor-package` builds `ADE.app`. The build tree is shared by every worktree,
-beside the main checkout, and holds one branch's patches at a time: a build
-refuses and asks for `make editor-prepare` when the patches in it are not
-yours. The design doc, `.git/ade/docs/editor-fork.md`, says why and
-what each patch is for. The extension under `vscode/` is built in, so a change
-there reaches the editor through `make editor-dev`, and the installed `ADE.app`
-through `make editor-package editor-install`.
+ade's own window is the front end: `app/`, an Electron shell with a renderer
+of its own. `make app` runs it from source, `make app-test` type checks and
+tests it, `make app-install` puts `ADE.app` in /Applications. The VSCodium
+fork that used to be the editor is gone; the plan it went by is
+`.git/ade/docs/editor-removal.md`.
 
-The monthly move to VSCodium's current pin is the job `.ade/jobs/editor-bump.md`,
-not a make target: a rejected patch takes judgement. Run it from the worktree
-it should branch from, with `ade jobs run editor-bump` there or "Run it now" in
-the editor's job pick. It makes a worktree and a session beside that checkout
-and leaves the branch for you to look at; the report says where to look.
+The extension under `vscode/` is still here because the window loads its
+pages. It builds for a stock VS Code — `make vscode-package`, and
+`make vscode-remote HOST=<host>` for a Remote-SSH host — but the proposed
+APIs the fork granted it are not granted there, so some menus do not draw.
 
 ## The prompts that are not here
 
