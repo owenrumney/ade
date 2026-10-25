@@ -416,6 +416,46 @@ describe("a panel hears about work that finished elsewhere", () => {
   });
 });
 
+// Remove used to leave the button live and blinking: a stir answered as a press.
+describe("the purge panel while it works", () => {
+  function spyReach(): { reach: Reach; pushed: Record<string, unknown>[] } {
+    const pushed: Record<string, unknown>[] = [];
+    const reach: Reach = {
+      get: async () => ({ repos: [] }),
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async () => ({ removed: [], kept: [] }),
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: (id, said) => pushed.push({ id, ...(said as Record<string, unknown>) }),
+      follow: () => {},
+    };
+    return { reach, pushed };
+  }
+
+  it("says nothing about being busy when the window stirs it", async () => {
+    const { reach, pushed } = spyReach();
+    const panel = WHICH["ade.purgeWorktrees"](reach);
+    await panel.onMessage({ kind: "ready" });
+    const said = (await panel.onMessage({
+      kind: "do",
+      what: "refresh",
+      quiet: true,
+    })) as { busy?: boolean };
+    expect(pushed).toEqual([]);
+    expect(said.busy).toBe(false);
+  });
+
+  it("disables itself while the removal runs", async () => {
+    const { reach, pushed } = spyReach();
+    const panel = WHICH["ade.purgeWorktrees"](reach);
+    await panel.onMessage({ kind: "ready" });
+    await panel.onMessage({ kind: "do", what: "remove", paths: [], force: false });
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0].busy).toBe(true);
+  });
+});
+
 // One page, two hosts. The window's half is driven above; the editor's is
 // the same page's other host, and a verb only one of them answers is a
 // button that does nothing and says nothing.

@@ -1,4 +1,4 @@
-import { chosen, rows, summary, type Row, type Sweep } from "./view";
+import { chosen, rows, selectable, summary, type Row, type Sweep } from "./view";
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 const host = acquireVsCodeApi();
@@ -49,10 +49,35 @@ function tick(row: Row): HTMLElement {
   return td;
 }
 
+// tickAll is the header's box: every removable row at once, and off again.
+function tickAll(all: Row[]): HTMLElement {
+  const paths = selectable(all);
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "all";
+  box.title = "Select all applicable";
+  box.setAttribute("aria-label", "Select all applicable");
+  box.disabled = paths.length === 0;
+  box.checked = paths.length > 0 && paths.every((path) => ticked.has(path));
+  box.indeterminate = !box.checked && paths.some((path) => ticked.has(path));
+  box.addEventListener("change", () => {
+    for (const path of paths) {
+      if (box.checked) ticked.add(path);
+      else ticked.delete(path);
+    }
+    draw();
+    focusOn("th .all");
+  });
+  const th = el("th", "pick");
+  th.append(box);
+  return th;
+}
+
 function table(all: Row[]): HTMLElement {
   const box = el("table", "rows");
   const head = el("tr");
-  for (const name of ["", "Repository", "Worktree", "Branch", "Last used", "Behind", "State"]) {
+  head.append(tickAll(all));
+  for (const name of ["Repository", "Worktree", "Branch", "Last used", "Behind", "State"]) {
     head.append(el("th", "", name));
   }
   const top = el("thead");
