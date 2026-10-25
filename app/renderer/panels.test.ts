@@ -669,3 +669,142 @@ describe("the New session panel's Design row", () => {
     expect(said.note).toContain("checked out elsewhere");
   });
 });
+
+// Remove used to post the page's own message to /api/prune, which names no
+// repository: the launcher refused, the window swallowed the refusal, and
+// the page sat there with the same table and nothing said.
+describe("removing worktrees from the purge page", () => {
+  const sweep = {
+    repos: [
+      {
+        path: "/code/ade",
+        name: "ade",
+        worktrees: [
+          { path: "/code/ade-old", name: "ade-old", branch: "old", kind: "session", removable: true },
+        ],
+      },
+      {
+        path: "/code/coast",
+        name: "coast",
+        worktrees: [
+          { path: "/code/coast-wip", name: "coast-wip", branch: "wip", kind: "session", removable: true },
+          { path: "/code/coast-live", name: "coast-live", branch: "live", kind: "session", removable: false, keep: "serving" },
+        ],
+      },
+    ],
+  };
+
+  function purge(
+    answer: (body: Record<string, unknown>) => unknown,
+    asked: string[] = [],
+    seen: Record<string, unknown>[] = [],
+  ): { reach: Reach; seen: Record<string, unknown>[]; asked: string[] } {
+    const reach: Reach = {
+      get: async () => sweep,
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async (_at, _path, body) => {
+        seen.push(body);
+        return answer(body);
+      },
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: () => {},
+      follow: () => {},
+      ask: async (title) => {
+        asked.push(title);
+        return "yes";
+      },
+    };
+    return { reach, seen, asked };
+  }
+
+  async function remove(reach: Reach, paths: string[]): Promise<{ note: string }> {
+    return (await WHICH["ade.purgeWorktrees"](reach).onMessage({
+      kind: "do",
+      what: "remove",
+      paths,
+    })) as { note: string };
+  }
+
+  it("prunes one repository at a time, each named", async () => {
+    const { reach, seen, asked } = purge((body) => ({ removed: body.paths, kept: [] }));
+    const said = await remove(reach, ["/code/ade-old", "/code/coast-wip"]);
+    expect(seen).toEqual([
+      { repo: "/code/ade", paths: ["/code/ade-old"], force: false },
+      { repo: "/code/coast", paths: ["/code/coast-wip"], force: false },
+    ]);
+    expect(asked).toEqual(["Remove 2 worktrees?"]);
+    expect(said.note).toBe("Removed 2.");
+  });
+
+  it("says why, when the launcher refuses", async () => {
+    const { reach } = purge(() => ({ error: "that is not one of the repositories on this machine" }));
+    const said = await remove(reach, ["/code/ade-old"]);
+    expect(said.note).toContain("not one of the repositories");
+  });
+
+  it("removes nothing when the answer is no", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const reach: Reach = {
+      ...purge(() => ({}), [], seen).reach,
+      ask: async () => undefined,
+    };
+    const said = await remove(reach, ["/code/ade-old"]);
+    expect(seen).toEqual([]);
+    expect(said.note).toBe("");
+  });
+
+  it("drops a tick the sweep no longer frees", async () => {
+    const { reach, seen } = purge(() => ({ removed: [], kept: [] }));
+    const said = await remove(reach, ["/code/coast-live"]);
+    expect(seen).toEqual([]);
+    expect(said.note).toContain("moved on");
+  });
+});
+
+// Refresh read the same warm sweep the launcher had already served, so the
+// button did nothing twice: no rescan, and no sign it had been pressed.
+describe("refreshing the purge page", () => {
+  function watched(): { reach: Reach; read: string[]; pushed: unknown[] } {
+    const read: string[] = [];
+    const pushed: unknown[] = [];
+    const reach: Reach = {
+      get: async (_at, path) => {
+        read.push(path);
+        return { repos: [] };
+      },
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async () => ({}),
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: (_id, said) => pushed.push(said),
+      follow: () => {},
+    };
+    return { reach, read, pushed };
+  }
+
+  it("asks the launcher to rescan", async () => {
+    const { reach, read } = watched();
+    const panel = WHICH["ade.purgeWorktrees"](reach);
+    await panel.onMessage({ kind: "ready" });
+    await panel.onMessage({ kind: "do", what: "refresh" });
+    expect(read).toEqual(["/api/worktrees/all", "/api/worktrees/all?fresh=1"]);
+  });
+
+  it("says it is scanning, with the table it already drew", async () => {
+    const { reach, pushed } = watched();
+    const panel = WHICH["ade.purgeWorktrees"](reach);
+    await panel.onMessage({ kind: "ready" });
+    await panel.onMessage({ kind: "do", what: "refresh" });
+    expect(pushed).toEqual([{ kind: "state", sweep: { repos: [] }, busy: true, note: "" }]);
+  });
+
+  it("leaves a page with no rescan path reading its own", async () => {
+    const { reach, read } = watched();
+    const panel = WHICH["ade.showRepo"](reach);
+    await panel.onMessage({ kind: "do", what: "refresh" });
+    expect(read).toEqual(["/api/repo"]);
+  });
+});

@@ -143,10 +143,15 @@ describe("what is picked up again next time", () => {
     what: { kind: "code", title: "a/b.go", source: "x" },
   };
   const chat: Tab = { id: "panel:ade.openChat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
+  const panel: Tab = { id: "panel:ade.worktrees", title: "Worktrees", icon: "branch", what: { panel: "ade.worktrees" } };
   const doc: Tab = { id: "doc:#412", title: "#412", icon: "pr", what: { kind: "doc", title: "#412", body: "..." } };
 
   it("is a tab the window can open from its id alone", () => {
-    expect(keepable([file, chat, doc])).toEqual(["code:a/b.go", "panel:ade.openChat"]);
+    expect(keepable([file, panel, doc])).toEqual(["code:a/b.go", "panel:ade.worktrees"]);
+  });
+
+  it("leaves out the chat, which is the dock and not a tab", () => {
+    expect(keepable([file, chat])).toEqual(["code:a/b.go"]);
   });
 
   it("leaves out a document that came from a one-off read", () => {

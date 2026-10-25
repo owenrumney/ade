@@ -324,7 +324,7 @@
       },
       {
         "command": "ade.switchWorktree",
-        "title": "ade: Move this session to a worktree",
+        "title": "ade: Switch branch or worktree",
         "icon": "$(arrow-swap)"
       },
       {

@@ -935,6 +935,20 @@ export function answered(got?: Answer): { error: string; body: unknown } {
   return { error: "", body: got };
 }
 
+// stillListed drops the archived-here ids a read has caught up with.
+export function stillListed(repos: Repo[], gone: ReadonlySet<string>): Set<string> {
+  if (gone.size === 0) return new Set();
+  const listed = new Set<string>();
+  for (const repo of repos) {
+    for (const checkout of repo.checkouts ?? []) {
+      for (const session of checkout.sessions ?? []) {
+        if (!session.archived) listed.add(session.id);
+      }
+    }
+  }
+  return new Set([...gone].filter((id) => listed.has(id)));
+}
+
 // knownSessions is every conversation this window may point at. Not
 // whereSessionsAre: a remote one has no path here but is still a pick.
 export function knownSessions(

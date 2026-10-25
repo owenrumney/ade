@@ -60,6 +60,12 @@ describe("sessionsOf", () => {
   it("has nothing to say about a repository it has no reading of", () => {
     expect(sessionsOf(undefined, now)).toEqual([]);
   });
+
+  // The launcher derives sessions from transcripts, so an archived row is
+  // still in the list this window holds.
+  it("leaves out what this window has just archived", () => {
+    expect(sessionsOf(repo, now, new Set(["new"])).map((l) => l.id)).toEqual(["old"]);
+  });
 });
 
 describe("designsOf", () => {
@@ -77,6 +83,17 @@ describe("designsOf", () => {
       { file: "space-page.md", id: "/code/ade|space-page.md", name: "space-page" },
     ]);
   });
+
+  it("leaves out what this window has just archived", () => {
+    const space: Space = {
+      repo: "owenrumney/ade",
+      path: "/code/ade",
+      sessions: 2,
+      here: true,
+      designs: ["a.md", "b.md"],
+    };
+    expect(designsOf(space, new Set(["a.md"])).map((d) => d.file)).toEqual(["b.md"]);
+  });
 });
 
 // The page is built once and kept, so what it was built from has to say when
@@ -86,12 +103,21 @@ describe("when a drawn space page is stale", () => {
   const seen = {
     space: { repo: "owenrumney/ade", sessions: 1, here: true, designs: ["a.md", "b.md"] },
     sessions: [{ id: "s1", name: "one", meta: "main · live", live: true }],
-    designs: [],
+    designs: [
+      { file: "a.md", id: "/code/ade|a.md", name: "a" },
+      { file: "b.md", id: "/code/ade|b.md", name: "b" },
+    ],
   };
 
+  // The key follows the list drawn, not the space's own: the row goes when
+  // this window archives it, before any read agrees.
   it("changes when a design is archived", () => {
-    const after = { ...seen, space: { ...seen.space, designs: ["b.md"] } };
+    const after = { ...seen, designs: seen.designs.slice(1) };
     expect(drawnFrom(after)).not.toBe(drawnFrom(seen));
+  });
+
+  it("changes when a session is archived", () => {
+    expect(drawnFrom({ ...seen, sessions: [] })).not.toBe(drawnFrom(seen));
   });
 
   it("changes when a session stops, and not when the numbers are still coming", () => {

@@ -475,6 +475,23 @@ export interface Tree {
   lastUsed?: string;
 }
 
+// Branch is one local branch this checkout could switch onto, and what ade
+// set aside the last time that branch was left.
+export interface Branch {
+  name: string;
+  at?: string;
+  stashed?: number;
+}
+
+// Switched is what a branch switch did, each count a file count.
+export interface Switched {
+  branch: string;
+  stashed?: number;
+  restored?: number;
+  stuck?: string[];
+  note?: string;
+}
+
 // Rev mirrors gitdiff.Rev: one commit of a range. patchId keys it by its diff,
 // so a cherry-pick of it elsewhere carries the same value.
 export interface Rev {
@@ -814,15 +831,23 @@ export class Client {
   }
 
   // The list the switch itself is gated on, so nothing offered is refused.
-  async switchable(): Promise<{ worktrees: Tree[]; here: string }> {
-    const res = await this.get<{ worktrees: Tree[] | null; here: string }>(
-      "/api/worktrees/switch",
-    );
-    return { worktrees: res.worktrees ?? [], here: res.here };
+  async switchable(): Promise<{ worktrees: Tree[]; branches: Branch[]; here: string }> {
+    const res = await this.get<{
+      worktrees: Tree[] | null;
+      branches: Branch[] | null;
+      here: string;
+    }>("/api/worktrees/switch");
+    return { worktrees: res.worktrees ?? [], branches: res.branches ?? [], here: res.here };
   }
 
   switchTo(path: string): Promise<unknown> {
     return this.post("/api/worktrees/switch", { path });
+  }
+
+  // The branch switch is the same route: a path moves the session to another
+  // checkout, a branch switches the one it is in.
+  switchBranch(branch: string): Promise<Switched> {
+    return this.post<Switched>("/api/worktrees/switch", { branch });
   }
 
   // The agent writes the description from your commits, pushes the branch,

@@ -1,3 +1,4 @@
+import { isChat } from "./dock";
 import type { View } from "./model";
 
 // What is open in the editor area. A tab is named by what it holds, so
@@ -132,12 +133,10 @@ export function trimmed(kept: Map<string, Layout>, first: string, max = 20): [st
 // again from its id alone, which a one-off read is not.
 export function keepable(tabs: Tab[]): string[] {
   return tabs
-    .filter(
-      (t) =>
-        "panel" in t.what ||
-        t.what.kind === "term" ||
-        t.what.kind === "code" ||
-        t.what.kind === "hunks",
+    .filter((t) =>
+      "panel" in t.what
+        ? !isChat(t.what.panel)
+        : t.what.kind === "term" || t.what.kind === "code" || t.what.kind === "hunks",
     )
     .map((t) => t.id);
 }
