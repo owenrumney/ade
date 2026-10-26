@@ -260,7 +260,7 @@ var responseShapes = map[string][]string{
 		"sandboxEnv map", "sandboxPaths slice", "scanDirs slice",
 		"sharpenOff bool",
 	},
-	"SettingsHost": {"label string", "name string"},
+	"SettingsHost": {"label string", "name string", "ship_cloud_credentials bool"},
 	"SandboxView": {
 		"always slice", "env map", "fixed string", "on bool", "path string", "paths slice",
 		"runtime string",

@@ -162,3 +162,37 @@ func TestAWorkerToldToStopReportingStops(t *testing.T) {
 	require.NoError(t, json.Unmarshal(sentWritten(t, rec, ".ade/settings.json"), &cfg))
 	assert.NotContains(t, cfg, "dashboard")
 }
+
+// The worker's own launcher clones the store from this key, which is how a
+// design written here is readable there.
+func TestTheDesignsRemoteReachesTheWorkersSettings(t *testing.T) {
+	rec := &recorder{reply: says("")}
+	host := testHost(t, rec)
+
+	require.NoError(t, host.PreparePrompt(context.Background(),
+		Prompt{DesignsRemote: "https://github.com/owenrumney/ade-designs"}))
+
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(sentWritten(t, rec, ".ade/settings.json"), &cfg))
+	assert.Equal(t, "https://github.com/owenrumney/ade-designs", cfg["designs_remote"])
+}
+
+// A store that stopped being shared has to stop being shared over there too,
+// or the worker goes on pushing to a remote this machine has forgotten.
+func TestClearingTheDesignsRemoteClearsTheWorkers(t *testing.T) {
+	rec := &recorder{reply: func(argv []string) ([]byte, []byte, error) {
+		joined := strings.Join(argv, " ")
+		if strings.Contains(joined, "-f") && strings.Contains(joined, ".ade/settings.json") &&
+			!strings.Contains(joined, "cat >") {
+			return []byte(sentinel + `{"designs_remote":"https://github.com/owenrumney/old"}`), nil, nil
+		}
+		return []byte(sentinel), nil, nil
+	}}
+	host := testHost(t, rec)
+
+	require.NoError(t, host.PreparePrompt(context.Background(), Prompt{}))
+
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(sentWritten(t, rec, ".ade/settings.json"), &cfg))
+	assert.NotContains(t, cfg, "designs_remote")
+}

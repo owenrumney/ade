@@ -139,6 +139,8 @@ type Server struct {
 	todos   *todo.Shared
 	// wikiSyncing keeps the background refresh to one worker.
 	wikiSyncing atomic.Bool
+	// designsSyncing does the same for the designs store.
+	designsSyncing atomic.Bool
 
 	// quiet is one pending distillation per repository, armed by a session
 	// going idle or leaving. quietMu holds it. See distillquiet.go.
@@ -343,6 +345,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.watchDashboard(ctx)
 	go s.watchWaiting(ctx)
 	go s.watchJobs(ctx)
+	go s.watchDesigns(ctx)
 	go s.watchMachine(ctx)
 	go s.watchBus(ctx)
 	go s.warmStats(ctx)
