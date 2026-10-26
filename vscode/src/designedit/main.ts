@@ -318,9 +318,10 @@ const theme = EditorView.theme({
   ".cm-content": {
     fontFamily: "var(--ade-font-family, var(--vscode-font-family))",
     caretColor: "var(--vscode-editorCursor-foreground)",
-    maxWidth: "48rem",
-    margin: "0 auto",
-    padding: "2rem 1rem 60vh",
+    // No measure: a table or a diagram sized to the pane beside prose
+    // stopping at 48rem read as two documents.
+    maxWidth: "none",
+    padding: "2rem 2.5rem 60vh",
   },
   ".cm-cursor": { borderLeftColor: "var(--vscode-editorCursor-foreground)" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {

@@ -133,6 +133,8 @@ type agentRunner struct {
 	// outbox is where a picture goes to reach the reply. A function for the
 	// same reason, and because it is created on the way out.
 	outbox func() string
+	// alsoOn opens this server where a box can reach it; nil in a test.
+	alsoOn func(host string)
 
 	// boxMu guards building a spec and the cold names. Every run rewrites the
 	// one box its container mounts, so two at once would read a half-written login.
@@ -643,7 +645,17 @@ func (a *agentRunner) ensureRuntime(ctx context.Context) error {
 		return err
 	}
 	a.runtime = rt
+	a.reachable(rt)
 	return nil
+}
+
+// reachable is here, not at listen time: detecting the runtime costs a probe.
+func (a *agentRunner) reachable(rt sandbox.Runtime) {
+	apple, ok := rt.(sandbox.Apple)
+	if !ok || apple.Host == "" || a.alsoOn == nil {
+		return
+	}
+	a.alsoOn(apple.Host)
 }
 
 // restartSandbox drops a running container so the next turn starts one with
@@ -1590,16 +1602,21 @@ func (a *agentRunner) outboxDir() string {
 }
 
 // containerHost is what the host answers to from inside the container, or ""
-// when there is none. Docker alone: Apple's runtime has no equivalent name.
+// when there is none. Apple has no name for it, so it is the gateway address.
 func (a *agentRunner) containerHost() string {
-	docker, ok := a.runtime.(sandbox.Docker)
-	if !ok || !a.sandbox {
+	if !a.sandbox {
 		return ""
 	}
-	if docker.Network != "" {
-		return workerHost(docker)
+	switch at := a.runtime.(type) {
+	case sandbox.Docker:
+		if at.Network != "" {
+			return workerHost(at)
+		}
+		return "host.docker.internal"
+	case sandbox.Apple:
+		return at.Host
 	}
-	return "host.docker.internal"
+	return ""
 }
 
 // workerHost is the worker's ade by its container name on the hub's network, or

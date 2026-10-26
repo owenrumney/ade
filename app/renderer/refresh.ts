@@ -13,6 +13,8 @@ const DASH = (only: string, say: string): Refresh => ({
 });
 
 const BY: Record<string, Refresh> = {
+  // A git repository, so its refresh is a push and a pull.
+  designs: { say: "syncing designs…", at: "launcher", path: "/api/designs/sync" },
   prs: DASH("reviews", "asking GitHub…"),
   waiting: DASH("reviews", "asking GitHub…"),
   inbox: DASH("notifications", "asking GitHub…"),

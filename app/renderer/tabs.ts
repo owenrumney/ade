@@ -97,6 +97,13 @@ export function live(tab: Tab): boolean {
   return "panel" in tab.what || tab.what.kind === "term";
 }
 
+// Whether Escape closes this tab. A panel closes itself, and a terminal
+// reads the key: vim, less and fzf all want it.
+export function dismissable(tab: Tab | undefined): boolean {
+  if (!tab || "panel" in tab.what) return false;
+  return tab.what.kind !== "term";
+}
+
 // Pane is a built tab. `waiting` is one that could only say why it
 // cannot draw its page yet.
 export interface Pane {

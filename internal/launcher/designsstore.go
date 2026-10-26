@@ -3,10 +3,13 @@ package launcher
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/owenrumney/ade/internal/designs"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -209,9 +212,12 @@ func (s *Server) handleDesignsSync(w http.ResponseWriter, r *http.Request) {
 // names, on a branch named for it, and one session across them.
 func (s *Server) handleDesignStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name  string `json:"name"`
-		Agent string `json:"agent"`
-		Model string `json:"model"`
+		Name    string `json:"name"`
+		Agent   string `json:"agent"`
+		Model   string `json:"model"`
+		Machine string `json:"machine,omitempty"`
+		// Set by the machine that forwarded this, never by a person.
+		Sync bool `json:"sync,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -219,6 +225,17 @@ func (s *Server) handleDesignStart(w http.ResponseWriter, r *http.Request) {
 	if s.designs == nil {
 		writeError(w, http.StatusInternalServerError, "no designs store on this machine")
 		return
+	}
+	if req.Machine != "" {
+		s.startDesignOnHost(w, r, req.Machine, req.Name, req.Agent, req.Model)
+		return
+	}
+	// The clone may be behind the machine that forwarded this.
+	if req.Sync && s.designs.Shared() {
+		if err := s.designs.Sync(r.Context()); err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
 	}
 	design, err := s.designs.Read(req.Name)
 	if err != nil {
@@ -246,6 +263,46 @@ func (s *Server) handleDesignStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path, "also": also})
 }
 
+// startDesignOnHost begins the work on another machine.
+func (s *Server) startDesignOnHost(w http.ResponseWriter, r *http.Request, machine, name, agent, model string) {
+	live := s.connection(machine)
+	if live == nil {
+		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		return
+	}
+	if !s.designs.Shared() {
+		writeError(w, http.StatusBadRequest,
+			"this machine's designs store has no remote, so "+machine+" cannot read "+name+
+				"; set designs_remote in ~/.ade/settings.json")
+		return
+	}
+	// Push first: the far pull is the only way the design gets there.
+	if err := s.designs.Sync(r.Context()); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	body, err := json.Marshal(map[string]any{
+		"name": name, "agent": agent, "model": model, "sync": true,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	answer, err := sessions.AskFor(r.Context(), live.url, http.MethodPost, "/api/designs/start", string(body), openWait)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var got map[string]any
+	if err := json.Unmarshal(answer, &got); err != nil {
+		writeError(w, http.StatusBadGateway, machine+" did not answer about starting "+name)
+		return
+	}
+	// The path is that machine's, so the caller opens a window over there.
+	got["machine"] = machine
+	writeJSON(w, http.StatusOK, got)
+}
+
 // placesFor is the checkouts a design's repositories resolve to here. One it
 // cannot find is an error: starting in fewer than asked for says nothing.
 func placesFor(design designs.Design, repos []sessions.Repo) (home string, also []string, err error) {
@@ -266,11 +323,33 @@ func placesFor(design designs.Design, repos []sessions.Repo) (home string, also 
 	return home, also, nil
 }
 
-// syncDesigns is the sweep's go at the store, which is how a design written
-// on another machine turns up here.
+// designsInterval: a design is written by a person, so minutes is the grain.
+const designsInterval = 2 * time.Minute
+
+// watchDesigns is how a design written on another machine turns up here.
+func (s *Server) watchDesigns(ctx context.Context) {
+	ticker := time.NewTicker(designsInterval)
+	defer ticker.Stop()
+	for {
+		s.syncDesigns(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// syncDesigns is one at a time: a second waiter queues behind a stale fetch.
 func (s *Server) syncDesigns(ctx context.Context) {
 	if s.designs == nil || !s.designs.Shared() {
 		return
 	}
-	_ = s.designs.Sync(ctx)
+	if !s.designsSyncing.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.designsSyncing.Store(false)
+	if err := s.designs.Sync(ctx); err != nil {
+		slog.Debug("sync the designs store", "err", err)
+	}
 }

@@ -23,6 +23,7 @@ import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread 
 import { Kept } from "./kept";
 import { frame, pushTo, stirred, tell } from "./panel";
 import {
+  dismissable,
   held,
   idOf,
   keepable,
@@ -581,8 +582,7 @@ class Ade {
     if (what.at === "window") {
       if (what.verb === "dismiss") {
         if (this.omnibox.showing()) return this.omnibox.close();
-        const tab = held(this.tabs, this.active);
-        if (!tab || "panel" in tab.what) return;
+        if (!dismissable(held(this.tabs, this.active))) return;
         return this.close();
       }
       this.omnibox.close();
@@ -2274,14 +2274,32 @@ class Ade {
   // branch, and opens a session across them.
   private async startDesign(name: string): Promise<void> {
     if (!window.ade) return;
+    const machine = await this.whichMachine(name);
+    if (machine === undefined) return;
     this.say(`starting ${name}…`);
     const got = await window.ade
-      .act("launcher", "/api/designs/start", { name })
+      .act("launcher", "/api/designs/start", { name, machine: machine || undefined })
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got);
     if (back.error) return this.say(back.error);
     await this.read();
-    this.say(`started ${name}`);
+    this.say(machine ? `started ${name} on ${machine}` : `started ${name}`);
+  }
+
+  // Connected machines only; "" is here, undefined a cancelled pick.
+  private async whichMachine(name: string): Promise<string | undefined> {
+    type Host = { name: string; label?: string; connected?: boolean; local?: boolean };
+    const got = (await window.ade
+      ?.read("launcher", "/api/hosts")
+      .catch(() => ({}))) as { hosts?: Host[] } | undefined;
+    const away = (got?.hosts ?? [])
+      .filter((h) => h.connected && !h.local)
+      .map((h) => ({ label: h.label || h.name, note: h.name, value: h.name }));
+    if (away.length === 0) return "";
+    return this.omnibox.ask<string>(`Where to start ${name}?`, [
+      { label: "Here", note: "this machine", value: "" },
+      ...away,
+    ]);
   }
 
   private head(): Element[] {

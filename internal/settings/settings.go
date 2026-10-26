@@ -308,6 +308,8 @@ func SafeColors(colors map[string]string) map[string]string {
 type Host struct {
 	Name  string `json:"name"`
 	Label string `json:"label,omitempty"`
+	// ShipCloudCredentials sends ~/.aws and ~/.kube to that host's hub.
+	ShipCloudCredentials bool `json:"ship_cloud_credentials,omitempty"`
 }
 
 // hostName is what may be a host name, which also becomes a socket filename.

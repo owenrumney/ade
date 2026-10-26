@@ -102,7 +102,7 @@ func (h *Host) PrepareMCPServers(ctx context.Context, servers map[string]json.Ra
 
 // StartHub adopts the machine's hub when it is running, or replaces it. Its
 // port is not published: agents reach it from inside its network namespace.
-func (h *Host) StartHub(ctx context.Context, roots Roots, github Login) error {
+func (h *Host) StartHub(ctx context.Context, roots Roots, github Login, cloud Cloud) error {
 	// Login then pull before the adoption check: the image is private, and a
 	// hub from last week's image is not one to keep.
 	h.loginRegistry(ctx, roots, github)
@@ -112,7 +112,8 @@ func (h *Host) StartHub(ctx context.Context, roots Roots, github Login) error {
 		h.stale = err
 	}
 	stamp := h.imageID(ctx, HubImage)
-	if h.containerRunning(ctx, hubName) && h.stampedWith(ctx, hubName, stamp) && h.hubAnswers(ctx) {
+	if h.containerRunning(ctx, hubName) && h.stampedWith(ctx, hubName, stamp) &&
+		h.hubHasCloud(ctx, roots, cloud) && h.hubAnswers(ctx) {
 		return nil
 	}
 	if err := h.ensureNetwork(ctx); err != nil {
@@ -123,8 +124,15 @@ func (h *Host) StartHub(ctx context.Context, roots Roots, github Login) error {
 		"--label", imageLabel + "=" + stamp,
 		"--network", networkName,
 		"-e", "MCP_HUB_HOME=" + hubHome(roots),
-		"-v", roots.Work + ":" + roots.Work,
-		HubImage, "serve", "--addr", "127.0.0.1:" + strconv.Itoa(hubPort)}
+		"-v", roots.Work + ":" + roots.Work}
+	if cloud.Any() {
+		// Read-only: the next connect overwrites a token refreshed in here.
+		argv = append(argv, "-v", CloudHome(roots)+":"+CloudHome(roots)+":ro")
+		for _, env := range CloudEnv(roots, cloud) {
+			argv = append(argv, "-e", env)
+		}
+	}
+	argv = append(argv, HubImage, "serve", "--addr", "127.0.0.1:"+strconv.Itoa(hubPort))
 	_, err := h.Run(ctx, argv...)
 	if nameInUse(err) && h.freeName(ctx, hubName) {
 		_, err = h.Run(ctx, argv...)
@@ -152,6 +160,16 @@ func (h *Host) StartHub(ctx context.Context, roots Roots, github Login) error {
 		}
 	}
 	return fmt.Errorf("the hub on %s started but did not answer within %s", h.Name, workerWait)
+}
+
+// hubHasCloud reports a hub whose cloud mount is the one it should have.
+func (h *Host) hubHasCloud(ctx context.Context, roots Roots, cloud Cloud) bool {
+	out, err := h.Run(ctx, "docker", "inspect", "-f",
+		`{{range .Mounts}}{{.Source}} {{end}}`, hubName)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), CloudHome(roots)+" ") == cloud.Any()
 }
 
 // hubAnswers asks the hub for its health from inside its own container, the

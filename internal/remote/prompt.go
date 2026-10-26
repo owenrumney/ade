@@ -20,6 +20,8 @@ type Prompt struct {
 	// Dashboard is the kiosk to report into, under the worker's own name. Off
 	// clears the block: a machine told to stop must stop.
 	Dashboard settings.Dashboard
+	// DesignsRemote is what the worker's launcher clones the store from.
+	DesignsRemote string
 }
 
 // mkRoles makes the roles directory, as the worker: the ssh user may read its
@@ -72,6 +74,11 @@ func (h *Host) promptSettings(ctx context.Context, p Prompt) ([]byte, error) {
 	}
 	out["default_role"] = p.RoleName
 	out["instructions"] = p.Instructions
+	if p.DesignsRemote != "" {
+		out["designs_remote"] = p.DesignsRemote
+	} else {
+		delete(out, "designs_remote")
+	}
 	if p.Dashboard.On() {
 		out["dashboard"] = p.Dashboard
 	} else {

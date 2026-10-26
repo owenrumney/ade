@@ -61,7 +61,7 @@ func TestStartHubAdoptsAHubThatAnswers(t *testing.T) {
 	var calls []string
 	rec := &recorder{reply: hubReplies(true, &calls)}
 	host := testHost(t, rec)
-	require.NoError(t, host.StartHub(context.Background(), fhsRoots, Login{User: "owen", Token: "token"}))
+	require.NoError(t, host.StartHub(context.Background(), fhsRoots, Login{User: "owen", Token: "token"}, Cloud{}))
 	for _, call := range calls {
 		assert.NotContains(t, call, "'run'", "a serving hub is kept, not replaced")
 	}
@@ -74,7 +74,7 @@ func TestStartHubMakesTheNetworkAndStartsOnIt(t *testing.T) {
 	var calls []string
 	rec := &recorder{reply: hubReplies(false, &calls)}
 	host := testHost(t, rec)
-	require.NoError(t, host.StartHub(context.Background(), fhsRoots, Login{User: "owenrumney", Token: "github-token"}))
+	require.NoError(t, host.StartHub(context.Background(), fhsRoots, Login{User: "owenrumney", Token: "github-token"}, Cloud{}))
 
 	joined := strings.Join(calls, "\n")
 	assert.True(t, hasArgs(joined, "network", "create", "ade"), joined)
@@ -143,7 +143,7 @@ func TestTheHubRetriesTheRunThatLostToItsOwnCleanup(t *testing.T) {
 		return nil, []byte("Error: No such container: " + hubName), errors.New("exit status 1")
 	}, &serving)}
 
-	require.NoError(t, testHost(t, rec).StartHub(context.Background(), fhsRoots, Login{}))
+	require.NoError(t, testHost(t, rec).StartHub(context.Background(), fhsRoots, Login{}, Cloud{}))
 	assert.Equal(t, 2, runs, "the conflict was retried, not reported")
 }
 
@@ -161,7 +161,7 @@ func TestAHubNameDockerWillNotFreeSaysWhatToRunOnTheMachine(t *testing.T) {
 		return []byte(sentinel + "ac12011b34b9\n"), nil, nil
 	}, &serving)}
 
-	err := testHost(t, rec).StartHub(context.Background(), fhsRoots, Login{})
+	err := testHost(t, rec).StartHub(context.Background(), fhsRoots, Login{}, Cloud{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "docker rm -f "+hubName)
 	assert.Contains(t, err.Error(), "restart its docker daemon")

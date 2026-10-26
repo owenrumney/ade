@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dismissable,
   held,
   idOf,
   keepable,
@@ -197,5 +198,22 @@ describe("the tab sets written down", () => {
     const kept = new Map([["a", set("a")]]);
     expect(trimmed(kept, "unknown").map(([s]) => s)).toEqual(["a"]);
     expect(trimmed(new Map(), "a")).toEqual([]);
+  });
+});
+
+describe("what Escape closes", () => {
+  const of = (what: Tab["what"]): Tab => ({ id: idOf(what), title: "t", icon: "file", what });
+
+  it("leaves a terminal alone, because vim reads the key", () => {
+    expect(dismissable(of({ kind: "term", title: "Terminal" }))).toBe(false);
+  });
+
+  it("leaves a panel to close itself, and has nothing to close with no tab", () => {
+    expect(dismissable(of({ panel: "ade.openChat" }))).toBe(false);
+    expect(dismissable(undefined)).toBe(false);
+  });
+
+  it("closes a tab the window draws", () => {
+    expect(dismissable(of({ kind: "code", title: "a/b.go", source: "" }))).toBe(true);
   });
 });

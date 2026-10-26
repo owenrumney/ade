@@ -1,8 +1,13 @@
 package launcher
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -150,4 +155,93 @@ func TestWritingADesignTheStoreDoesNotHaveIsRefused(t *testing.T) {
 
 	rec := do(t, s, http.MethodPut, "/api/designs/write", `{"name":"nope","body":"# nope"}`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A start elsewhere is forwarded. The design travels by git, so the push goes
+// first and the far side is told to pull before it reads.
+func TestStartingADesignOnAnotherMachineForwardsItAndAsksForASync(t *testing.T) {
+	var got struct {
+		Name, Agent, Model, Machine string
+		Sync                        bool
+	}
+	far := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/designs/start", r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		_ = json.NewEncoder(w).Encode(map[string]any{"url": "http://far/?t=x", "path": "/home/ade/code/ade"})
+	}))
+	defer far.Close()
+
+	s := newTestLauncher(t)
+	s.hosts["linux"] = &conn{url: far.URL + "/?t=faraway"}
+	bare := bareRepo(t)
+	gitIdentity(t)
+	s.designs = designs.New(t.TempDir(), bare)
+	require.NoError(t, s.designs.Ensure(context.Background()))
+	_, err := s.designs.Write("retry", designs.Meta{Repos: []string{"owenrumney/ade"}}, []byte("# Retry\n"))
+	require.NoError(t, err)
+
+	rec := do(t, s, http.MethodPost, "/api/designs/start",
+		`{"name":"retry","agent":"codex","machine":"linux"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	assert.Contains(t, gitOut(t, bare, "ls-tree", "-r", "--name-only", "main"), "retry/design.md",
+		"the design is pushed before the far side is asked to pull")
+	assert.Equal(t, "retry", got.Name)
+	assert.Equal(t, "codex", got.Agent)
+	assert.True(t, got.Sync, "the far launcher is told to pull before it reads")
+	assert.Empty(t, got.Machine, "the machine is stripped, or it would forward for ever")
+
+	var back map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &back))
+	assert.Equal(t, "linux", back["machine"], "the caller is told where the path is")
+	assert.Equal(t, "/home/ade/code/ade", back["path"])
+}
+
+func TestStartingSomewhereWithNoSharedStoreSaysSoRatherThanStarting(t *testing.T) {
+	s := newTestLauncher(t)
+	s.hosts["linux"] = &conn{url: "http://unused/?t=faraway"}
+	s.designs = designs.New(t.TempDir(), "")
+
+	rec := do(t, s, http.MethodPost, "/api/designs/start", `{"name":"retry","machine":"linux"}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "designs_remote")
+}
+
+func TestStartingOnAMachineThatIsNotConnectedIsRefused(t *testing.T) {
+	s := newTestLauncher(t)
+	s.designs = designs.New(t.TempDir(), "")
+
+	rec := do(t, s, http.MethodPost, "/api/designs/start", `{"name":"retry","machine":"linux"}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not connected to linux")
+}
+
+// bareRepo is a remote the store really pushes to: faking git tests the fake.
+func bareRepo(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "designs.git")
+	gitIn(t, "", "init", "--bare", "-b", "main", dir)
+	return dir
+}
+
+// gitOut is gitIn for a command read rather than run for its effect.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+	return string(out)
+}
+
+// gitIdentity names the committer: the test HOME has no gitconfig, and a
+// commit without one fails.
+func gitIdentity(t *testing.T) {
+	t.Helper()
+	for key, value := range map[string]string{
+		"GIT_AUTHOR_NAME": "ade", "GIT_AUTHOR_EMAIL": "ade@example.com",
+		"GIT_COMMITTER_NAME": "ade", "GIT_COMMITTER_EMAIL": "ade@example.com",
+	} {
+		t.Setenv(key, value)
+	}
 }

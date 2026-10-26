@@ -601,7 +601,13 @@ func (s *Server) connect(ctx context.Context, name string) (string, error) {
 	if err := host.PrepareAgents(ctx); err != nil {
 		slog.Warn("no named agents on the worker; @security and the rest will not answer", "host", name, "err", err)
 	}
-	if err := host.StartHub(ctx, roots, login); err != nil {
+	// Before the hub, which mounts them. Failing is not refusing the machine.
+	cloud := localCloud(name)
+	if err := host.PrepareCloud(ctx, roots, cloud); err != nil {
+		slog.Warn("the worker's hub starts without your cloud logins", "host", name, "err", err)
+		cloud = remote.Cloud{}
+	}
+	if err := host.StartHub(ctx, roots, login, cloud); err != nil {
 		slog.Warn("no mcp hub on the worker; its agents have no mcp servers", "host", name, "err", err)
 	}
 	if !strings.HasPrefix(url, "http://") || port <= 0 {
@@ -797,7 +803,8 @@ func (s *Server) PushModels(ctx context.Context) {
 // here and the standing instruction typed here. A worker has neither of its own.
 func localPrompt(host string) remote.Prompt {
 	cfg, _ := settings.Load()
-	out := remote.Prompt{Instructions: cfg.Instructions, Dashboard: workerDashboard(cfg, host)}
+	out := remote.Prompt{Instructions: cfg.Instructions, Dashboard: workerDashboard(cfg, host),
+		DesignsRemote: cfg.DesignsRemote}
 	list, err := roles.Load()
 	if err != nil {
 		return out
@@ -845,6 +852,58 @@ func localCredentials(ctx context.Context) remote.Credentials {
 		out.Claude, out.ClaudeAt = readStamped(path)
 	}
 	out.Codex, out.CodexAt = readStamped(filepath.Join(home, ".codex", "auth.json"))
+	return out
+}
+
+// localCloud is read only for a host whose bookmark asked for it.
+func localCloud(name string) remote.Cloud {
+	cfg, _ := settings.Load()
+	wanted := false
+	for _, host := range cfg.Hosts {
+		if host.Name == name {
+			wanted = host.ShipCloudCredentials
+			break
+		}
+	}
+	if !wanted {
+		return remote.Cloud{}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return remote.Cloud{}
+	}
+	var out remote.Cloud
+	out.Profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
+	out.AWSConfig, out.At = readStamped(filepath.Join(home, ".aws", "config"))
+	creds, at := readStamped(filepath.Join(home, ".aws", "credentials"))
+	out.AWSCredentials = creds
+	if at.After(out.At) {
+		out.At = at
+	}
+	kube, at := readStamped(filepath.Join(home, ".kube", "config"))
+	out.Kubeconfig = kube
+	if at.After(out.At) {
+		out.At = at
+	}
+	cache := filepath.Join(home, ".aws", "sso", "cache")
+	entries, err := os.ReadDir(cache)
+	if err != nil {
+		return out
+	}
+	out.SSOCache = map[string][]byte{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, at := readStamped(filepath.Join(cache, entry.Name()))
+		if len(data) == 0 {
+			continue
+		}
+		out.SSOCache[entry.Name()] = data
+		if at.After(out.At) {
+			out.At = at
+		}
+	}
 	return out
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 // loopback is where every listener goes; nothing reaches ade off this machine.
@@ -42,6 +43,19 @@ func OnLoopback(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+//nolint:gochecknoglobals // the one extra address a listener was opened on
+var alsoAllowed struct {
+	sync.Mutex
+	host string
+}
+
+// Allow records an address AlsoOn bound, which is this machine.
+func Allow(host string) {
+	alsoAllowed.Lock()
+	defer alsoAllowed.Unlock()
+	alsoAllowed.host = host
+}
+
 // HostAllowed refuses a name that merely resolves here. A published container
 // port is reached through the forward, so the laptop still types its loopback.
 func HostAllowed(name string) bool {
@@ -49,7 +63,9 @@ func HostAllowed(name string) bool {
 	case loopback, "localhost", "::1", "":
 		return true
 	}
-	return false
+	alsoAllowed.Lock()
+	defer alsoAllowed.Unlock()
+	return name != "" && name == alsoAllowed.host
 }
 
 // LoopbackOrigin reports whether an Origin names this machine. Not a glob: the

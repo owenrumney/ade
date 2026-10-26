@@ -677,6 +677,8 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 		}
 	}()
 	srv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
+	// Opened on the first box that needs one: see reachable.
+	s.agent.alsoOn = func(host string) { s.alsoServe(srv, host) }
 
 	ctx, stopIdle := context.WithCancel(ctx)
 	defer stopIdle()

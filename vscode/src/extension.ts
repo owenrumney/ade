@@ -1960,12 +1960,36 @@ async function designsEverywhere(at: Server): Promise<DesignRow[]> {
 async function startDesign(
   at: Server,
   name: string,
-): Promise<{ path?: string; also?: string[] }> {
-  return tellLauncher<{ path?: string; also?: string[] }>(
+  machine?: string,
+): Promise<{ path?: string; also?: string[]; machine?: string }> {
+  return tellLauncher<{ path?: string; also?: string[]; machine?: string }>(
     at,
     "/api/designs/start",
-    { name },
+    { name, machine: machine || undefined },
   );
+}
+
+// whereToStart: connected machines only, "" here, undefined a cancelled pick.
+async function whereToStart(
+  at: Server,
+  name: string,
+): Promise<string | undefined> {
+  const away = (await hosts(at).catch(() => [] as Host[])).filter(
+    (host) => host.connected && !host.local,
+  );
+  if (away.length === 0) return "";
+  const chosen = await pick(
+    [
+      { label: "Here", description: "this machine", name: "" },
+      ...away.map((host) => ({
+        label: host.label || host.name,
+        description: host.name,
+        name: host.name,
+      })),
+    ],
+    { title: `Where to start ${name}?` },
+  );
+  return chosen?.name;
 }
 
 // readDesk fills every section from one gather. One at a time: a dozen
@@ -2037,11 +2061,21 @@ async function boardAct(what: Do): Promise<string | void> {
       return;
     case "design-start": {
       if (!at) return "the launcher is not running";
-      const made = await startDesign(at, String(what.name));
+      const name = String(what.name);
+      const machine = await whereToStart(at, name);
+      if (machine === undefined) return;
+      const made = await startDesign(at, name, machine);
+      // The path is that machine's, so it is a window over there and not a
+      // folder this disk has never had.
+      if (machine) {
+        if (made.path)
+          await openThere(machine, await labelOf(at, machine), made.path);
+        return `started ${name} on ${machine}`;
+      }
       if (made.path) await attach({ path: made.path, chat: true });
       for (const dir of made.also ?? [])
         if (vscode.workspace.workspaceFile) await addFolder(dir);
-      return `started ${what.name}`;
+      return `started ${name}`;
     }
     case "session": {
       const row = sessionsKept?.rows.find((r) => r.session.id === what.id);
