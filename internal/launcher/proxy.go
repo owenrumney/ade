@@ -194,6 +194,9 @@ func (s *Server) handleServing(w http.ResponseWriter, r *http.Request) {
 	s.active, s.activeAt = nil, time.Time{}
 	s.mu.Unlock()
 	s.remember()
+	// Self-registration is only half of it: a page that is not told waits
+	// for its own next poll, which is how a new session took 30 seconds.
+	s.hub.Broadcast("serving", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

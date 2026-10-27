@@ -157,6 +157,8 @@ func (s *Server) forget(rows []Serving) {
 	s.mu.Unlock()
 	if dropped {
 		s.remember()
+		// Going is news too, or the row sits there until the next poll.
+		s.hub.Broadcast("serving", nil)
 	}
 }
 

@@ -13,6 +13,8 @@ export interface Bridge {
   // The picked session's event stream. The panels are webviews and
   // expect their host to carry it; so does the window's own state.
   watch(session?: string): Promise<unknown>;
+  // The launcher's own, which carries a session announcing itself.
+  listen(): Promise<unknown>;
   onEvent(then: (name: string) => void): void;
   onStream(then: (open: boolean) => void): void;
   // The terminal: the socket is the shell's, the screen is the page's.

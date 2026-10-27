@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -275,6 +276,34 @@ func TestACheckoutAnnouncesWhatItServes(t *testing.T) {
 	s.served["abc"] = Serving{ID: "abc", Dir: t.TempDir(), Port: 1234}
 	_, found := s.announcedServer("abc")
 	assert.False(t, found)
+}
+
+func TestAnAnnouncementIsBroadcastSoAnOpenPageNeedNotPoll(t *testing.T) {
+	s := newTestLauncher(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events?t="+s.token, nil)
+	ctx, hangUp := context.WithCancel(req.Context())
+	defer hangUp()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.routes().ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+	}()
+	require.Eventually(t, func() bool { return s.hub.Clients() > 0 }, time.Second, 5*time.Millisecond)
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	require.NoError(t, session.Write(session.Path(sessions.GitDir(dir)), session.Record{
+		PID: os.Getpid(), Root: dir, StartedAt: time.Now(),
+		URL: "http://127.0.0.1:4321/?t=x",
+	}))
+	rec := do(t, s, http.MethodPost, "/api/serving",
+		fmt.Sprintf(`{"id":"abc","dir":%q,"port":4321}`, dir))
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	assert.Equal(t, 1, s.hub.Broadcast("serving", nil), "nobody was listening")
+
+	hangUp()
+	<-done
 }
 
 func TestTheActiveListIsAnnouncedNotScanned(t *testing.T) {

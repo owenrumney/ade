@@ -101,6 +101,7 @@ export const VOCABULARY: Group[] = [
       ["ade.push", "Push"],
       ["ade.createPR", "Create a draft pull request"],
       ["ade.showPR", "Show this branch's pull request"],
+      ["ade.openPRLink", "Open a pull request from its link…"],
       ["ade.checkoutPR", "Work on the open pull request"],
       ["ade.editPR", "Edit the pull request's title and description"],
       ["ade.approvePR", "Approve this pull request"],

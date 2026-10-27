@@ -1244,6 +1244,29 @@ describe("ending a session from the agents list", () => {
     ]);
     expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "archive", "delete"]);
   });
+
+  it("offers only the stops when no conversation is behind the row", () => {
+    expect(real.endings("idle", false).map((e) => e.value)).toEqual(["ade"]);
+    expect(real.endings("working", false).map((e) => e.value)).toEqual(["agent", "ade"]);
+    expect(real.endings("idle", false)[0].note).toMatch(/nothing has been said/);
+  });
+
+  it("knows which ids have a transcript behind them", () => {
+    const repos = [
+      { name: "ade", path: "/r/ade", checkouts: [{ path: "/r/ade", name: "ade", sessions: [{ id: "s1" }] }] },
+    ] as unknown as real.Repo[];
+    expect(real.spoken(repos, "s1")).toBe(true);
+    expect(real.spoken(repos, "pending-abc")).toBe(false);
+    expect(real.spoken([], "s1")).toBe(false);
+  });
+
+  it("does not claim it removed something it did not", () => {
+    expect(real.ended("delete", { removed: 0 })).toMatch(/nothing to delete/);
+    expect(real.ended("delete", { removed: 1 })).toBe("deleted");
+    expect(real.ended("archive", { changed: 0 })).toMatch(/nothing to archive/);
+    expect(real.ended("archive", { changed: 2 })).toBe("archived");
+    expect(real.ended("ade")).toBe("ade stopped here");
+  });
 });
 
 // The set has to empty as reads agree, or a session archived and brought back

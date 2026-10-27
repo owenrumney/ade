@@ -281,6 +281,8 @@
    numbers. The heat steps are one colour at four strengths, as
    `vscode/media/repo.css` has them. */
 .space-page { max-width: 110ch; }
+.space-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.space-top .btn { flex: none; cursor: pointer; }
 .space-head .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); margin-bottom: 18px; }
 .space-list { margin-bottom: 22px; }
 .space-list .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); }

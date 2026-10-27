@@ -176,3 +176,32 @@ func TestAHeadAlreadyCheckedOutIsReviewedWhereItIs(t *testing.T) {
 	assert.Equal(t, main, path)
 	assert.NoDirExists(t, gitdiff.WorktreePath(main, "pr-21"))
 }
+
+// A link pasted in is not on the review list, and OpenReview answers ErrGone
+// for anything that is not. Only the repository and the number decide where
+// it is checked out, so OpenPR skips the list rather than reading GitHub.
+func TestAPastedPullRequestNeedNotBeOnTheReviewList(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var openedDir string
+	b := New(Deps{
+		CheckOut: func(_ context.Context, main string, number int) (string, error) {
+			return main + "-pr-" + strconv.Itoa(number), nil
+		},
+		Open: func(_ context.Context, dir, _ string) (string, error) {
+			openedDir = dir
+			return "http://127.0.0.1:1/?token=x#chat", nil
+		},
+		Repos: func() ([]sessions.Repo, error) {
+			return []sessions.Repo{{Path: "/srv/other", Name: "other", Owner: "acme"}}, nil
+		},
+	})
+
+	_, _, err := b.OpenReview(context.Background(), "acme/other", 9)
+	require.ErrorIs(t, err, ErrGone, "the old way took one nobody asked for")
+
+	url, path, err := b.OpenPR(context.Background(), ghpr.PRRef{Repo: "acme/other", Number: 9})
+	require.NoError(t, err)
+	assert.Equal(t, "/srv/other-pr-9", path)
+	assert.Equal(t, path, openedDir)
+	assert.Equal(t, "http://127.0.0.1:1/?token=x#review", url)
+}

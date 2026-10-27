@@ -43,7 +43,8 @@ export type Verb =
   | "terminal"
   | "float"
   | "review-draft"
-  | "review-finish";
+  | "review-finish"
+  | "open-pr";
 
 export type Method = "PUT" | "DELETE";
 
@@ -232,6 +233,8 @@ export const WIRED: Record<string, Doing> = {
     how: "DELETE",
     needs: [pick("openspace", "repo", "Close which space? Nothing on disk goes with it…")],
   },
+  // The window follows the answer onto the session, so not a plain row.
+  "ade.openPRLink": { at: "window", verb: "open-pr" },
   "ade.checkoutPR": S("/api/pr/checkout"),
   // The title through the box, the description in the sheet: editing
   // rendered markdown is what the window is for.

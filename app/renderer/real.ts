@@ -423,30 +423,47 @@ export interface Ending {
   value: "agent" | "ade" | "archive" | "delete";
 }
 
-export function endings(state: string): Ending[] {
+// spoken is whether a transcript is behind this id: archive and delete
+// act on one, so with none they do nothing.
+export function spoken(repos: Repo[], id: string): boolean {
+  return repos.some((repo) =>
+    (repo.checkouts ?? []).some((c) => (c.sessions ?? []).some((s) => s.id === id)),
+  );
+}
+
+export function endings(state: string, said = true): Ending[] {
   const out: Ending[] = [];
   if (running(state)) {
     out.push({ label: "Stop the agent", note: "the turn stops; ade keeps serving the checkout", value: "agent" });
   }
+  out.push({
+    label: "Stop ade here",
+    note: said
+      ? "the server for this checkout goes too"
+      : "the only thing that clears this row: nothing has been said in it, so there is no conversation to put away",
+    value: "ade",
+  });
+  if (!said) return out;
   out.push(
-    { label: "Stop ade here", note: "the server for this checkout goes too", value: "ade" },
     { label: "Archive the session", note: "out of the lists, kept on disk", value: "archive" },
     { label: "Delete the session", note: "gone from ade for good", value: "delete" },
   );
   return out;
 }
 
-// ended is what was done, in the words of the thing that was done to.
-export function ended(what: string): string {
+// ended is what was done. The launcher reports 0 with a 200, so the
+// count decides, not the status.
+export function ended(what: string, body?: unknown): string {
+  const n = (body ?? {}) as { removed?: number; changed?: number };
   switch (what) {
     case "agent":
       return "stopped";
     case "ade":
       return "ade stopped here";
     case "archive":
-      return "archived";
+      return n.changed === 0 ? "nothing to archive: no conversation here yet" : "archived";
     default:
-      return "deleted";
+      return n.removed === 0 ? "nothing to delete: no conversation here yet" : "deleted";
   }
 }
 

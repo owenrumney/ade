@@ -708,6 +708,44 @@ describe("the New session panel's Design row", () => {
     expect(went).toEqual([]);
     expect(said.note).toContain("checked out elsewhere");
   });
+
+  it("opens with the checkout a space seeded, on the Work row", async () => {
+    const got = (await newSession(reachWith({ designs: [] }), {
+      mode: "work",
+      repos: ["/r/coast"],
+    }).onMessage({ kind: "ready" })) as { chosen: { mode: string; repos: string[] } };
+    expect(got.chosen.repos).toEqual(["/r/coast"]);
+    expect(got.chosen.mode).toBe("work");
+  });
+
+  it("says it is busy before the round trip, not after", async () => {
+    const pushed: { id: string; said: Record<string, unknown> }[] = [];
+    const order: string[] = [];
+    const reach: Reach = {
+      ...reachWith({ designs: [] }),
+      push: (id, said) => {
+        order.push("push");
+        pushed.push({ id, said: said as Record<string, unknown> });
+      },
+      send: async () => {
+        order.push("send");
+        return { path: "/r/coast-x" };
+      },
+    };
+    await newSession(reach, {}).onMessage({ kind: "start", chosen: typed("cancel") });
+    expect(order).toEqual(["push", "send"]);
+    expect(pushed[0].id).toBe("newsession");
+    expect(pushed[0].said.busy).toBe(true);
+    expect(String(pushed[0].said.note)).toContain("cancel");
+  });
+
+  it("is Direct with nothing seeded, as it was", async () => {
+    const got = (await newSession(reachWith({ designs: [] }), {}).onMessage({
+      kind: "ready",
+    })) as { chosen: { mode: string; repos: string[] } };
+    expect(got.chosen.mode).toBe("direct");
+    expect(got.chosen.repos).toEqual([]);
+  });
 });
 
 // Remove used to post the page's own message to /api/prune, which names no

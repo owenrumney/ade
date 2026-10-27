@@ -235,6 +235,44 @@ void app.whenReady().then(async () => {
         : "ade did not come up; see the log in the temporary directory.",
     };
   });
+  // `tell` is off for the launcher's: the light is about the session.
+  const pump = (
+    e: Electron.IpcMainInvokeEvent,
+    at: string,
+    token: string,
+    stop: AbortController,
+    tell: boolean,
+  ) =>
+    void (async () => {
+      // Told once either way: announcing a connection before it is
+      // made is what put "lost the connection" on screen repeatedly.
+      let open = false;
+      let wait = 2_000;
+      for (;;) {
+        try {
+          const res = await fetch(at, {
+            headers: { "X-Ade-Token": token },
+            signal: stop.signal,
+          });
+          if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
+          if (tell) e.sender.send("stream", true);
+          open = true;
+          wait = 2_000;
+          await events(res.body, (name) => e.sender.send("event", name));
+        } catch {
+          // Refused, dropped, or gone quiet: the wait below is the retry.
+        }
+        if (stop.signal.aborted) return;
+        if (open && tell) e.sender.send("stream", false);
+        open = false;
+        await new Promise((done) => setTimeout(done, wait));
+        // A session nothing serves refuses every time, so backing off
+        // is the difference between a quiet window and a flashing one.
+        wait = Math.min(wait * 2, 30_000);
+        if (stop.signal.aborted) return;
+      }
+    })();
+
   // watch forwards the session's event stream: a webview expects its
   // host to carry it. In the shell, where no origin can be refused.
   let watching: AbortController | undefined;
@@ -244,36 +282,20 @@ void app.whenReady().then(async () => {
     if (!where || !session) return { ok: false };
     const stop = new AbortController();
     watching = stop;
-    const at = `${where.base}/s/${session}/api/events?t=${encodeURIComponent(where.token)}`;
-    void (async () => {
-      // Told once either way: announcing a connection before it is
-      // made is what put "lost the connection" on screen repeatedly.
-      let open = false;
-      let wait = 2_000;
-      for (;;) {
-        try {
-          const res = await fetch(at, {
-            headers: { "X-Ade-Token": where.token },
-            signal: stop.signal,
-          });
-          if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
-          e.sender.send("stream", true);
-          open = true;
-          wait = 2_000;
-          await events(res.body, (name) => e.sender.send("event", name));
-        } catch {
-          // Refused, dropped, or gone quiet: the wait below is the retry.
-        }
-        if (stop.signal.aborted) return;
-        if (open) e.sender.send("stream", false);
-        open = false;
-        await new Promise((done) => setTimeout(done, wait));
-        // A session nothing serves refuses every time, so backing off
-        // is the difference between a quiet window and a flashing one.
-        wait = Math.min(wait * 2, 30_000);
-        if (stop.signal.aborted) return;
-      }
-    })();
+    pump(e, `${where.base}/s/${session}/api/events?t=${encodeURIComponent(where.token)}`,
+      where.token, stop, true);
+    return { ok: true };
+  });
+
+  let listening: AbortController | undefined;
+  ipcMain.handle("ade.listen", async (e) => {
+    const where = await found();
+    if (!where) return { ok: false };
+    listening?.abort();
+    const stop = new AbortController();
+    listening = stop;
+    pump(e, `${where.base}/api/events?t=${encodeURIComponent(where.token)}`,
+      where.token, stop, false);
     return { ok: true };
   });
   // The terminal's sockets, in the shell: the server refuses a websocket

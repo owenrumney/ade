@@ -46,7 +46,8 @@ export type SpaceAct =
   | { what: "open-session"; id: string }
   | { what: "archive-session"; id: string }
   | { what: "open-design"; id: string }
-  | { what: "archive-design"; id: string };
+  | { what: "archive-design"; id: string }
+  | { what: "new-session" };
 
 // sessionsOf is every conversation in the repository, newest first. `gone` is
 // what this window archived, which a read has not caught up with yet.
@@ -101,7 +102,7 @@ export function drawnFrom(seen: Seen): string {
 
 export function spacePage(seen: Seen, act: (did: SpaceAct) => void): HTMLElement {
   const out = el("div", "doc space-page");
-  out.append(head(seen));
+  out.append(head(seen, act));
   out.append(
     list(
       "Sessions",
@@ -138,9 +139,18 @@ export function spacePage(seen: Seen, act: (did: SpaceAct) => void): HTMLElement
   return out;
 }
 
-function head(seen: Seen): HTMLElement {
+function head(seen: Seen, act: (did: SpaceAct) => void): HTMLElement {
   const box = el("header", "space-head");
-  box.append(el("h1", "", seen.space.repo));
+  const top = el("div", "space-top");
+  top.append(el("h1", "", seen.space.repo));
+  // A space not cloned here has no checkout to start in.
+  if (seen.space.path) {
+    const start = el("button", "btn", "New session");
+    start.title = `Open the New session screen with ${seen.space.repo} ticked`;
+    start.addEventListener("click", () => act({ what: "new-session" }));
+    top.append(start);
+  }
+  box.append(top);
   const under = [
     seen.space.path,
     seen.stats ? against(seen.stats) : seen.space.branch,

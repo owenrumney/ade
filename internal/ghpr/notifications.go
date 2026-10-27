@@ -123,6 +123,48 @@ type PRRef struct {
 // Key is how a pull request is named on both lists ade keeps.
 func (r PRRef) Key() string { return fmt.Sprintf("%s#%d", r.Repo, r.Number) }
 
+// ParseRef reads what a person pasted. A browser's url, with whatever tab
+// and anchor it was on, or the short form a review comment uses.
+func ParseRef(said string) (PRRef, bool) {
+	said = strings.TrimSpace(said)
+	if said == "" {
+		return PRRef{}, false
+	}
+	if cut := strings.IndexAny(said, "?#"); cut >= 0 && !strings.Contains(said[:cut], "://") {
+		// owner/repo#123 — the hash is the number, not an anchor.
+		if n, err := strconv.Atoi(said[cut+1:]); err == nil && said[cut] == '#' {
+			return refOf(said[:cut], n)
+		}
+	}
+	said = strings.SplitN(said, "#", 2)[0]
+	said = strings.SplitN(said, "?", 2)[0]
+	if cut := strings.Index(said, "://"); cut >= 0 {
+		said = said[cut+3:]
+	}
+	parts := strings.Split(strings.Trim(said, "/"), "/")
+	// A host, when there is one: matched on the dot, not on github.com,
+	// because an enterprise install has a name of its own.
+	if len(parts) > 0 && strings.Contains(parts[0], ".") {
+		parts = parts[1:]
+	}
+	// Exactly owner/name/pull/<n>, so `github.com/cli/pull/3` is refused.
+	if len(parts) < 4 || (parts[2] != "pull" && parts[2] != "pulls") {
+		return PRRef{}, false
+	}
+	n, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return PRRef{}, false
+	}
+	return refOf(parts[0]+"/"+parts[1], n)
+}
+
+func refOf(repo string, number int) (PRRef, bool) {
+	if number <= 0 || !safeRepo.MatchString(repo) {
+		return PRRef{}, false
+	}
+	return PRRef{Repo: repo, Number: number}, true
+}
+
 // safeRepo is GitHub's own charset for an owner and a repository name, and
 // nothing else. These names arrive from GitHub rather than from a person, but a
 // query is built from them below, and a query built from unchecked text is a

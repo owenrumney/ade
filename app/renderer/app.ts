@@ -29,6 +29,7 @@ import {
   keepable,
   live,
   opened,
+  newSessionPanel,
   rebuilt,
   shut,
   shutMany,
@@ -90,6 +91,7 @@ class Ade {
   private picked = new Map<string, string>();
   // The pick the sidebar was last scrolled to, so a redraw does not do it again.
   private revealed = "";
+  private listening = false;
   private unfolded = new Set<string>(["internal", "internal/dashboard"]);
   private folded = new Set<string>();
   private filters = new Map<string, string>();
@@ -288,6 +290,11 @@ class Ade {
       void window.ade.watch(this.session);
     }
     this.launcher = (await window.ade.where()) ?? undefined;
+    // Once, and only once there is a launcher to connect to.
+    if (this.launcher && !this.listening) {
+      this.listening = true;
+      void window.ade.listen();
+    }
     this.announced = got.active ?? [];
     this.todoList = got.todos ?? [];
     this.jobs = got.jobs ?? [];
@@ -470,7 +477,9 @@ class Ade {
 
   // follow is a session the New session panel just started.
   private follow(dir: string): void {
-    this.close(idOf({ panel: "ade.newSession" }));
+    for (const tab of [...this.tabs]) {
+      if ("panel" in tab.what && newSessionPanel(tab.what.panel)) this.close(tab.id);
+    }
     this.landing = dir;
     this.landingFor = "chat";
     this.landingSince = Date.now();
@@ -1229,6 +1238,10 @@ class Ade {
     if (did.what === "open-design") {
       const name = did.id.split("|").pop() ?? did.id;
       return this.show({ panel: `spacedesign:${did.id}` }, name.replace(/\.md$/, ""), "design");
+    }
+    if (did.what === "new-session") {
+      if (!space.path) return this.say(`${space.repo} is not cloned on this machine`);
+      return this.show({ panel: `in:${space.path}` }, "New session", "session");
     }
     // Off the page first, then the request: a row that stays put reads as a
     // button that did nothing.
@@ -2252,7 +2265,7 @@ class Ade {
     const state = this.announced.find((a) => a.id === id);
     const what = await this.omnibox.ask(
       `${row?.name ?? id}`,
-      real.endings(real.stateOf(state?.agent)),
+      real.endings(real.stateOf(state?.agent), real.spoken(this.repos, id)),
     );
     this.omnibox.close();
     if (!what) return;
@@ -2269,7 +2282,7 @@ class Ade {
     const got = await this.ending(what, id, dir);
     const back = real.answered(got as real.Answer);
     if (back.error) return this.say(back.error);
-    this.say(real.ended(what));
+    this.say(real.ended(what, back.body));
     await this.read();
   }
 
@@ -2438,13 +2451,15 @@ class Ade {
       // rather than one of the fixed set.
       const which = tab.what.panel;
       const doc = this.writable(which);
-      // `todo:<id>` is the New session screen with that todo in it.
       const todo = which.startsWith("todo:") ? this.todoAt(which.slice(5)) : "";
+      const inDir = which.startsWith("in:") ? which.slice(3) : "";
       const make = doc
         ? (reach: Reach, at?: { base: string; token: string }) => written(reach, at, doc)
         : todo
           ? (reach: Reach) => newSession(reach, { message: todo })
-          : WHICH[which];
+          : inDir
+            ? (reach: Reach) => newSession(reach, { mode: "work", repos: [inDir] })
+            : WHICH[which];
       if (!make) return el("div", "nothing", `no panel called ${which}`);
       const wait = this.waiting(tab);
       if (wait) return el("div", "nothing", wait);

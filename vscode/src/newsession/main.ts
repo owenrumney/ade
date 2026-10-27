@@ -437,9 +437,14 @@ function foot(): HTMLElement {
   start.className = "start";
   start.textContent = state.busy ? "Starting…" : "Start";
   start.disabled = Boolean(why) || Boolean(state.busy);
-  start.addEventListener("click", () =>
-    host.postMessage({ kind: "start", chosen: state.chosen, files: carrying }),
-  );
+  // Answered here, not on the way back: starting runs `ade create`, and
+  // a button that waits seconds to change reads as one that missed.
+  start.addEventListener("click", () => {
+    if (state.busy) return;
+    state = { ...state, busy: true, note: "Starting…" };
+    draw();
+    host.postMessage({ kind: "start", chosen: state.chosen, files: carrying });
+  });
   box.append(start);
   return box;
 }
