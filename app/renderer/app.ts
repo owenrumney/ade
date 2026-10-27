@@ -1171,7 +1171,7 @@ class Ade {
     }
     if (this.place === "jobs") {
       const job = this.jobs.find((one) => `job:${one.name}` === row.id);
-      return this.show(
+      this.show(
         {
           kind: "doc",
           title: row.name,
@@ -1180,6 +1180,10 @@ class Ade {
         row.name,
         "eye",
       );
+      // Reading the reports is the whole of reviewing them, and what takes
+      // the alert off the Jobs icon.
+      if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
+      return;
     }
     if (this.place === "spaces") return this.openSpace(row.id.slice("space:".length));
     // The row says which pull request it is, not the list it was in. A
@@ -1201,6 +1205,13 @@ class Ade {
       row.name,
       "file",
     );
+  }
+
+  // markJobSeen puts a job's reports away. No time named marks every outcome
+  // it holds, which is what the page just drew.
+  private async markJobSeen(name: string): Promise<void> {
+    await window.ade?.act("launcher", "/api/jobs/seen", { name }).catch(() => undefined);
+    void this.read();
   }
 
   // openSpace draws a repository. The numbers are a second read, so the

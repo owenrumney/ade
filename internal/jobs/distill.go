@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -50,13 +51,24 @@ func WikiDistillJob() Job {
 	}
 }
 
-// WithBuiltins adds the built-in jobs; one written by hand wins. The design
-// archive is the only one: a session distils itself when it goes idle.
+// WithBuiltins adds the built-in jobs; one written by hand wins.
 func WithBuiltins(list []Job, _ settings.Settings) []Job {
-	if _, found := Find(list, KindDesignArchive); found {
-		return list
+	for _, builtin := range []Job{DesignArchiveJob(), MyDayJob()} {
+		if _, found := Find(list, builtin.Name); !found {
+			list = append(list, builtin)
+		}
 	}
-	return append(list, DesignArchiveJob())
+	return list
+}
+
+// Yours orders a tick's work so a job you wrote claims a slot before ade's own
+// housekeeping. Nothing is dropped: the cap is what makes the order matter.
+func Yours(list []Job) []Job {
+	out := append([]Job(nil), list...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Scope != ScopeBuiltin && out[j].Scope == ScopeBuiltin
+	})
+	return out
 }
 
 // DistillTargets groups the machine's transcripts by the wiki repository they

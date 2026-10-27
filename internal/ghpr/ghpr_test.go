@@ -595,7 +595,9 @@ func TestParseRequestsReadsTheRepositoryAndTheChecksEachIsIn(t *testing.T) {
 func TestTheReviewSearchIsAQueryAndNeverAMutation(t *testing.T) {
 	// The query is a constant here, so this guards the file against itself:
 	// pasting a mutation into it must not become a mutation ade runs.
-	assert.NotContains(t, strings.ToLower(requestSearch), "mutation")
+	for _, query := range []string{waitingOnMe, mineOpen} {
+		assert.NotContains(t, strings.ToLower(prSearch(query)), "mutation")
+	}
 
 	_, err := graphqlRead(context.Background(), t.TempDir(), "mutation { addComment { id } }")
 	require.Error(t, err)

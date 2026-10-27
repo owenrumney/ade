@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/archive"
+	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/jobs"
+	"github.com/owenrumney/ade/internal/myday"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/transcripts"
@@ -50,6 +52,8 @@ type jobsClock struct {
 	distill wiki.DistillModel
 	// archive is the design archiver's model. nil is the real one-shot.
 	archive archive.Runner
+	// myday is the morning report's model. nil is the real one-shot.
+	myday myday.Model
 
 	// inflight is the fires a tick started, so a test can wait one out.
 	inflight sync.WaitGroup
@@ -157,6 +161,53 @@ func (s *Server) archiveDesigns(ctx context.Context) jobs.Outcome {
 	out := jobs.FireArchive(ctx, s.distillStore(), jobs.ArchiveTargets(ctx, repos), model)
 	s.refreshWiki()
 	return out
+}
+
+// myDay is the built-in my-day job: the three lists read fresh, and the
+// tickets sized by a model only where the cache has gone stale.
+func (s *Server) myDay(ctx context.Context) jobs.Outcome {
+	in := myday.Input{Now: time.Now()}
+
+	var mine []ghpr.Request
+	var mineErr error
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); s.board.RefreshReviews(ctx) }()
+	go func() { defer wg.Done(); s.board.RefreshTickets(ctx) }()
+	go func() { defer wg.Done(); mine, mineErr = ghpr.MyOpenPRs(ctx, "") }()
+	wg.Wait()
+
+	for _, review := range s.board.Reviews() {
+		if !review.Muted {
+			in.Asked = append(in.Asked, review.Request)
+		}
+	}
+	in.AskedError = s.board.ReviewTroubleNow().Error
+	in.Mine = mine
+	if mineErr != nil {
+		in.MineError = mineErr.Error()
+	}
+	if tickets := s.board.Tickets(); tickets == nil {
+		in.TicketError = "no Linear API key in ade's settings"
+	} else {
+		in.Tickets, in.TicketError = tickets.Issues, tickets.Error
+	}
+
+	// Only the sizing is gated: the two searches and every cached estimate
+	// cost nothing, and a held window must not be a silent morning.
+	held := ""
+	if ok, why := jobs.WithinSpend(s.limits.Snapshot(ctx)); !ok {
+		held = why
+	}
+	model := s.jobs.myday
+	if model == nil {
+		dir, err := settings.Dir()
+		if err != nil {
+			return jobs.Outcome{FiredAt: time.Now(), Error: err.Error()}
+		}
+		model = jobs.MyDayModel("", dir)
+	}
+	return jobs.FireMyDay(ctx, in, model, held)
 }
 
 func transcriptPaths(all []*transcripts.Session) []string {
@@ -360,21 +411,34 @@ func (s *Server) tickJobs(ctx context.Context) {
 		return
 	}
 	now := time.Now()
-	for _, job := range list {
-		if !jobs.Due(job, jobs.ReadState(job), now) {
-			continue
-		}
+	for _, job := range jobs.Yours(due(list, now)) {
 		if ok, why := jobs.WithinSpend(s.limits.Snapshot(ctx)); !ok {
 			slog.Info("holding scheduled jobs", "job", job.Name, "why", why)
 			return
 		}
+		// Claimed here rather than inside the goroutine: the cap has to fall on
+		// the jobs this tick put last, not on whichever goroutine starts last.
+		if err := s.jobs.claim(job.Name); err != nil {
+			slog.Debug("scheduled job did not fire", "job", job.Name, "err", err)
+			continue
+		}
 		s.jobs.inflight.Go(func() {
-			if _, err := s.fire(ctx, job); err != nil {
-				slog.Debug("scheduled job did not fire", "job", job.Name, "err", err)
-			}
+			defer s.jobs.release(job.Name)
+			s.fireClaimed(ctx, job, false, "")
 			s.hub.Broadcast("jobs", nil)
 		})
 	}
+}
+
+// due is the jobs whose window has come.
+func due(list []jobs.Job, now time.Time) []jobs.Job {
+	var out []jobs.Job
+	for _, job := range list {
+		if jobs.Due(job, jobs.ReadState(job), now) {
+			out = append(out, job)
+		}
+	}
+	return out
 }
 
 // fire runs one job and records what came of it. A project that is not on this
@@ -390,7 +454,12 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		return jobs.Outcome{}, err
 	}
 	defer s.jobs.release(job.Name)
+	return s.fireClaimed(ctx, job, manual, dir), nil
+}
 
+// fireClaimed is fireJob with the slot already taken, for a caller that had to
+// know whether it got one before starting the goroutine.
+func (s *Server) fireClaimed(ctx context.Context, job jobs.Job, manual bool, dir string) jobs.Outcome {
 	state := jobs.ReadState(job)
 	now := time.Now()
 	if job.Kind == jobs.KindDesignArchive {
@@ -398,14 +467,21 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a design archive", "err", err)
 		}
-		return out, nil
+		return out
 	}
 	if job.Kind == jobs.KindWikiDistill {
 		out := s.distillWiki(ctx, manual)
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a wiki distillation", "err", err)
 		}
-		return out, nil
+		return out
+	}
+	if job.Kind == jobs.KindMyDay {
+		out := s.myDay(ctx)
+		if _, err := jobs.Record(job, out, "", now); err != nil {
+			slog.Warn("record a my-day report", "err", err)
+		}
+		return out
 	}
 	if job.Allow == jobs.Writes {
 		where, err := s.writesCheckout(ctx, job, dir)
@@ -414,9 +490,9 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 			if _, err := jobs.Record(job, out, "", now); err != nil {
 				slog.Warn("record a job that could not start", "job", job.Name, "err", err)
 			}
-			return out, nil
+			return out
 		}
-		return jobs.Start(ctx, job, where, s.jobs.starter()), nil
+		return jobs.Start(ctx, job, where, s.jobs.starter())
 	}
 	checkout, err := s.jobCheckout(ctx, job)
 	if err != nil {
@@ -424,10 +500,10 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		if _, err := jobs.Record(job, out, state.Handover, now); err != nil {
 			slog.Warn("record a skipped job", "job", job.Name, "err", err)
 		}
-		return out, nil
+		return out
 	}
 
-	return jobs.Fire(ctx, job, checkout, s.jobs.runner()), nil
+	return jobs.Fire(ctx, job, checkout, s.jobs.runner())
 }
 
 // writesCheckout is where a writes job makes its worktree: the checkout named

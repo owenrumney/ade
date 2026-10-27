@@ -1,5 +1,5 @@
 import type { Place, Row, Status, World } from "./model";
-import { page as jobPage, type Outcome } from "../../vscode/src/jobpage";
+import { page as jobPage, unread as unreadOutcomes, type Outcome } from "../../vscode/src/jobpage";
 
 // ade's own answers, as the window draws them: one function per
 // endpoint. Nothing is invented that the launcher does not send.
@@ -769,20 +769,30 @@ export function jobReport(job: Job): string {
   return jobPage(job.name, job.outcomes ?? []);
 }
 
+// jobUnread is how many of a job's reports have not been read.
+export function jobUnread(job: Job): number {
+  return unreadOutcomes(job.outcomes ?? []).length;
+}
+
 // jobs is what ade does on a timer. A list, not a report: you want to
 // run one now or stop it running again.
 export function jobs(all: Job[], now = Date.now()): Place {
+  const waiting = all.reduce((sum, job) => sum + jobUnread(job), 0);
   return {
     id: "jobs",
     title: "Jobs",
     icon: "ring",
-    count: all.filter((j) => j.failing).length,
+    // A report nobody has read is the thing to see across a room; a job
+    // that stopped working is the thing behind it.
+    alert: waiting > 0,
+    count: waiting || all.filter((j) => j.failing).length,
     rows: all.map((job) => ({
       id: `job:${job.name}`,
       icon: job.paused ? "ring" : job.failing ? "warn" : "play",
-      tone: job.failing ? ("bad" as const) : job.paused ? undefined : ("good" as const),
+      tone: job.failing ? ("bad" as const) : jobUnread(job) ? ("warn" as const) : job.paused ? undefined : ("good" as const),
       name: job.name,
       meta: [
+        jobUnread(job) ? `${jobUnread(job)} unread` : "",
         job.schedule,
         job.paused ? "paused" : job.nextDue ? `next ${ago(job.nextDue, now)}` : "",
         job.lastFired ? `last ${ago(job.lastFired, now)}` : "",

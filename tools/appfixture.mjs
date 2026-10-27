@@ -2,8 +2,46 @@
 // gives the window, answering with fixed data instead of a launcher.
 // The window's own code paths are unchanged — this only stands in for
 // the process that would reach ade.
+// The my-day job with its report unread, which is what paints the Jobs icon.
+const MY_DAY = {
+  name: "my-day",
+  description: "What your day looks like",
+  schedule: "0 8 * * 1-5",
+  nextDue: "2026-10-23T08:00:00Z",
+  lastFired: "2026-10-22T08:00:00Z",
+  outcomes: [
+    {
+      firedAt: "2026-10-22T08:00:00Z",
+      millis: 41000,
+      costUsd: 0.07,
+      report: [
+        "# My Day · Thu 22 Oct — 2 to review, 1 of yours open, 3 tickets at 9–16h",
+        "",
+        "## Reviews waiting on you (2)",
+        "",
+        "- [owenrumney/ade#412](https://github.com/owenrumney/ade/pull/412) **Add usage tiles to the desk** — kim · checks pass",
+        "- [infracost/coast#541](https://github.com/infracost/coast/pull/541) **Cache the plan reader** — liam · checks fail",
+        "",
+        "## Your pull requests (1)",
+        "",
+        "- [owenrumney/ade#33](https://github.com/owenrumney/ade/pull/33) **Ship cloud logins to workers** — approved · checks pass",
+        "",
+        "## Your tickets (3) · 9–16h",
+        "",
+        "### ade",
+        "- [ENG-204](https://linear.app/ENG-204) **Purge the worktrees nobody opened** — **4–8h** · in progress · high · *A git operation per worktree, and the safety check is the hard half*",
+        "- [ENG-211](https://linear.app/ENG-211) **Quiz me on the design doc** — **3–5h** · todo · medium · *Mostly prompt work; the grading loop is the unknown*",
+        "",
+        "### No project",
+        "- [ENG-188](https://linear.app/ENG-188) **Drop the stale dismissals** — **2–3h** · todo · *One store and its sweep*",
+      ].join("\n"),
+    },
+  ],
+};
+
 export const WORLD = {
   jobs: [
+    MY_DAY,
     { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z", project: "ade" },
     { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
     { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
@@ -539,6 +577,7 @@ const READS = {
   "/api/hosts": { hosts: [{ name: "mini", label: "the mini", local: false }] },
   "/api/jobs": {
     jobs: [
+      MY_DAY,
       { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z", project: "ade" },
       { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
       { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
