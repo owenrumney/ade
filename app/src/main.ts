@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, nativeImage, shell } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -68,6 +68,8 @@ function make(map: Keymap): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    // Windows and Linux take the icon per window; a Mac takes the dock's.
+    icon: mark(),
     titleBarStyle: mac ? "hiddenInset" : "hidden",
     trafficLightPosition: { x: 14, y: 12 },
     backgroundColor: "#1f1f1f",
@@ -94,6 +96,14 @@ function make(map: Keymap): BrowserWindow {
 // Said here as well as in package.json, so an unpackaged run is the same
 // name as the packaged one rather than "Electron".
 app.setName(NAME);
+
+// mark is ade's own icon. Packaged, the bundle's icns answers for it; an
+// unpackaged run has no bundle and shows electron's until it is told.
+function mark(): ReturnType<typeof nativeImage.createFromPath> | undefined {
+  // dist/../icon, which is where it sits packaged and unpackaged alike.
+  const img = nativeImage.createFromPath(join(__dirname, "..", "icon", "ade.png"));
+  return img.isEmpty() ? undefined : img;
+}
 
 // ade's own menu, so no stock accelerator is registered behind its
 // back. Edit and Window keep their roles; their keys go through first.
@@ -192,6 +202,8 @@ void app.whenReady().then(async () => {
     process.env.PATH = (await shellPath()) ?? process.env.PATH;
   }
   const map = keys();
+  const ico = mark();
+  if (ico && app.dock) app.dock.setIcon(ico);
   // Where the panels' assets are: the repository root in a checkout,
   // and what pack.sh staged beside the app once packaged.
   serve(app.isPackaged ? join(process.resourcesPath, "ade") : join(__dirname, "..", ".."));
@@ -311,6 +323,7 @@ void app.whenReady().then(async () => {
       height: 640,
       alwaysOnTop: true,
       title: "ade",
+      icon: mark(),
       backgroundColor: "#0d1017",
       webPreferences: {
         preload: join(__dirname, "preload.js"),

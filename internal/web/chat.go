@@ -1123,7 +1123,7 @@ func (s *Server) onSession(from, to string) {
 	}
 	// A session named for the first time is one the launcher's proxy cannot
 	// resolve until it is told.
-	go s.announceServing(s.ctx, to)
+	go s.keepAnnouncing(s.ctx, to)
 	// The record's proxied address has the old id in its path, and a reader
 	// on another machine has nothing else to reach this server by.
 	go s.reproxy(s.ctx)

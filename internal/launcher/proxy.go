@@ -3,7 +3,9 @@ package launcher
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -178,8 +180,11 @@ func (s *Server) handleServing(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name a session, its checkout and its port")
 		return
 	}
-	if !serves(req.Dir, req.Port) {
-		writeError(w, http.StatusBadRequest, "no ade is recorded on that port for that checkout")
+	if why := serving(req.Dir, req.Port); why != "" {
+		// The claimant drops this on the floor if it is not told why, and a
+		// session off the rail is one nothing in ade can reach.
+		slog.Warn("refused an announcement", "id", req.ID, "dir", req.Dir, "port", req.Port, "why", why)
+		writeError(w, http.StatusBadRequest, why)
 		return
 	}
 	s.mu.Lock()
@@ -202,8 +207,23 @@ func (s *Server) onlyServer(dir, id string) {
 }
 
 func serves(dir string, port int) bool {
-	rec, ok := session.Read(session.Path(sessions.GitDir(dir)))
-	return ok && session.Running(rec.PID) && portOf(rec.URL) == port
+	return serving(dir, port) == ""
+}
+
+// serving is why that claim is not believed, or empty. A race, a dead process
+// and the wrong checkout are fixed in three different places.
+func serving(dir string, port int) string {
+	path := session.Path(sessions.GitDir(dir))
+	rec, ok := session.Read(path)
+	switch {
+	case !ok:
+		return "no ade is recorded at " + path
+	case !session.Running(rec.PID):
+		return fmt.Sprintf("the ade recorded at %s (pid %d) is not running", path, rec.PID)
+	case portOf(rec.URL) != port:
+		return fmt.Sprintf("%s records port %d, not %d", path, portOf(rec.URL), port)
+	}
+	return ""
 }
 
 // announcedServer re-checks on the way out, so a dead one falls back.

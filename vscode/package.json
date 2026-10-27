@@ -95,8 +95,8 @@
       },
       {
         "command": "ade.convertForGitHub",
-        "title": "Convert for GitHub",
-        "icon": "$(github)"
+        "title": "Write it up for the author",
+        "icon": "$(edit)"
       },
       {
         "command": "ade.sendToGitHub",

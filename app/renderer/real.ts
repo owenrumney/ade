@@ -312,11 +312,15 @@ export function sessions(
             .filter(Boolean)
             .join(" · "),
           tag: session.dir === here ? { text: "here", kind: "here" as const } : undefined,
-          // A running session can be stopped from its row: it is the
-          // thing you want when you see one still going.
-          acts: live
-            ? [{ label: "Stop", what: "session-stop" as const, name: session.id }]
-            : [],
+          // Always, not only while it runs: a finished session with no
+          // verb on its row is one there is no way to be rid of.
+          acts: [
+            {
+              label: live ? "Stop…" : "Put away…",
+              what: "session-end" as const,
+              name: session.id,
+            },
+          ],
         } });
       }
     }
@@ -332,10 +336,17 @@ export function sessions(
         icon: "play",
         tone: "good" as const,
         name: serving.branch || checkout.name,
-        meta: [checkout.worktree ? checkout.name : "", "no conversation yet"]
+        // Same rule as above, and it matters more here: a worktree ade
+        // create made is named for its branch, so the heading already
+        // said it and the repeat pushed "no conversation yet" out.
+        meta: [
+          checkout.worktree && checkout.name !== serving.branch ? checkout.name : "",
+          "no conversation yet",
+        ]
           .filter(Boolean)
           .join(" · "),
         tag: checkout.path === here ? { text: "here", kind: "here" as const } : undefined,
+        acts: [{ label: "Stop…", what: "session-end" as const, name: serving.id }],
       } });
     }
     if (found.length === 0) continue;

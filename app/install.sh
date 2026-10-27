@@ -9,6 +9,13 @@ osascript -e 'quit app "ADE"' >/dev/null 2>&1 || true
 rsync -a --delete "$app/" /Applications/ADE.app/
 echo "installed /Applications/ADE.app"
 
+# rsync into the bundle leaves the directory looking unchanged, so the Dock
+# and Finder keep drawing the icon they cached at the last install.
+touch /Applications/ADE.app
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$lsregister" ] && "$lsregister" -f /Applications/ADE.app || true
+killall Dock >/dev/null 2>&1 || true
+
 # The editor this replaces linked its cli onto PATH from inside the bundle.
 link=/usr/local/bin/ade-editor
 if [ -L "$link" ] && [ ! -e "$link" ]; then

@@ -28,7 +28,7 @@ describe("the Electron the shell calls", () => {
     }
     const used = [
       ...sources().matchAll(
-        /\b(protocol|app|ipcMain|ipcRenderer|Menu|net|BrowserWindow|contextBridge|globalShortcut)\.([a-zA-Z]+)\(/g,
+        /\b(protocol|app|ipcMain|ipcRenderer|Menu|net|BrowserWindow|contextBridge|globalShortcut|nativeImage)\.([a-zA-Z]+)\(/g,
       ),
     ].map((m) => ({ on: m[1], name: m[2] }));
 
@@ -44,5 +44,13 @@ describe("the Electron the shell calls", () => {
     // A privileged scheme registered after `ready` is ignored, and the
     // panels then cannot reach ade.
     expect(main.indexOf("declare();")).toBeLessThan(main.indexOf("app.whenReady"));
+  });
+
+  // An unpackaged run has no bundle, so it showed electron's own icon in
+  // the dock and ade's when installed. See `new session.md`.
+  it("has the dock icon an unpackaged run reads", () => {
+    const png = readFileSync(join(here, "..", "icon", "ade.png"));
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(512);
   });
 });

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,8 +76,57 @@ func TestAnAdeAnnouncesWhatItIsServingToTheLauncher(t *testing.T) {
 	assert.Equal(t, claim{ID: "abc", Dir: "/repo", Port: 4321}, <-said)
 
 	// Nothing is claimed when there is no session to name.
-	s.announceServing(context.Background(), "")
+	require.Error(t, s.announceServing(context.Background(), ""))
 	assert.Empty(t, asked)
+}
+
+// A refusal used to be read and dropped, which left a session off the rail
+// with nothing said anywhere about why. See `new session.md`.
+func TestARefusedAnnouncementIsReportedWithTheLaunchersReason(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	launcher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"no ade is recorded at /w/ade/server.json"}`))
+	}))
+	defer launcher.Close()
+
+	record, err := settings.RecordPath()
+	require.NoError(t, err)
+	require.NoError(t, session.Write(record, session.Record{
+		PID: os.Getpid(), URL: launcher.URL + "/?t=launcher-token", Root: t.TempDir(),
+	}))
+
+	s := &Server{listenPort: "4321", startRoot: "/repo"}
+	err = s.announceServing(context.Background(), "abc")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no ade is recorded at /w/ade/server.json")
+}
+
+// The record this claim is checked against is written by another goroutine,
+// so the first try may be early. One dropped POST is not the end of it.
+func TestAnAnnouncementIsSaidAgainUntilTheLauncherTakesIt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var tries atomic.Int32
+	launcher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if tries.Add(1) < 3 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer launcher.Close()
+
+	record, err := settings.RecordPath()
+	require.NoError(t, err)
+	require.NoError(t, session.Write(record, session.Record{
+		PID: os.Getpid(), URL: launcher.URL + "/?t=launcher-token", Root: t.TempDir(),
+	}))
+
+	s := &Server{listenPort: "4321", startRoot: "/repo"}
+	s.keepAnnouncing(context.Background(), "abc")
+	assert.Equal(t, int32(3), tries.Load())
 }
 
 // The launcher's list names each worker launcher with its token in the URL.

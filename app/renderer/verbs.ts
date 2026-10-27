@@ -88,7 +88,7 @@ export const VOCABULARY: Group[] = [
       ["ade.diffRoot", "Choose which repository the Diff view shows"],
       ["ade.draftReplies", "Draft replies to the review comments"],
       ["ade.addToReview", "Add the written-up comments to the draft review"],
-      ["ade.finishReview", "Finish the review: approve, or request changes"],
+      ["ade.finishReview", "Send the draft review to the author, with a verdict"],
       ["ade.sendReplies", "Send the waiting replies to GitHub"],
     ],
   },

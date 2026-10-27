@@ -167,7 +167,12 @@ describe("sessions, flattened out of the scan", () => {
     expect(sessions(quiet).rows[0].group).not.toBe("Running");
     const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix" }]).rows[0];
     expect(row.group).toBe("Running");
-    expect(row.acts?.[0].what).toBe("session-stop");
+    expect(row.acts?.[0]).toEqual({ label: "Stop…", what: "session-end", name: "s9" });
+    // The point of the change: a finished one is removable from its row too.
+    expect(sessions(quiet).rows[0].acts?.[0]).toMatchObject({
+      label: "Put away…",
+      what: "session-end",
+    });
   });
 });
 
@@ -1087,6 +1092,25 @@ describe("a checkout an ade is serving with nothing said in it", () => {
     expect(row?.meta).toBe("infra-pr-1535 · no conversation yet");
     // An ade is up in it, so it belongs with what is up.
     expect(row?.group).toBe("Running");
+    expect(row?.acts?.[0]).toMatchObject({ label: "Stop…", what: "session-end" });
+  });
+
+  // ade create names the worktree after the branch, so the heading has
+  // already said it; the repeat pushed "no conversation yet" off the end.
+  it("does not say the worktree's name twice", () => {
+    const same = JSON.parse(JSON.stringify(repos)) as real.Repo[];
+    same[0].checkouts![1] = {
+      ...same[0].checkouts![1],
+      name: "ci-check-quota-issues",
+      path: "/r/ci-check-quota-issues",
+      branch: "ci-check-quota-issues",
+    };
+    const here = [
+      { id: "pending-abc", dir: "/r/ci-check-quota-issues", name: "x", repo: "infra", branch: "ci-check-quota-issues" },
+    ] as real.Active[];
+    const row = real.sessions(same, "", Date.now(), [], here).rows.find((r) => r.id === "pending-abc");
+    expect(row?.name).toBe("ci-check-quota-issues");
+    expect(row?.meta).toBe("no conversation yet");
   });
 
   it("is not a second row once something is said in it", () => {

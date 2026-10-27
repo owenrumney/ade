@@ -256,7 +256,10 @@ func TestACheckoutAnnouncesWhatItServes(t *testing.T) {
 	rec := do(t, s, http.MethodPost, "/api/serving",
 		`{"id":"abc","dir":"`+t.TempDir()+`","port":1234}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "no ade is recorded on that port")
+	// Named, not summarised: the three ways this fails are fixed in three
+	// different places, and the claimant only ever sees this sentence.
+	assert.Contains(t, rec.Body.String(), "no ade is recorded at ")
+	assert.Contains(t, rec.Body.String(), "ade/server.json")
 
 	for _, body := range []string{
 		`{"id":"","dir":"/repo","port":1234}`,

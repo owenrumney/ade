@@ -156,6 +156,26 @@ describe("what each kind of entry promises", () => {
   });
 });
 
+// /api/pr/approve and /api/pr/request-changes refuse a body that does not
+// name the pull request, and the table cannot know its number. Wired as a
+// path and a body, both answered 400 and the omnibox looked inert.
+describe("a verdict on a pull request", () => {
+  it("goes through the window, which knows the number", () => {
+    for (const command of ["ade.approvePR", "ade.requestChanges", "ade.mergePR"]) {
+      expect(wired(command), command).toMatchObject({ at: "verdict" });
+    }
+  });
+
+  it("is never wired as a bare post to a verdict route", () => {
+    const bare = Object.entries(WIRED).filter(
+      ([, what]) =>
+        (what.at === "session" || what.at === "launcher") &&
+        /^\/api\/pr\/(approve|request-changes)$/.test(what.path),
+    );
+    expect(bare.map(([c]) => c)).toEqual([]);
+  });
+});
+
 // Not a threshold to defend, a number to watch: it should go up.
 describe("how much of ade the window has caught up with", () => {
   it("reports the split", () => {

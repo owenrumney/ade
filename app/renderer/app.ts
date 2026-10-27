@@ -88,6 +88,8 @@ class Ade {
   private world: World = real.offline("Reading ade…");
   private place = "prs";
   private picked = new Map<string, string>();
+  // The pick the sidebar was last scrolled to, so a redraw does not do it again.
+  private revealed = "";
   private unfolded = new Set<string>(["internal", "internal/dashboard"]);
   private folded = new Set<string>();
   private filters = new Map<string, string>();
@@ -577,6 +579,10 @@ class Ade {
     }
     if (what.at === "edit") {
       void this.editPR();
+      return;
+    }
+    if (what.at === "verdict") {
+      void this.giveVerdict(what.which);
       return;
     }
     if (what.at === "window") {
@@ -1323,6 +1329,27 @@ class Ade {
     if (this.prShown === shown) await this.readPR(shown.row, at);
   }
 
+  // giveVerdict is the omnibox's Approve, Request changes and Merge. They
+  // go through verdict() because the server refuses one that does not name
+  // the pull request, and only the window knows its number.
+  private async giveVerdict(which: "approve" | "request-changes" | "merge"): Promise<void> {
+    if (!window.ade) return;
+    const number = this.world.status.pr;
+    if (!number) {
+      this.omnibox.close();
+      return this.say("this branch has no pull request");
+    }
+    const ask = await this.verdict(which, number);
+    if (!ask) return;
+    this.say("working…");
+    const got = await window.ade
+      .act("session", ask.path, ask.body, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.say(back.error || `#${number}: done`);
+    void this.read();
+  }
+
   // verdict asks for what a review or a merge needs, through the box.
   // Each is public and posted as you, so each names the pull request.
   private async verdict(
@@ -1363,13 +1390,24 @@ class Ade {
     activity.replaceChildren(...this.activity());
     // The filter keeps the keyboard across a redraw.
     const typing = document.activeElement?.classList.contains("find");
+    // The list is rebuilt every few seconds, so where you had scrolled to
+    // is kept across it, as the panes below keep theirs.
+    const read = sidebar.querySelector(".list")?.scrollTop ?? 0;
     sidebar.replaceChildren(...this.sidebar());
+    const list = sidebar.querySelector(".list");
+    if (list && read) list.scrollTop = read;
     if (typing) {
       const find = sidebar.querySelector<HTMLInputElement>(".find");
       find?.focus();
       find?.setSelectionRange(find.value.length, find.value.length);
     }
-    sidebar.querySelector(".row.on, .twig.on")?.scrollIntoView({ block: "nearest" });
+    // Only when the pick moved. On every draw it dragged the list back
+    // under the pointer a second after you scrolled away from it.
+    const pick = `${this.place}:${this.picked.get(this.place) ?? ""}`;
+    if (pick !== this.revealed) {
+      this.revealed = pick;
+      sidebar.querySelector(".row.on, .twig.on")?.scrollIntoView({ block: "nearest" });
+    }
     head.replaceChildren(...this.head());
     statusbar.replaceChildren(...this.statusbar());
 
@@ -1766,11 +1804,13 @@ class Ade {
     }
     if (this.draft.ready > 0) {
       const add = el("span", "btn quiet", `Add ${this.draft.ready} to the review`);
+      add.title = "Into the draft review, which only you can see.";
       add.addEventListener("click", () => void this.addToReview());
       bar.append(add);
     }
     if (this.draft.inDraft > 0) {
-      const finish = el("span", "btn", "Finish the review");
+      const finish = el("span", "btn", `Send the review · ${this.draft.inDraft}`);
+      finish.title = "Submits the draft with a verdict. This is what the author sees.";
       finish.addEventListener("click", () => void this.finishReview());
       bar.append(finish);
     }
@@ -2191,17 +2231,6 @@ class Ade {
       return void this.read();
     }
     if (act.what === "session-end") return this.endSession(act.name);
-    if (act.what === "session-stop") {
-      const got = await window.ade
-        ?.act("session", "/api/cancel", {}, act.name)
-        .catch((e: Error) => ({ error: e.message }));
-      const stop = real.answered(got);
-      // Nothing behind the row to cancel: the listing is stale, not the
-      // press, so it refreshes rather than refusing.
-      if (stop.error && !real.unserved(stop.error)) return this.say(stop.error);
-      this.say(stop.error ? "no ade was serving it" : "stopped");
-      return void this.read();
-    }
     // Both are the launcher's, and row-only verbs in the fork too. The
     // label says which way it goes: Pause stops it, Resume starts.
     const paused = act.label === "Pause";
@@ -2215,11 +2244,11 @@ class Ade {
     void this.read();
   }
 
-  // endSession is the one verb on an agent row: stop the run, stop the ade
-  // under it, or put the conversation away for good.
+  // endSession is the one verb on a session row, in Sessions and in
+  // Agents: stop the run, stop the ade under it, or put it away for good.
   private async endSession(id: string): Promise<void> {
     if (!window.ade) return;
-    const row = this.world.places.find((p) => p.id === "agents")?.rows.find((r) => r.id === id);
+    const row = this.world.places.flatMap((p) => p.rows).find((r) => r.id === id);
     const state = this.announced.find((a) => a.id === id);
     const what = await this.omnibox.ask(
       `${row?.name ?? id}`,
@@ -2461,7 +2490,18 @@ class Ade {
     const bar: HTMLElement[] = [];
     const status = this.world.status;
 
-    const branch = el("div", "item");
+    // First, before the branch: two worktrees of one repository are the
+    // same branch name, and which one you are in is the other half.
+    const dir = this.where.get(this.session) ?? "";
+    if (dir) {
+      const where = el("div", "item");
+      where.append(icon("folder", 13), el("span", "", dir.split("/").pop() ?? dir));
+      where.title = `${dir} — click for the repository`;
+      where.addEventListener("click", () => this.run("ade.showRepo"));
+      bar.push(where);
+    }
+
+    const branch = el("div", "item branch");
     branch.append(icon("branch", 13), el("span", "", status.branch));
     branch.title = "Switch branch, or move this session to another worktree";
     branch.addEventListener("click", () => this.run("ade.switchWorktree"));
