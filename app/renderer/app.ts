@@ -606,6 +606,7 @@ class Ade {
       if (what.verb === "save") return void this.save();
       if (what.verb === "review-draft") return void this.addToReview();
       if (what.verb === "review-finish") return void this.finishReview();
+      if (what.verb === "open-pr") return void this.openPRLink();
       if (what.verb === "start") return void this.up();
       if (what.verb === "resume") return void this.resume();
       if (what.verb === "new-chat") return void this.newChat();
@@ -1340,6 +1341,27 @@ class Ade {
     this.say(id === "ade" && path ? `#${at.number} is checked out in ${path}` : `#${at.number}: done`);
     await this.again();
     if (this.prShown === shown) await this.readPR(shown.row, at);
+  }
+
+  // openPRLink checks a pasted pull request out and lands on it. The
+  // launcher does the cloning, the worktree and the space.
+  private async openPRLink(): Promise<void> {
+    const link = await this.omnibox.type("Paste a pull request link", "");
+    this.omnibox.close();
+    if (!link?.trim()) return;
+    this.say("checking it out…");
+    const got = await window.ade!
+      .act("launcher", "/api/reviews/open", { link: link.trim() })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    const path = (back.body as { path?: string } | undefined)?.path ?? "";
+    if (!path) return this.say("it was opened, but nothing said where");
+    this.landing = path;
+    this.landingFor = "review";
+    this.landingSince = Date.now();
+    this.say(`checked out in ${path}`);
+    await this.read();
   }
 
   // giveVerdict is the omnibox's Approve, Request changes and Merge. They
