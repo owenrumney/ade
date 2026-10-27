@@ -659,6 +659,32 @@ describe("the jobs list", () => {
     expect(failing.tone).toBe("bad");
   });
 
+  it("paints the icon for a report nobody has read", () => {
+    const unread = [
+      ...all,
+      {
+        name: "my-day",
+        schedule: "0 8 * * 1-5",
+        outcomes: [{ firedAt: "2026-10-22T08:00:00Z", millis: 900, report: "# My Day" }],
+      },
+    ] as real.Job[];
+    const place = real.jobs(unread, now);
+    expect(place.alert).toBe(true);
+    expect(place.count).toBe(1);
+    expect(place.rows[3].meta).toContain("1 unread");
+  });
+
+  it("is quiet once the reports have been read", () => {
+    const read = [
+      {
+        name: "my-day",
+        schedule: "0 8 * * 1-5",
+        outcomes: [{ firedAt: "2026-10-22T08:00:00Z", millis: 900, report: "# My Day", seen: true }],
+      },
+    ] as real.Job[];
+    expect(real.jobs(read, now).alert).toBeFalsy();
+  });
+
   it("opens recorded failures as run history", () => {
     expect(real.jobReport({
       name: "drift",

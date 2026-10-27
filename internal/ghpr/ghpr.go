@@ -456,12 +456,17 @@ type Request struct {
 	ReviewDecision string `json:"reviewDecision,omitempty"`
 }
 
-// requestSearch asks for the open pull requests waiting on the viewer, with
-// where each one's checks stand. `gh search prs` cannot answer the second part
-// — its --json has no field for the checks — so this is one GraphQL read
-// instead of a search followed by a call per pull request.
-const requestSearch = `{
-  search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 30) {
+// The two searches, with where each one's checks stand. `gh search prs` has no
+// --json field for the checks, so this is GraphQL rather than a call per PR.
+const (
+	waitingOnMe = "is:open is:pr review-requested:@me archived:false"
+	mineOpen    = "is:open is:pr author:@me archived:false"
+)
+
+// prSearch is the GraphQL around one of those queries.
+func prSearch(query string) string {
+	return `{
+  search(query: "` + query + `", type: ISSUE, first: 30) {
     nodes {
       ... on PullRequest {
         number title url isDraft updatedAt reviewDecision
@@ -472,11 +477,22 @@ const requestSearch = `{
     }
   }
 }`
+}
 
 // ReviewRequests is every open pull request on GitHub asking for the viewer's
 // review, in any repository.
 func ReviewRequests(ctx context.Context, dir string) ([]Request, error) {
-	out, err := graphqlRead(ctx, dir, requestSearch)
+	return searchPRs(ctx, dir, waitingOnMe)
+}
+
+// MyOpenPRs is every open pull request the viewer wrote: what is waiting on
+// somebody else, which the review search never shows.
+func MyOpenPRs(ctx context.Context, dir string) ([]Request, error) {
+	return searchPRs(ctx, dir, mineOpen)
+}
+
+func searchPRs(ctx context.Context, dir, query string) ([]Request, error) {
+	out, err := graphqlRead(ctx, dir, prSearch(query))
 	if err != nil {
 		return nil, err
 	}

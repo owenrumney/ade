@@ -44,6 +44,7 @@ const VIEWS = [
   { name: "app-team", place: "Team" },
   { name: "app-person", place: "Team", row: "kim" },
   { name: "app-jobs", place: "Jobs" },
+  { name: "app-my-day", place: "Jobs", row: "my-day" },
   {
     name: "app-chat",
     place: "Sessions",

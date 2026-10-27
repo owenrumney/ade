@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/archive"
+	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/jobs"
+	"github.com/owenrumney/ade/internal/myday"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/transcripts"
@@ -50,6 +52,8 @@ type jobsClock struct {
 	distill wiki.DistillModel
 	// archive is the design archiver's model. nil is the real one-shot.
 	archive archive.Runner
+	// myday is the morning report's model. nil is the real one-shot.
+	myday myday.Model
 
 	// inflight is the fires a tick started, so a test can wait one out.
 	inflight sync.WaitGroup
@@ -157,6 +161,54 @@ func (s *Server) archiveDesigns(ctx context.Context) jobs.Outcome {
 	out := jobs.FireArchive(ctx, s.distillStore(), jobs.ArchiveTargets(ctx, repos), model)
 	s.refreshWiki()
 	return out
+}
+
+// myDay is the built-in my-day job: the three lists read fresh, and the
+// tickets sized by a model only where the cache has gone stale.
+func (s *Server) myDay(ctx context.Context) jobs.Outcome {
+	in := myday.Input{Now: time.Now()}
+
+	var mine []ghpr.Request
+	var mineErr error
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); s.board.RefreshReviews(ctx) }()
+	go func() { defer wg.Done(); s.board.RefreshTickets(ctx) }()
+	go func() { defer wg.Done(); mine, mineErr = ghpr.MyOpenPRs(ctx, "") }()
+	wg.Wait()
+
+	for _, review := range s.board.Reviews() {
+		if !review.Muted {
+			in.Asked = append(in.Asked, review.Request)
+		}
+	}
+	in.AskedError = s.board.ReviewTroubleNow().Error
+	in.Mine = mine
+	if mineErr != nil {
+		in.MineError = mineErr.Error()
+	}
+	switch tickets := s.board.Tickets(); {
+	case tickets == nil:
+		in.TicketError = "no Linear API key in ade's settings"
+	default:
+		in.Tickets, in.TicketError = tickets.Issues, tickets.Error
+	}
+
+	// Only the sizing is gated: the two searches and every cached estimate
+	// cost nothing, and a held window must not be a silent morning.
+	held := ""
+	if ok, why := jobs.WithinSpend(s.limits.Snapshot(ctx)); !ok {
+		held = why
+	}
+	model := s.jobs.myday
+	if model == nil {
+		dir, err := settings.Dir()
+		if err != nil {
+			return jobs.Outcome{FiredAt: time.Now(), Error: err.Error()}
+		}
+		model = jobs.MyDayModel("", dir)
+	}
+	return jobs.FireMyDay(ctx, in, model, held)
 }
 
 func transcriptPaths(all []*transcripts.Session) []string {
@@ -404,6 +456,13 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		out := s.distillWiki(ctx, manual)
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a wiki distillation", "err", err)
+		}
+		return out, nil
+	}
+	if job.Kind == jobs.KindMyDay {
+		out := s.myDay(ctx)
+		if _, err := jobs.Record(job, out, "", now); err != nil {
+			slog.Warn("record a my-day report", "err", err)
 		}
 		return out, nil
 	}
