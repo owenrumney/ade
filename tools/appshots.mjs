@@ -34,7 +34,7 @@ const VIEWS = [
   { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
   { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },
-  { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item" },
+  { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item.branch" },
   { name: "app-verbs", place: "Pull requests", keys: "k", type: "review" },
   { name: "app-waiting", place: "Waiting on you" },
   { name: "app-sessions", place: "Sessions" },

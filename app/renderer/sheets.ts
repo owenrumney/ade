@@ -338,7 +338,7 @@ function heading(it: Thread, on: OnThread, open: boolean): HTMLElement {
   if (n > 1) bar.append(el("span", "quiet", `${n} findings`));
   if (it.sentAt) bar.append(el("span", "tag sent", "on the pull request"));
   else if (it.draftReview) bar.append(el("span", "tag draft", "in the draft review"));
-  else if (it.outgoing) bar.append(el("span", "tag ready", "ready"));
+  else if (it.outgoing) bar.append(el("span", "tag ready", "written up, not sent"));
 
   if (foldable(it)) {
     const more = el("span", "btn quiet", open ? "Fold" : "Show the findings");
@@ -351,21 +351,27 @@ function heading(it: Thread, on: OnThread, open: boolean): HTMLElement {
 // verbs is the one thing a thread is waiting for, and why when it is none.
 function verbs(it: Thread, on: OnThread, hasPR: boolean): HTMLElement {
   const acts = el("div", "acts");
-  const act = (label: string, what: Asked["what"], quiet = true) => {
+  const act = (label: string, what: Asked["what"], quiet = true, why = "") => {
     const button = el("span", quiet ? "btn quiet" : "btn", label);
+    if (why) button.title = why;
     button.addEventListener("click", () => on({ what, id: it.id }));
     acts.append(button);
   };
   const next = nextVerb(it, hasPR);
   switch (next) {
+    // Each of the three names where it leaves the comment, because none of
+    // them sends it and the first one read as if it did.
     case "convert":
-      act("Write it for the author", "convert", false);
+      act("Write it up", "convert", false,
+        "Rewrites your note in words for the author, on this thread. Nothing is sent.");
       break;
     case "draft":
-      act("Add to the review", "draft", false);
+      act("Add to the review", "draft", false,
+        "Puts the written-up comment in the pull request's draft review, which only you can see.");
       break;
     case "take-out":
-      act("Take out of the review", "take-out");
+      act("Take out of the review", "take-out",
+        true, "Takes it back out of the draft review. It stays written up here.");
       break;
     case "reply":
     case "answer":

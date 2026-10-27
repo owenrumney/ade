@@ -12,6 +12,11 @@ export interface Tab {
   what: { panel: string } | View;
 }
 
+// The panel ids that hold the New session screen, seeded or not.
+export function newSessionPanel(panel: string): boolean {
+  return panel === "ade.newSession" || panel.startsWith("todo:") || panel.startsWith("in:");
+}
+
 export function idOf(what: Tab["what"]): string {
   if ("panel" in what) return `panel:${what.panel}`;
   switch (what.kind) {

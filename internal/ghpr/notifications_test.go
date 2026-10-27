@@ -113,3 +113,37 @@ func TestPRStatesRefusesARepoItCannotTrust(t *testing.T) {
 func TestPRRefKey(t *testing.T) {
 	assert.Equal(t, "owner/repo#12", PRRef{Repo: "owner/repo", Number: 12}.Key())
 }
+
+// What a person pastes is whatever the browser was showing, which is rarely
+// the bare url: a tab, an anchor and a query all ride along.
+func TestParseRefReadsWhatWasPasted(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want PRRef
+	}{
+		{"https://github.com/infracost/cli/pull/1535", PRRef{"infracost/cli", 1535}},
+		{"https://github.com/infracost/cli/pull/1535/files", PRRef{"infracost/cli", 1535}},
+		{"https://github.com/infracost/cli/pull/1535#discussion_r1", PRRef{"infracost/cli", 1535}},
+		{"https://github.com/infracost/cli/pull/1535?w=1", PRRef{"infracost/cli", 1535}},
+		{"  github.com/owner/name/pull/7/commits  ", PRRef{"owner/name", 7}},
+		{"infracost/cli#1535", PRRef{"infracost/cli", 1535}},
+	} {
+		got, ok := ParseRef(c.in)
+		assert.Truef(t, ok, "refused %q", c.in)
+		assert.Equalf(t, c.want, got, "read %q", c.in)
+	}
+}
+
+func TestParseRefRefusesWhatIsNotAPullRequest(t *testing.T) {
+	for _, in := range []string{
+		"", "   ", "https://github.com/infracost/cli",
+		"https://github.com/infracost/cli/issues/12",
+		"pull/9", "https://github.com/a/b/pull/0",
+		"https://github.com/a/b/pull/nope",
+		// No owner before the name: nothing to clone from.
+		"https://github.com/cli/pull/3",
+	} {
+		_, ok := ParseRef(in)
+		assert.Falsef(t, ok, "accepted %q", in)
+	}
+}

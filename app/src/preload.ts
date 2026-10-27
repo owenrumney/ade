@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("ade", {
   start: () => ipcRenderer.invoke("ade.start") as Promise<unknown>,
   // The picked session's event stream, carried to the window.
   watch: (session?: string) => ipcRenderer.invoke("ade.watch", session) as Promise<unknown>,
+  listen: () => ipcRenderer.invoke("ade.listen") as Promise<unknown>,
   onEvent: (then: (name: string) => void) =>
     ipcRenderer.on("event", (_e, name: string) => then(name)),
   onStream: (then: (open: boolean) => void) =>

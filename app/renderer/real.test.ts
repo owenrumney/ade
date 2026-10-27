@@ -167,7 +167,12 @@ describe("sessions, flattened out of the scan", () => {
     expect(sessions(quiet).rows[0].group).not.toBe("Running");
     const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix" }]).rows[0];
     expect(row.group).toBe("Running");
-    expect(row.acts?.[0].what).toBe("session-stop");
+    expect(row.acts?.[0]).toEqual({ label: "Stop…", what: "session-end", name: "s9" });
+    // The point of the change: a finished one is removable from its row too.
+    expect(sessions(quiet).rows[0].acts?.[0]).toMatchObject({
+      label: "Put away…",
+      what: "session-end",
+    });
   });
 });
 
@@ -177,6 +182,7 @@ describe("sessions, flattened out of the scan", () => {
 describe("a session nothing is serving", () => {
   it("is told apart from a real failure", () => {
     expect(real.unserved("no ade is serving that session")).toBe(true);
+    expect(real.unserved("/api/graph/stop: no ade is running for this repository")).toBe(true);
     expect(real.unserved("the agent is wedged")).toBe(false);
     expect(real.unserved()).toBe(false);
   });
@@ -374,6 +380,20 @@ describe("sessions, under the repository each is in", () => {
 
   it("says nothing of a worktree for a session in the main checkout", () => {
     expect(place.rows.find((r) => r.id === "mid")?.meta).toBe("5h");
+  });
+
+  it("names the main checkout on a running row", () => {
+    const up = real.sessions(
+      [{ name: "ci", path: "/r/ci", checkouts: [{ name: "ci", path: "/r/ci", sessions: [{ id: "c", name: "c", dir: "/r/ci", live: true, lastUsed: at(2) }] }] }] as unknown as real.Repo[],
+      "",
+      Date.parse("2026-10-22T12:00:00Z"),
+    );
+    expect(up.rows[0].meta).toBe("ci · 2h");
+  });
+
+  it("keeps what is running in a repository outside the spaces", () => {
+    const spaced = real.sessions(repos, "", Date.parse("2026-10-22T12:00:00Z"), [], [], (r) => r.name === "lazytrivy");
+    expect(spaced.rows.map((r) => r.id)).toEqual(["hot", "lt1"]);
   });
 
   it("names a worktree once when its branch matches its name", () => {
@@ -595,6 +615,12 @@ describe("the team, as agentbus has it", () => {
       "Who is about",
       "Who is about",
     ]);
+  });
+
+  it("offers Dismiss on an offer and Clear on an answer", () => {
+    const acts = real.team(bus, now).rows.map((r) => r.acts?.map((a) => `${a.label}:${a.what}`));
+    expect(acts.slice(0, 2)).toEqual([["Dismiss:bus-dismiss"], ["Clear:bus-dismiss"]]);
+    expect(acts.slice(2).every((a) => a === undefined)).toBe(true);
   });
 
   it("counts only what needs doing something with", () => {
@@ -1087,6 +1113,25 @@ describe("a checkout an ade is serving with nothing said in it", () => {
     expect(row?.meta).toBe("infra-pr-1535 · no conversation yet");
     // An ade is up in it, so it belongs with what is up.
     expect(row?.group).toBe("Running");
+    expect(row?.acts?.[0]).toMatchObject({ label: "Stop…", what: "session-end" });
+  });
+
+  // ade create names the worktree after the branch, so the heading has
+  // already said it; the repeat pushed "no conversation yet" off the end.
+  it("does not say the worktree's name twice", () => {
+    const same = JSON.parse(JSON.stringify(repos)) as real.Repo[];
+    same[0].checkouts![1] = {
+      ...same[0].checkouts![1],
+      name: "ci-check-quota-issues",
+      path: "/r/ci-check-quota-issues",
+      branch: "ci-check-quota-issues",
+    };
+    const here = [
+      { id: "pending-abc", dir: "/r/ci-check-quota-issues", name: "x", repo: "infra", branch: "ci-check-quota-issues" },
+    ] as real.Active[];
+    const row = real.sessions(same, "", Date.now(), [], here).rows.find((r) => r.id === "pending-abc");
+    expect(row?.name).toBe("ci-check-quota-issues");
+    expect(row?.meta).toBe("no conversation yet");
   });
 
   it("is not a second row once something is said in it", () => {
@@ -1215,10 +1260,34 @@ describe("ending a session from the agents list", () => {
     expect(real.endings("working").map((e) => e.value)).toEqual([
       "agent",
       "ade",
+      "done",
       "archive",
       "delete",
     ]);
-    expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "archive", "delete"]);
+    expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "done", "archive", "delete"]);
+  });
+
+  it("offers only the stops when no conversation is behind the row", () => {
+    expect(real.endings("idle", false).map((e) => e.value)).toEqual(["ade"]);
+    expect(real.endings("working", false).map((e) => e.value)).toEqual(["agent", "ade"]);
+    expect(real.endings("idle", false)[0].note).toMatch(/nothing has been said/);
+  });
+
+  it("knows which ids have a transcript behind them", () => {
+    const repos = [
+      { name: "ade", path: "/r/ade", checkouts: [{ path: "/r/ade", name: "ade", sessions: [{ id: "s1" }] }] },
+    ] as unknown as real.Repo[];
+    expect(real.spoken(repos, "s1")).toBe(true);
+    expect(real.spoken(repos, "pending-abc")).toBe(false);
+    expect(real.spoken([], "s1")).toBe(false);
+  });
+
+  it("does not claim it removed something it did not", () => {
+    expect(real.ended("delete", { removed: 0 })).toMatch(/nothing to delete/);
+    expect(real.ended("delete", { removed: 1 })).toBe("deleted");
+    expect(real.ended("archive", { changed: 0 })).toMatch(/nothing to archive/);
+    expect(real.ended("archive", { changed: 2 })).toBe("archived");
+    expect(real.ended("ade")).toBe("ade stopped here");
   });
 });
 

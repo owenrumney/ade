@@ -488,21 +488,13 @@ func transcriptPath(dir, session string) string {
 	if session == "" {
 		return ""
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	if path := transcripts.ClaudeTranscript(dir, session); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
-	projects := filepath.Join(home, ".claude", "projects")
-	slug := strings.ReplaceAll(strings.TrimSuffix(dir, "/"), "/", "-")
-	path := filepath.Join(projects, slug, session+".jsonl")
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	matches, err := filepath.Glob(filepath.Join(projects, "*", session+".jsonl"))
-	if err != nil || len(matches) == 0 {
-		return ""
-	}
-	return matches[0]
+	// Resume does not mind the directory it runs in, and a transcript never moves.
+	return transcripts.ClaudeAnywhere(session)
 }
 
 // State returns a copy of the current run state.

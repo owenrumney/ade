@@ -132,8 +132,8 @@ const appleMemory = "4G"
 // stopGrace is how long a stop gets before the process is killed anyway.
 const stopGrace = 10 * time.Second
 
-// Detect picks the runtime: Apple's when its CLI is there and its services
-// are up, otherwise Docker, otherwise nothing. lookPath and run stand in for
+// Detect picks the runtime: Docker when its daemon answers, else Apple's when
+// its services are up, else Docker anyway, else nothing. lookPath and run stand in for
 // exec in tests.
 func Detect(ctx context.Context) (Runtime, error) {
 	rt, err := detect(ctx, exec.LookPath, func(ctx context.Context, name string, args ...string) error {
@@ -208,18 +208,29 @@ func cpuArgs(args []string, cpus int) []string {
 }
 
 func detect(ctx context.Context, lookPath func(string) (string, error), run func(context.Context, string, ...string) error) (Runtime, error) {
-	if _, err := lookPath("container"); err == nil {
+	up := func(bin string, args ...string) bool {
+		if _, err := lookPath(bin); err != nil {
+			return false
+		}
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		err := run(probe, "container", "system", "status")
-		if err == nil {
-			slog.Debug("runtime detected", "runtime", "container")
-			return Apple{}, nil
+		err := run(probe, bin, args...)
+		if err != nil {
+			slog.Debug("runtime is on PATH but not running", "runtime", bin, "err", err)
 		}
-		slog.Debug("container is on PATH but not running", "err", err)
+		return err == nil
 	}
-	if _, err := lookPath("docker"); err == nil {
+	// Docker first: Apple's box dials the host on its bridge, where loopback-only MCP servers refuse it.
+	if up("docker", "info") {
 		slog.Debug("runtime detected", "runtime", "docker")
+		return Docker{}, nil
+	}
+	if up("container", "system", "status") {
+		slog.Debug("runtime detected", "runtime", "container")
+		return Apple{}, nil
+	}
+	// A stopped daemon still gets Docker, so the run says why rather than no runtime at all.
+	if _, err := lookPath("docker"); err == nil {
 		return Docker{}, nil
 	}
 	slog.Warn("no container runtime found; the sandbox is unavailable")

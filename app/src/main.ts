@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, nativeImage, shell } from "electron";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -68,6 +68,8 @@ function make(map: Keymap): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    // Windows and Linux take the icon per window; a Mac takes the dock's.
+    icon: mark(),
     titleBarStyle: mac ? "hiddenInset" : "hidden",
     trafficLightPosition: { x: 14, y: 12 },
     backgroundColor: "#1f1f1f",
@@ -95,6 +97,14 @@ function make(map: Keymap): BrowserWindow {
 // name as the packaged one rather than "Electron".
 app.setName(NAME);
 
+// mark is ade's own icon. Packaged, the bundle's icns answers for it; an
+// unpackaged run has no bundle and shows electron's until it is told.
+function mark(): ReturnType<typeof nativeImage.createFromPath> | undefined {
+  // dist/../icon, which is where it sits packaged and unpackaged alike.
+  const img = nativeImage.createFromPath(join(__dirname, "..", "icon", "ade.png"));
+  return img.isEmpty() ? undefined : img;
+}
+
 // ade's own menu, so no stock accelerator is registered behind its
 // back. Edit and Window keep their roles; their keys go through first.
 function menu(): void {
@@ -119,6 +129,8 @@ function why(e: Error): string {
 
 // gather is one round trip for everything the sidebar draws; each part
 // may fail on its own. `dir` is the checkout the window is on.
+const gatherWait = 10_000;
+
 async function gather(dir = ""): Promise<unknown> {
   const where = await found();
   if (!where) {
@@ -128,14 +140,14 @@ async function gather(dir = ""): Promise<unknown> {
   // which reads as ade having nothing rather than as a broken read.
   const trouble: Record<string, string> = {};
   const [dash, designs, repos, hosts, todos, jobs, active, spaces, limits] = await Promise.all([
-    ask(where, "/api/dash").catch((e: Error) => ({ error: e.message })),
-    ask<{ designs?: unknown[] }>(where, "/api/designs/all")
+    ask(where, "/api/dash", gatherWait).catch((e: Error) => ({ error: e.message })),
+    ask<{ designs?: unknown[] }>(where, "/api/designs/all", gatherWait)
       .then((d) => d.designs ?? [])
       .catch((e: Error) => {
         trouble.designs = why(e);
         return [];
       }),
-    ask<{ repos?: unknown[] }>(where, "/api/repos")
+    ask<{ repos?: unknown[] }>(where, "/api/repos", gatherWait)
       .then((r) => r.repos ?? [])
       .catch((e: Error) => {
         trouble.sessions = why(e);
@@ -143,19 +155,20 @@ async function gather(dir = ""): Promise<unknown> {
       }),
     // The machines already connected, and what they have checked out.
     // Nothing is dialled for this.
-    ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos")
+    ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos", gatherWait)
       .then((h) => h.hosts ?? [])
       .catch(() => []),
     ask<{ items?: unknown[] }>(
       where,
       dir ? `/api/todos?dir=${encodeURIComponent(dir)}` : "/api/todos",
+      gatherWait,
     )
       .then((t) => t.items ?? [])
       .catch((e: Error) => {
         trouble.todos = why(e);
         return [];
       }),
-    ask<{ jobs?: unknown[] }>(where, "/api/jobs")
+    ask<{ jobs?: unknown[] }>(where, "/api/jobs", gatherWait)
       .then((j) => j.jobs ?? [])
       .catch((e: Error) => {
         trouble.jobs = why(e);
@@ -163,7 +176,7 @@ async function gather(dir = ""): Promise<unknown> {
       }),
     // Every announced session and what its agent is doing, this machine
     // and every host the launcher is connected to.
-    ask<unknown[]>(where, "/api/serving")
+    ask<unknown[]>(where, "/api/serving", gatherWait)
       .then((a) => a ?? [])
       .catch((e: Error) => {
         trouble.agents = why(e);
@@ -174,6 +187,7 @@ async function gather(dir = ""): Promise<unknown> {
     ask<{ spaces?: unknown[] }>(
       where,
       dir ? `/api/spaces?dir=${encodeURIComponent(dir)}` : "/api/spaces",
+      gatherWait,
     )
       .then((s) => s.spaces ?? [])
       .catch((e: Error) => {
@@ -181,7 +195,7 @@ async function gather(dir = ""): Promise<unknown> {
         return [];
       }),
     // The plan windows. No reading is no item on the bar, not a zero.
-    ask<unknown>(where, "/api/limits").catch(() => undefined),
+    ask<unknown>(where, "/api/limits", gatherWait).catch(() => undefined),
   ]);
   return { dash, designs, repos, hosts, todos, jobs, active, spaces, limits, trouble };
 }
@@ -192,6 +206,8 @@ void app.whenReady().then(async () => {
     process.env.PATH = (await shellPath()) ?? process.env.PATH;
   }
   const map = keys();
+  const ico = mark();
+  if (ico && app.dock) app.dock.setIcon(ico);
   // Where the panels' assets are: the repository root in a checkout,
   // and what pack.sh staged beside the app once packaged.
   serve(app.isPackaged ? join(process.resourcesPath, "ade") : join(__dirname, "..", ".."));
@@ -223,6 +239,44 @@ void app.whenReady().then(async () => {
         : "ade did not come up; see the log in the temporary directory.",
     };
   });
+  // `tell` is off for the launcher's: the light is about the session.
+  const pump = (
+    e: Electron.IpcMainInvokeEvent,
+    at: string,
+    token: string,
+    stop: AbortController,
+    tell: boolean,
+  ) =>
+    void (async () => {
+      // Told once either way: announcing a connection before it is
+      // made is what put "lost the connection" on screen repeatedly.
+      let open = false;
+      let wait = 2_000;
+      for (;;) {
+        try {
+          const res = await fetch(at, {
+            headers: { "X-Ade-Token": token },
+            signal: stop.signal,
+          });
+          if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
+          if (tell) e.sender.send("stream", true);
+          open = true;
+          wait = 2_000;
+          await events(res.body, (name) => e.sender.send("event", name));
+        } catch {
+          // Refused, dropped, or gone quiet: the wait below is the retry.
+        }
+        if (stop.signal.aborted) return;
+        if (open && tell) e.sender.send("stream", false);
+        open = false;
+        await new Promise((done) => setTimeout(done, wait));
+        // A session nothing serves refuses every time, so backing off
+        // is the difference between a quiet window and a flashing one.
+        wait = Math.min(wait * 2, 30_000);
+        if (stop.signal.aborted) return;
+      }
+    })();
+
   // watch forwards the session's event stream: a webview expects its
   // host to carry it. In the shell, where no origin can be refused.
   let watching: AbortController | undefined;
@@ -232,36 +286,20 @@ void app.whenReady().then(async () => {
     if (!where || !session) return { ok: false };
     const stop = new AbortController();
     watching = stop;
-    const at = `${where.base}/s/${session}/api/events?t=${encodeURIComponent(where.token)}`;
-    void (async () => {
-      // Told once either way: announcing a connection before it is
-      // made is what put "lost the connection" on screen repeatedly.
-      let open = false;
-      let wait = 2_000;
-      for (;;) {
-        try {
-          const res = await fetch(at, {
-            headers: { "X-Ade-Token": where.token },
-            signal: stop.signal,
-          });
-          if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
-          e.sender.send("stream", true);
-          open = true;
-          wait = 2_000;
-          await events(res.body, (name) => e.sender.send("event", name));
-        } catch {
-          // Refused, dropped, or gone quiet: the wait below is the retry.
-        }
-        if (stop.signal.aborted) return;
-        if (open) e.sender.send("stream", false);
-        open = false;
-        await new Promise((done) => setTimeout(done, wait));
-        // A session nothing serves refuses every time, so backing off
-        // is the difference between a quiet window and a flashing one.
-        wait = Math.min(wait * 2, 30_000);
-        if (stop.signal.aborted) return;
-      }
-    })();
+    pump(e, `${where.base}/s/${session}/api/events?t=${encodeURIComponent(where.token)}`,
+      where.token, stop, true);
+    return { ok: true };
+  });
+
+  let listening: AbortController | undefined;
+  ipcMain.handle("ade.listen", async (e) => {
+    const where = await found();
+    if (!where) return { ok: false };
+    listening?.abort();
+    const stop = new AbortController();
+    listening = stop;
+    pump(e, `${where.base}/api/events?t=${encodeURIComponent(where.token)}`,
+      where.token, stop, false);
     return { ok: true };
   });
   // The terminal's sockets, in the shell: the server refuses a websocket
@@ -311,6 +349,7 @@ void app.whenReady().then(async () => {
       height: 640,
       alwaysOnTop: true,
       title: "ade",
+      icon: mark(),
       backgroundColor: "#0d1017",
       webPreferences: {
         preload: join(__dirname, "preload.js"),

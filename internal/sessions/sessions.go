@@ -66,6 +66,12 @@ type Session struct {
 
 	// Group names the combined-session card this session is shown under.
 	Group string `json:"group,omitempty"`
+
+	// Pinned is one imported by id, which the window does not bound.
+	Pinned bool `json:"pinned,omitempty"`
+
+	// From is where the transcript was recorded, when another checkout took it.
+	From string `json:"from,omitempty"`
 }
 
 // Window bounds what List answers; zero in a field is unbounded. A switcher
@@ -88,13 +94,20 @@ func ListIn(here string, window Window) []Session {
 	}
 	archived := settings.Archived()
 	hidden := settings.Hidden()
+	pinned := settings.Imported()
 
 	titles := settings.Titles()
 	scanned := transcripts.Scan()
 	live := transcripts.Liveness(scanned)
 	var out []Session
+	// A pin does not spend the budget the window bounds.
+	unpinned, wanted := 0, len(pinned)
 	for _, found := range scanned {
-		if found.CWD == "" || found.LastUsed.Before(cutoff) || hidden[found.ID] {
+		if found.CWD == "" || hidden[found.ID] {
+			continue
+		}
+		held := pinned[found.ID]
+		if held == "" && found.LastUsed.Before(cutoff) {
 			continue
 		}
 		// A named agent's run has a transcript of its own, but it is a reply
@@ -106,30 +119,48 @@ func ListIn(here string, window Window) []Session {
 		if transcripts.Machine(found) {
 			continue
 		}
+		// Where it is listed and would open: a pin names the checkout that took it.
+		dir := cmp.Or(held, found.CWD)
 		// A transcript outlives the directory it was recorded in — a rename or a
 		// removed worktree leaves one behind. Offering it would start a server
 		// somewhere that is not there.
-		if info, err := os.Stat(found.CWD); err != nil || !info.IsDir() {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			continue
+		}
+		if window.Max > 0 && unpinned == window.Max {
+			if wanted == 0 {
+				break
+			}
+			if held == "" {
+				continue
+			}
+		}
+		from := ""
+		if held != "" && held != found.CWD {
+			from = found.CWD
 		}
 		out = append(out, Session{
 			ID:        found.ID,
 			Agent:     string(found.Agent),
 			Model:     found.Model,
 			Path:      found.Path,
-			Dir:       found.CWD,
-			Name:      filepath.Base(found.CWD),
+			Dir:       dir,
+			Name:      filepath.Base(dir),
 			Branch:    found.Branch,
 			Title:     cmp.Or(titles[found.ID], Title(found)),
 			LastUsed:  found.LastUsed,
 			Resumable: found.Agent == transcripts.AgentClaude || found.Agent == transcripts.AgentCodex,
-			Here:      here != "" && found.CWD == here,
+			Here:      here != "" && dir == here,
 			Archived:  archived[found.ID],
 			Live:      live[found.Path],
+			Pinned:    held != "",
+			From:      from,
 		})
-		if window.Max > 0 && len(out) == window.Max {
-			break
+		if held != "" {
+			wanted--
+			continue
 		}
+		unpinned++
 	}
 	return out
 }

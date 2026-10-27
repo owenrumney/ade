@@ -39,7 +39,7 @@ func (s *Server) throughLauncher(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	watched := launcher.WatchedAt(ctx, base)
-	s.announceServing(ctx, s.railID())
+	go s.keepAnnouncing(ctx, s.railID())
 
 	// The proxy address is only for a session that will keep its name: a
 	// pending id is replaced the moment the agent names one, and the link dies.
@@ -61,43 +61,93 @@ func (s *Server) railID() string {
 	return s.pendingID
 }
 
+// announceTries and announceGap bound the retry. A session that never lands on
+// the rail is invisible, so one dropped POST may not be the end of it.
+const (
+	announceTries = 10
+	announceGap   = time.Second
+)
+
+// keepAnnouncing says it until the launcher takes it: the record it is checked
+// against is written by another goroutine, so the first try can be early.
+func (s *Server) keepAnnouncing(ctx context.Context, id string) {
+	var err error
+	for try := range announceTries {
+		if err = s.announceServing(ctx, id); err == nil {
+			return
+		}
+		if try == announceTries-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(announceGap):
+		}
+	}
+	slog.Warn("the launcher never took this session, so it is off the rail",
+		"id", id, "dir", s.startRoot, "port", s.listenPort, "err", err)
+}
+
 // announceServing tells the launcher which session this server holds: its scan
 // only knows sessions that have left a transcript, and a new one has not.
-func (s *Server) announceServing(ctx context.Context, id string) {
-	if s.noLauncher || id == "" || s.listenPort == "" {
-		return
+func (s *Server) announceServing(ctx context.Context, id string) error {
+	if s.noLauncher {
+		return nil
+	}
+	if id == "" || s.listenPort == "" {
+		return fmt.Errorf("nothing to announce: id %q, port %q", id, s.listenPort)
 	}
 	base := launcherURL()
 	if base == "" {
-		return
+		return errors.New("no launcher is recorded")
 	}
 	at, err := url.Parse(base)
 	if err != nil {
-		return
+		return fmt.Errorf("read the launcher's address: %w", err)
 	}
 	port, err := strconv.Atoi(s.listenPort)
 	if err != nil {
-		return
+		return fmt.Errorf("read this server's port: %w", err)
 	}
 	body, err := json.Marshal(map[string]any{"id": id, "dir": s.startRoot, "port": port})
 	if err != nil {
-		return
+		return err
 	}
 	ask, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ask, http.MethodPost,
 		at.Scheme+"://"+at.Host+"/api/serving", bytes.NewReader(body))
 	if err != nil {
-		return
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Ade-Token", at.Query().Get("t"))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Debug("tell the launcher what this serves", "err", err)
-		return
+		return fmt.Errorf("tell the launcher what this serves: %w", err)
 	}
-	_ = res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode >= 300 {
+		return fmt.Errorf("the launcher refused this session: %s %s",
+			res.Status, strings.TrimSpace(readErr(res.Body)))
+	}
+	return nil
+}
+
+// readErr is the message off a refusal, which is json with an error field.
+func readErr(r io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(r, 1<<12))
+	if err != nil {
+		return ""
+	}
+	var shape struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(data, &shape) == nil && shape.Error != "" {
+		return shape.Error
+	}
+	return string(data)
 }
 
 func (s *Server) handleLauncher(w http.ResponseWriter, r *http.Request) {

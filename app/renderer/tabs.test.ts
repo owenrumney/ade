@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dismissable,
+  newSessionPanel,
   held,
   idOf,
   keepable,
@@ -215,5 +216,19 @@ describe("what Escape closes", () => {
 
   it("closes a tab the window draws", () => {
     expect(dismissable(of({ kind: "code", title: "a/b.go", source: "" }))).toBe(true);
+  });
+});
+
+describe("which panels hold the New session screen", () => {
+  it("knows all three", () => {
+    expect(newSessionPanel("ade.newSession")).toBe(true);
+    expect(newSessionPanel("todo:abc")).toBe(true);
+    expect(newSessionPanel("in:/code/ade")).toBe(true);
+  });
+
+  it("does not claim another panel", () => {
+    for (const other of ["ade.openChat", "design:plan.md", "ade.worktrees", "spacedesign:/r|a.md"]) {
+      expect(newSessionPanel(other), other).toBe(false);
+    }
   });
 });

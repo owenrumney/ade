@@ -697,7 +697,7 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	go s.pollBranchPR(ctx)
 	go s.watchMCPHub(ctx)
 	// The rail is the announced set, so a restart has to say so itself.
-	go s.announceServing(ctx, s.railID())
+	go s.keepAnnouncing(ctx, s.railID())
 	go s.watchActivity(ctx)
 	go s.watchMachine(ctx)
 	go s.watchIdle(ctx, stopIdle)

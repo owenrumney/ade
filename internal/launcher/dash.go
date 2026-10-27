@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/dash"
+	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/spaces"
@@ -105,8 +106,27 @@ func (s *Server) handleOpenReview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Repo   string `json:"repo"`
 		Number int    `json:"number"`
+		// Link is a pasted pull request, which need not be one on the list.
+		Link string `json:"link"`
 	}
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Link) != "" {
+		ref, ok := ghpr.ParseRef(req.Link)
+		if !ok {
+			writeError(w, http.StatusBadRequest,
+				"that is not a pull request link: paste one like https://github.com/owner/repo/pull/123")
+			return
+		}
+		req.Repo, req.Number = ref.Repo, ref.Number
+		url, path, err := s.board.OpenPR(r.Context(), ref)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		s.openSpaceFor(req.Repo)
+		writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
 		return
 	}
 	url, path, err := s.board.OpenReview(r.Context(), req.Repo, req.Number)

@@ -29,6 +29,12 @@ export function within(repos: Repo[], open: Space[]): Repo[] {
   return open.map((s) => by.get(s.repo)).filter((r): r is Repo => Boolean(r));
 }
 
+export function inSpaces(open: Space[]): (repo: Repo) => boolean {
+  if (open.length === 0) return () => true;
+  const keys = new Set(open.map((s) => s.repo));
+  return (repo) => keys.has(keyOf(repo));
+}
+
 // place is the Spaces list: what is open, and what each holds.
 export function spaces(open: Space[]): Place {
   const rows: Row[] = open.map((space) => ({
@@ -46,11 +52,16 @@ export function spaces(open: Space[]): Place {
           .filter(Boolean)
           .join(" · ")
       : "not cloned here",
+    // Close on every row that is not the one you are in. A space whose
+    // repository is missing here is still one you opened, and can be shut.
     acts: space.current
       ? []
-      : space.here
-        ? [{ label: "Close", what: "space-close" as const, name: space.repo }]
-        : [{ label: "Clone", what: "space-clone" as const, name: space.repo }],
+      : [
+          ...(space.here
+            ? []
+            : [{ label: "Clone", what: "space-clone" as const, name: space.repo }]),
+          { label: "Close", what: "space-close" as const, name: space.repo },
+        ],
   }));
   return {
     id: "spaces",

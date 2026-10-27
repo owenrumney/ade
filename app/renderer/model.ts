@@ -43,13 +43,13 @@ export type { At } from "./changes";
 export type Act =
   | "design-start"
   | "queue-first"
-  | "session-stop"
   | "session-end"
   | "job-run"
   | "job-pause"
   | "todo-start"
   | "space-close"
-  | "space-clone";
+  | "space-clone"
+  | "bus-dismiss";
 
 export type View =
   | { kind: "diff"; title: string; patch: string }

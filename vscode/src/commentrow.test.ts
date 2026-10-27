@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Thread } from "./client";
 import {
   claimState,
@@ -204,5 +206,25 @@ describe("whether a comment is a draft", () => {
 
   it("is not before Convert has run", () => {
     expect(unsent(thread())).toBe(false);
+  });
+});
+
+// Only one verb in the chain puts anything in front of the author, and the
+// first one was named as if it did. See `new session.md`.
+describe("what the verbs in the chain are called", () => {
+  const titles: Record<string, string> = Object.fromEntries(
+    (
+      JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as {
+        contributes: { commands: { command: string; title: string }[] };
+      }
+    ).contributes.commands.map((c) => [c.command, c.title]),
+  );
+
+  it("does not say GitHub for the step that does not reach it", () => {
+    expect(titles["ade.convertForGitHub"]).not.toMatch(/github/i);
+  });
+
+  it("says GitHub for the step that does", () => {
+    expect(titles["ade.sendToGitHub"]).toMatch(/send/i);
   });
 });

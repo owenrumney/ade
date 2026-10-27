@@ -106,12 +106,35 @@ func (s *Server) graphTarget(w http.ResponseWriter, r *http.Request) (string, bo
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return "", false
 	}
-	dir, ok := sessions.FindCheckout(all, req.Dir)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "that is not one of the checkouts on this machine")
+	if dir, ok := sessions.FindCheckout(all, req.Dir); ok {
+		return dir.Path, true
+	}
+	// A worktree made a moment ago is not in the scan yet, and its row is
+	// the one you most want to stop.
+	if dir, ok := s.announcedIn(req.Dir); ok {
+		return dir, true
+	}
+	writeError(w, http.StatusBadRequest, "that is not one of the checkouts on this machine")
+	return "", false
+}
+
+func (s *Server) announcedIn(dir string) (string, bool) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
 		return "", false
 	}
-	return dir.Path, true
+	s.mu.Lock()
+	rows := make([]Serving, 0, len(s.served))
+	for _, row := range s.served {
+		rows = append(rows, row)
+	}
+	s.mu.Unlock()
+	for _, row := range rows {
+		if row.Dir == dir && serves(row.Dir, row.Port) {
+			return row.Dir, true
+		}
+	}
+	return "", false
 }
 
 // liveInterval is how often the live set is probed: nothing announces a ade

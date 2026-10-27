@@ -30,4 +30,7 @@ for sz in 16 32 64 128 256 512; do
   node tools/shots/icon.mjs app/icon/ade.svg "$work/ade.iconset/icon_${sz}x${sz}@2x.png" "$((sz * 2))"
 done
 iconutil -c icns "$work/ade.iconset" -o app/icon.icns
-echo "wrote app/icon.icns"
+# An unpackaged run has no bundle to read the icns from, so main.ts sets
+# the dock icon from this. Written here so the two cannot drift.
+cp "$work/ade.iconset/icon_512x512.png" app/icon/ade.png
+echo "wrote app/icon.icns and app/icon/ade.png"

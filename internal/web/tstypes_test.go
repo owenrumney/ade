@@ -139,8 +139,9 @@ var responseShapes = map[string][]string{
 		"body string", "file string", "files slice", "raw string", "title string", "toc slice", "version string",
 	},
 	"SessionEntry": {
-		"agent string", "archived bool", "branch string", "dir string", "group string", "here bool", "id string",
-		"lastUsed string", "live bool", "model string", "name string", "resumable bool", "title string",
+		"agent string", "archived bool", "branch string", "dir string", "from string", "group string",
+		"here bool", "id string", "lastUsed string", "live bool", "model string", "name string",
+		"pinned bool", "resumable bool", "title string",
 	},
 	"SessionGroup":      {"created string", "id string", "lastUsed string", "members slice", "title string"},
 	"SessionSuggestion": {"fingerprint string", "ids slice"},

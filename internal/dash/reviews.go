@@ -224,6 +224,16 @@ func (b *Board) OpenReview(ctx context.Context, repo string, number int) (url, p
 	return b.startReview(ctx, repos, *found)
 }
 
+// OpenPR is the same for one nobody asked you to review. The repository
+// and the number decide where it goes, so GitHub is not read first.
+func (b *Board) OpenPR(ctx context.Context, ref ghpr.PRRef) (url, path string, err error) {
+	repos, err := b.repos()
+	if err != nil {
+		return "", "", err
+	}
+	return b.startReview(ctx, repos, ghpr.Request{Repo: ref.Repo, Number: ref.Number})
+}
+
 // startReview finds the repository, puts the pull request in a worktree of it,
 // and starts or reuses that worktree's ade.
 func (b *Board) startReview(ctx context.Context, repos []sessions.Repo, asked ghpr.Request) (string, string, error) {

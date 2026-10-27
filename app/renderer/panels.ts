@@ -725,6 +725,12 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         // Scratch is the one with nowhere to live yet, so it has no
         // repository to tick and its own route.
         if (want.mode === "scratch") {
+          reach.push("newsession", {
+            kind: "state",
+            chosen,
+            busy: true,
+            note: `Making a checkout for ${want.name.trim() || "it"}…`,
+          });
           const got = await reach.send("launcher", "/api/scratch", {
             name: want.name.trim(),
             ...picked(want, files),
@@ -733,6 +739,13 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         }
         const [home, ...also] = want.repos;
         if (!home) return { kind: "state", chosen, busy: false, note: "tick a repository" };
+        // `ade create` is seconds, and said nothing for all of them.
+        reach.push("newsession", {
+          kind: "state",
+          chosen,
+          busy: true,
+          note: `Starting ${names(want) || home.split("/").pop()}…`,
+        });
         // Every default the row showed: one on screen that Start does
         // not send is accepted without being made.
         // names(), not the name field: on the Design row it is the document,

@@ -43,7 +43,8 @@ export type Verb =
   | "terminal"
   | "float"
   | "review-draft"
-  | "review-finish";
+  | "review-finish"
+  | "open-pr";
 
 export type Method = "PUT" | "DELETE";
 
@@ -58,6 +59,9 @@ export type Doing =
   | { at: "report"; from: "launcher" | "session"; path: string; also?: string; render: string }
   | { at: "find"; from: "launcher" | "session"; path: string; open: string; title: string }
   | { at: "edit"; what: "pr" }
+  // A verdict names the pull request it is on, which only the window
+  // knows, so these cannot be a plain path and body.
+  | { at: "verdict"; which: "approve" | "request-changes" | "merge" }
   | { at: "soon"; needs: string };
 
 const W = (place?: string, verb?: Verb): Doing => ({
@@ -169,7 +173,8 @@ export const WIRED: Record<string, Doing> = {
   "ade.showAllSessions": W("sessions"),
   "ade.collapseSessions": W("sessions"),
   "ade.refreshSessions": W(undefined, "refresh"),
-  "ade.archiveSession": S("/api/sessions/archive"),
+  // archived:true, or the default sends false and brings it back instead.
+  "ade.archiveSession": S("/api/sessions/archive", { archived: true }),
 
   // ── Diff ──
   "ade.refreshChanges": W(undefined, "refresh"),
@@ -228,13 +233,15 @@ export const WIRED: Record<string, Doing> = {
     how: "DELETE",
     needs: [pick("openspace", "repo", "Close which space? Nothing on disk goes with it…")],
   },
+  // The window follows the answer onto the session, so not a plain row.
+  "ade.openPRLink": { at: "window", verb: "open-pr" },
   "ade.checkoutPR": S("/api/pr/checkout"),
   // The title through the box, the description in the sheet: editing
   // rendered markdown is what the window is for.
   "ade.editPR": { at: "edit", what: "pr" },
-  "ade.approvePR": S("/api/pr/approve"),
-  "ade.requestChanges": S("/api/pr/request-changes"),
-  "ade.mergePR": S("/api/pr/merge"),
+  "ade.approvePR": { at: "verdict", which: "approve" },
+  "ade.requestChanges": { at: "verdict", which: "request-changes" },
+  "ade.mergePR": { at: "verdict", which: "merge" },
   "ade.refreshChecks": S("/api/checks/refresh"),
   "ade.fixChecks": S("/api/checks/fix"),
 
