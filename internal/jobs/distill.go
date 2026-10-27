@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,6 +59,16 @@ func WithBuiltins(list []Job, _ settings.Settings) []Job {
 		}
 	}
 	return list
+}
+
+// Yours orders a tick's work so a job you wrote claims a slot before ade's own
+// housekeeping. Nothing is dropped: the cap is what makes the order matter.
+func Yours(list []Job) []Job {
+	out := append([]Job(nil), list...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Scope != ScopeBuiltin && out[j].Scope == ScopeBuiltin
+	})
+	return out
 }
 
 // DistillTargets groups the machine's transcripts by the wiki repository they

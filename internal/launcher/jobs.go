@@ -187,10 +187,9 @@ func (s *Server) myDay(ctx context.Context) jobs.Outcome {
 	if mineErr != nil {
 		in.MineError = mineErr.Error()
 	}
-	switch tickets := s.board.Tickets(); {
-	case tickets == nil:
+	if tickets := s.board.Tickets(); tickets == nil {
 		in.TicketError = "no Linear API key in ade's settings"
-	default:
+	} else {
 		in.Tickets, in.TicketError = tickets.Issues, tickets.Error
 	}
 
@@ -412,21 +411,34 @@ func (s *Server) tickJobs(ctx context.Context) {
 		return
 	}
 	now := time.Now()
-	for _, job := range list {
-		if !jobs.Due(job, jobs.ReadState(job), now) {
-			continue
-		}
+	for _, job := range jobs.Yours(due(list, now)) {
 		if ok, why := jobs.WithinSpend(s.limits.Snapshot(ctx)); !ok {
 			slog.Info("holding scheduled jobs", "job", job.Name, "why", why)
 			return
 		}
+		// Claimed here rather than inside the goroutine: the cap has to fall on
+		// the jobs this tick put last, not on whichever goroutine starts last.
+		if err := s.jobs.claim(job.Name); err != nil {
+			slog.Debug("scheduled job did not fire", "job", job.Name, "err", err)
+			continue
+		}
 		s.jobs.inflight.Go(func() {
-			if _, err := s.fire(ctx, job); err != nil {
-				slog.Debug("scheduled job did not fire", "job", job.Name, "err", err)
-			}
+			defer s.jobs.release(job.Name)
+			s.fireClaimed(ctx, job, false, "")
 			s.hub.Broadcast("jobs", nil)
 		})
 	}
+}
+
+// due is the jobs whose window has come.
+func due(list []jobs.Job, now time.Time) []jobs.Job {
+	var out []jobs.Job
+	for _, job := range list {
+		if jobs.Due(job, jobs.ReadState(job), now) {
+			out = append(out, job)
+		}
+	}
+	return out
 }
 
 // fire runs one job and records what came of it. A project that is not on this
@@ -442,7 +454,12 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		return jobs.Outcome{}, err
 	}
 	defer s.jobs.release(job.Name)
+	return s.fireClaimed(ctx, job, manual, dir), nil
+}
 
+// fireClaimed is fireJob with the slot already taken, for a caller that had to
+// know whether it got one before starting the goroutine.
+func (s *Server) fireClaimed(ctx context.Context, job jobs.Job, manual bool, dir string) jobs.Outcome {
 	state := jobs.ReadState(job)
 	now := time.Now()
 	if job.Kind == jobs.KindDesignArchive {
@@ -450,21 +467,21 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a design archive", "err", err)
 		}
-		return out, nil
+		return out
 	}
 	if job.Kind == jobs.KindWikiDistill {
 		out := s.distillWiki(ctx, manual)
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a wiki distillation", "err", err)
 		}
-		return out, nil
+		return out
 	}
 	if job.Kind == jobs.KindMyDay {
 		out := s.myDay(ctx)
 		if _, err := jobs.Record(job, out, "", now); err != nil {
 			slog.Warn("record a my-day report", "err", err)
 		}
-		return out, nil
+		return out
 	}
 	if job.Allow == jobs.Writes {
 		where, err := s.writesCheckout(ctx, job, dir)
@@ -473,9 +490,9 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 			if _, err := jobs.Record(job, out, "", now); err != nil {
 				slog.Warn("record a job that could not start", "job", job.Name, "err", err)
 			}
-			return out, nil
+			return out
 		}
-		return jobs.Start(ctx, job, where, s.jobs.starter()), nil
+		return jobs.Start(ctx, job, where, s.jobs.starter())
 	}
 	checkout, err := s.jobCheckout(ctx, job)
 	if err != nil {
@@ -483,10 +500,10 @@ func (s *Server) fireJob(ctx context.Context, job jobs.Job, manual bool, dir str
 		if _, err := jobs.Record(job, out, state.Handover, now); err != nil {
 			slog.Warn("record a skipped job", "job", job.Name, "err", err)
 		}
-		return out, nil
+		return out
 	}
 
-	return jobs.Fire(ctx, job, checkout, s.jobs.runner()), nil
+	return jobs.Fire(ctx, job, checkout, s.jobs.runner())
 }
 
 // writesCheckout is where a writes job makes its worktree: the checkout named

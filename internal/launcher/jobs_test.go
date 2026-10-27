@@ -462,3 +462,34 @@ func TestListingJobsForACheckoutIncludesItsOwn(t *testing.T) {
 	assert.Equal(t, "repo", names["bump"])
 	assert.Equal(t, "user", names["nightly"])
 }
+
+// Two built-ins are due on a cold launcher and only two fires may be in
+// flight, so without an order the job you wrote loses the tick to ade's own
+// housekeeping.
+func TestAJobYouWroteClaimsItsSlotBeforeTheBuiltIns(t *testing.T) {
+	fired := make(chan string, 1)
+	s := withJob(t, "nightly", "---\nschedule: \"0 2 * * *\"\n---\n\n/catchup\n",
+		func(_ context.Context, req jobs.Request) (jobs.Result, error) {
+			fired <- req.Job.Name
+			return jobs.Result{Text: "ok"}, nil
+		})
+	// Both built-ins are due as well: neither has ever fired on this machine.
+	list, _ := s.jobsList()
+	var builtins int
+	for _, job := range list {
+		if job.Scope == jobs.ScopeBuiltin && jobs.Due(job, jobs.ReadState(job), time.Now()) {
+			builtins++
+		}
+	}
+	require.GreaterOrEqual(t, builtins, maxFiring, "the cap is what makes the order matter")
+
+	s.tickJobs(context.Background())
+	s.jobs.inflight.Wait()
+
+	select {
+	case name := <-fired:
+		assert.Equal(t, "nightly", name)
+	default:
+		t.Fatal("the job you wrote was crowded out by ade's own jobs")
+	}
+}
