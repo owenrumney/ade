@@ -47,7 +47,7 @@ import { page as prPage } from "../../vscode/src/prpage";
 import { prActs, type PrActId } from "./prpage";
 import { plan, type Usage } from "../../vscode/src/usage";
 import { refreshFor } from "./refresh";
-import { keyOf, spaces as spacesPlace, within, type Space } from "./spaces";
+import { inSpaces, keyOf, spaces as spacesPlace, type Space } from "./spaces";
 import {
   designsOf,
   drawnFrom as spaceDrawnFrom,
@@ -117,6 +117,7 @@ class Ade {
   // Archived from a space page, until a read brings a list that agrees.
   private goneSessions = new Set<string>();
   private goneDesigns = new Set<string>();
+  private goneSpaces = new Set<string>();
   // Where the picked session's server is up to. "starting" is one
   // this window has in flight, which is not yet a failure.
   private serving: "ok" | "starting" | "failed" = "ok";
@@ -269,7 +270,9 @@ class Ade {
     const trouble = got.trouble ?? {};
     this.repos = repos;
     this.reviews = got.dash?.reviews ?? [];
-    this.openSpaces = got.spaces ?? [];
+    const listed = got.spaces ?? [];
+    this.goneSpaces = new Set(listed.map((s) => s.repo).filter((r) => this.goneSpaces.has(r)));
+    this.openSpaces = listed.filter((s) => !this.goneSpaces.has(s.repo));
     this.goneSessions = real.stillListed(repos, this.goneSessions);
     this.limits = got.limits;
     this.where = real.whereSessionsAre(repos, got.active ?? []);
@@ -305,12 +308,16 @@ class Ade {
         real.waiting(dash, got.active ?? []),
         spacesPlace(this.openSpaces),
         note(
-          real.sessions(
-            within(repos, this.openSpaces),
-            "",
-            Date.now(),
-            got.hosts ?? [],
-            got.active ?? [],
+          without(
+            real.sessions(
+              repos,
+              "",
+              Date.now(),
+              got.hosts ?? [],
+              got.active ?? [],
+              inSpaces(this.openSpaces),
+            ),
+            this.goneSessions,
           ),
           trouble.sessions,
           "No session on this machine yet.",
@@ -379,12 +386,22 @@ class Ade {
   // Closing writes the list and nothing else: no checkout is touched.
   private async space(what: "close" | "clone", repo: string): Promise<void> {
     if (!window.ade) return;
+    if (what === "close") {
+      this.goneSpaces.add(repo);
+      this.openSpaces = this.openSpaces.filter((s) => s.repo !== repo);
+      this.redrawPlace(spacesPlace(this.openSpaces));
+      this.say(`closing ${repo}…`);
+    }
     const got =
       what === "close"
         ? await window.ade.act("launcher", "/api/spaces", { repo }, undefined, "DELETE")
         : await window.ade.act("launcher", "/api/spaces/clone", { repo });
     const back = real.answered(got as real.Answer);
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      this.goneSpaces.delete(repo);
+      this.say(back.error);
+      return void this.read();
+    }
     this.say(what === "close" ? `closed ${repo}` : `cloning ${repo}…`);
     await this.read();
   }
@@ -1070,6 +1087,11 @@ class Ade {
   }
 
   // say is the status bar line, which stays until the next replaces it.
+  private redrawPlace(place: Place): void {
+    this.world.places = this.world.places.map((p) => (p.id === place.id ? place : p));
+    this.draw();
+  }
+
   private say(said: string): void {
     this.said = said;
     this.draw();
@@ -1224,11 +1246,14 @@ class Ade {
       const name = did.id.split("|").pop() ?? did.id;
       return this.show({ panel: `spacedesign:${did.id}` }, name.replace(/\.md$/, ""), "design");
     }
+    if (did.what === "import-session") return this.importSession(space.repo);
     // Off the page first, then the request: a row that stays put reads as a
     // button that did nothing.
     const session = did.what === "archive-session";
     const gone = session ? this.goneSessions : this.goneDesigns;
     gone.add(did.id);
+    const listed = this.world.places.find((p) => p.id === "sessions");
+    if (session && listed) this.redrawPlace(without(listed, gone));
     this.say(session ? "archiving the session…" : "archiving the design…");
     this.openSpace(space.repo);
 
@@ -1246,6 +1271,59 @@ class Ade {
     }
     this.say("archived");
     // Not awaited: the read is the whole world, and the page is already right.
+    void this.read();
+  }
+
+  // importSession pins a conversation into this space by id, for one the list
+  // window drops: older than a fortnight, or past the row cap.
+  private async importSession(repo: string): Promise<void> {
+    const id = await this.omnibox.type("Session id to import");
+    this.omnibox.close();
+    if (!id?.trim() || !window.ade) return;
+
+    this.say("looking for that session…");
+    const got = await window.ade.act("launcher", "/api/sessions/import", { repo, id: id.trim() });
+    const back = real.answered(got as real.Answer) as real.Answer & {
+      session?: real.Session;
+      elsewhere?: string;
+    };
+    if (back.error) return this.say(back.error);
+
+    // Recorded in another repository: adopting is the only way in, and it is
+    // the reader's call rather than ours.
+    if (back.elsewhere) return this.offerAdopt(repo, back.elsewhere, back.session);
+
+    this.say(`imported ${back.session?.title || back.session?.id || "the session"}`);
+    this.openSpace(repo);
+    void this.read();
+  }
+
+  // offerAdopt asks before taking a conversation off another repository. The
+  // transcript stays where it was written; only where it is listed changes.
+  private async offerAdopt(repo: string, elsewhere: string, found?: real.Session): Promise<void> {
+    const name = found?.title || found?.id || "that session";
+    const pick = await this.omnibox.ask(`${name} belongs to ${elsewhere}`, [
+      { label: `Open it in ${elsewhere}`, value: "open" },
+      { label: `Adopt it into ${repo}`, note: "it remembers the directory it was recorded in", value: "adopt" },
+    ]);
+    this.omnibox.close();
+    if (pick === "open") {
+      if (found) await window.ade?.act("launcher", "/api/open", { dir: found.dir, id: found.id });
+      return;
+    }
+    if (pick !== "adopt" || !window.ade) return;
+
+    const into = this.spaceShown?.path;
+    if (!into) return this.say("that space has no checkout here to adopt into");
+    const got = await window.ade.act("launcher", "/api/sessions/import", {
+      repo,
+      id: found?.id,
+      into,
+    });
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(`adopted into ${repo}`);
+    this.openSpace(repo);
     void this.read();
   }
 
@@ -2167,6 +2245,15 @@ class Ade {
       });
       node.append(node2);
     }
+    if (row.acts?.length) {
+      node.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        menu(
+          { x: e.clientX, y: e.clientY },
+          row.acts!.map((act) => ({ label: act.label, run: () => void this.rowAct(act) })),
+        );
+      });
+    }
     node.addEventListener("click", () => this.open(row));
     return node;
   }
@@ -2179,6 +2266,16 @@ class Ade {
       return this.space(act.what === "space-close" ? "close" : "clone", act.name);
     }
     if (act.what === "todo-start") return this.fromTodo(act.name);
+    if (act.what === "bus-dismiss") {
+      const team = this.world.places.find((p) => p.id === "team");
+      if (team) this.redrawPlace(without(team, new Set([act.name])));
+      const got = await window.ade
+        ?.act("launcher", "/api/bus/dismiss", { id: act.name })
+        .catch((e: Error) => ({ error: e.message }));
+      const back = real.answered(got as real.Answer);
+      this.say(back.error || "dismissed");
+      return void this.read();
+    }
     if (act.what === "queue-first") {
       await window.ade
         ?.act(
@@ -2219,7 +2316,11 @@ class Ade {
   // under it, or put the conversation away for good.
   private async endSession(id: string): Promise<void> {
     if (!window.ade) return;
-    const row = this.world.places.find((p) => p.id === "agents")?.rows.find((r) => r.id === id);
+    // Offered from the Sessions sidebar too, whose rows the Agents place
+    // does not hold: without the fallback the dialog is titled with a uuid.
+    const row = ["agents", "sessions"]
+      .map((place) => this.world.places.find((p) => p.id === place)?.rows.find((r) => r.id === id))
+      .find(Boolean);
     const state = this.announced.find((a) => a.id === id);
     const what = await this.omnibox.ask(
       `${row?.name ?? id}`,
@@ -2237,11 +2338,40 @@ class Ade {
       if (sure !== "yes") return;
     }
     const dir = this.where.get(id) ?? "";
+    const leaves = what === "archive" || what === "delete" || what === "done";
+    if (leaves) {
+      this.goneSessions.add(id);
+      const listed = this.world.places.find((p) => p.id === "sessions");
+      if (listed) this.redrawPlace(without(listed, this.goneSessions));
+    }
+    this.say(`${real.underway(what)}…`);
     const got = await this.ending(what, id, dir);
     const back = real.answered(got as real.Answer);
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      this.goneSessions.delete(id);
+      this.say(back.error);
+      return void this.read();
+    }
     this.say(real.ended(what));
     await this.read();
+  }
+
+  // stopAndPutAway is the whole decision in one press. Forgetting first would
+  // leave an ade serving a session no list admits to, so the server goes first.
+  private async stopAndPutAway(id: string, dir: string): Promise<unknown> {
+    const ade = window.ade!;
+    if (dir) {
+      const stopped = real.answered(
+        (await ade
+          .act("launcher", "/api/graph/stop", { dir })
+          .catch((e: Error) => ({ error: e.message }))) as real.Answer,
+      );
+      // Nothing serving it is the state this asks for, not a failure.
+      if (stopped.error && !real.unserved(stopped.error)) return stopped;
+    }
+    return ade
+      .act("launcher", "/api/sessions/delete", { ids: [id] })
+      .catch((e: Error) => ({ error: e.message }));
   }
 
   private ending(what: string, id: string, dir: string): Promise<unknown> {
@@ -2251,6 +2381,8 @@ class Ade {
         return ade.act("session", "/api/cancel", {}, id).catch((e: Error) => ({ error: e.message }));
       case "ade":
         return ade.act("launcher", "/api/graph/stop", { dir }).catch((e: Error) => ({ error: e.message }));
+      case "done":
+        return this.stopAndPutAway(id, dir);
       case "archive":
         return ade
           .act("launcher", "/api/archive", { id, archived: true })
@@ -2617,6 +2749,10 @@ function nothingOpen(): HTMLElement {
 
 // note is what an empty list says. A failed read names itself; an empty
 // one that worked says so plainly. Silence is what reads as broken.
+function without(place: Place, gone: ReadonlySet<string>): Place {
+  return { ...place, rows: place.rows.filter((r) => !gone.has(r.id)) };
+}
+
 function note(place: Place, why: string | undefined, instead = ""): Place {
   const empty = place.files ? place.files.length === 0 : place.rows.length === 0;
   if (!empty) return place;

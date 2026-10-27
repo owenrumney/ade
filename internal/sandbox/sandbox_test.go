@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDetectPrefersAppleWhenItsServicesAreUp(t *testing.T) {
+func TestDetectPrefersDockerWhenItsDaemonAnswers(t *testing.T) {
 	have := func(bins ...string) func(string) (string, error) {
 		return func(name string) (string, error) {
 			for _, b := range bins {
@@ -32,17 +32,28 @@ func TestDetectPrefersAppleWhenItsServicesAreUp(t *testing.T) {
 	up := func(context.Context, string, ...string) error { return nil }
 	down := func(context.Context, string, ...string) error { return errors.New("not running") }
 
+	dockerDown := func(_ context.Context, name string, _ ...string) error {
+		if name == "docker" {
+			return errors.New("not running")
+		}
+		return nil
+	}
+
 	rt, err := detect(context.Background(), have("container", "docker"), up)
 	require.NoError(t, err)
-	assert.Equal(t, "container", rt.Name())
+	assert.Equal(t, "docker", rt.Name())
+
+	rt, err = detect(context.Background(), have("container", "docker"), dockerDown)
+	require.NoError(t, err)
+	assert.Equal(t, "container", rt.Name(), "docker's daemon down falls to Apple's")
 
 	rt, err = detect(context.Background(), have("container", "docker"), down)
 	require.NoError(t, err)
-	assert.Equal(t, "docker", rt.Name(), "container installed but its services down falls to docker")
+	assert.Equal(t, "docker", rt.Name(), "both down still names docker, so the run says why")
 
-	rt, err = detect(context.Background(), have("docker"), up)
+	rt, err = detect(context.Background(), have("container"), up)
 	require.NoError(t, err)
-	assert.Equal(t, "docker", rt.Name())
+	assert.Equal(t, "container", rt.Name())
 
 	_, err = detect(context.Background(), have(), up)
 	assert.ErrorContains(t, err, "no container runtime")

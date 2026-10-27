@@ -284,6 +284,8 @@
 .space-head .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); margin-bottom: 18px; }
 .space-list { margin-bottom: 22px; }
 .space-list .sub { color: var(--ink-dim); font: 12px/1.6 var(--ui); }
+.space-head-row { display: flex; align-items: baseline; gap: 10px; }
+.space-head-row h2 { flex: 1; min-width: 0; }
 .space-row {
   display: flex; align-items: baseline; gap: 10px;
   padding: 3px 6px; border-radius: 4px;
@@ -299,12 +301,15 @@
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--ink-dim); font: 11px/1.6 var(--ui);
 }
-.space-row .away {
+.space-row .away, .space-head-row .away {
   opacity: 0; font: 11px/1.4 var(--ui); color: var(--ink-dim);
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 8px;
 }
 .space-row:hover .away { opacity: 1; }
 .space-row .away:hover { color: var(--bad); border-color: var(--bad); }
+/* A heading has no hover of its own, and Import adds rather than removes. */
+.space-head-row .away { opacity: 1; }
+.space-head-row .away:hover { color: var(--info); border-color: var(--info); }
 
 .space-page .cards {
   display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr));

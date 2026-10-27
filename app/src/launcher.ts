@@ -41,9 +41,10 @@ export function at(url: string | undefined): At | undefined {
 
 // ask is one GET against the launcher. The token goes in the header
 // rather than the query, so it stays out of any log of the url.
-export async function ask<T>(where: At, path: string): Promise<T> {
+export async function ask<T>(where: At, path: string, wait?: number): Promise<T> {
   const res = await fetch(where.base + path, {
     headers: { "X-Ade-Token": where.token },
+    signal: wait ? AbortSignal.timeout(wait) : undefined,
   });
   if (!res.ok) throw new Error(await said(res, path));
   return (await res.json()) as T;

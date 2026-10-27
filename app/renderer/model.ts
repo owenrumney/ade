@@ -49,7 +49,8 @@ export type Act =
   | "job-pause"
   | "todo-start"
   | "space-close"
-  | "space-clone";
+  | "space-clone"
+  | "bus-dismiss";
 
 export type View =
   | { kind: "diff"; title: string; patch: string }

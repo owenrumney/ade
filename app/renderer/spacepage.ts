@@ -23,6 +23,8 @@ export interface SessionLine {
   name: string;
   meta: string;
   live?: boolean;
+  // pinned is one imported by id, which the list window does not bound.
+  pinned?: boolean;
 }
 
 export interface DesignLine {
@@ -45,6 +47,7 @@ export interface Seen {
 export type SpaceAct =
   | { what: "open-session"; id: string }
   | { what: "archive-session"; id: string }
+  | { what: "import-session" }
   | { what: "open-design"; id: string }
   | { what: "archive-design"; id: string };
 
@@ -64,10 +67,14 @@ export function sessionsOf(
         id: session.id,
         name: session.title || session.name || session.id,
         live: session.live,
+        pinned: session.pinned,
         at: Date.parse(session.lastUsed ?? "") || 0,
         meta: [
           session.branch ?? checkout.branch,
           checkout.worktree ? checkout.name : "main checkout",
+          // An adopted session is listed here and was recorded elsewhere, which
+          // is the one thing about it a reader cannot guess.
+          session.from ? `from ${session.from}` : "",
           session.live ? "live" : ago(session.lastUsed, now),
         ]
           .filter(Boolean)
@@ -108,11 +115,12 @@ export function spacePage(seen: Seen, act: (did: SpaceAct) => void): HTMLElement
       seen.sessions.map((one) => ({
         name: one.name,
         meta: one.meta,
-        tone: one.live ? "live" : "",
+        tone: one.live ? "live" : one.pinned ? "imported" : "",
         open: () => act({ what: "open-session", id: one.id }),
         away: { label: "Archive", run: () => act({ what: "archive-session", id: one.id }) },
       })),
       "No conversations in this repository.",
+      { label: "Import…", run: () => act({ what: "import-session" }) },
     ),
   );
   out.append(
@@ -160,9 +168,16 @@ interface Line {
   away: { label: string; run: () => void };
 }
 
-function list(title: string, lines: Line[], empty: string): HTMLElement {
+function list(title: string, lines: Line[], empty: string, verb?: Line["away"]): HTMLElement {
   const box = el("section", "space-list");
-  box.append(el("h2", "", `${title}${lines.length ? ` (${lines.length})` : ""}`));
+  const head = el("div", "space-head-row");
+  head.append(el("h2", "", `${title}${lines.length ? ` (${lines.length})` : ""}`));
+  if (verb) {
+    const button = el("button", "away", verb.label);
+    button.addEventListener("click", verb.run);
+    head.append(button);
+  }
+  box.append(head);
   if (lines.length === 0) {
     box.append(el("p", "sub", empty));
     return box;

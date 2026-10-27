@@ -167,7 +167,8 @@ describe("sessions, flattened out of the scan", () => {
     expect(sessions(quiet).rows[0].group).not.toBe("Running");
     const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix" }]).rows[0];
     expect(row.group).toBe("Running");
-    expect(row.acts?.[0].what).toBe("session-stop");
+    expect(row.acts?.[0].what).toBe("session-end");
+    expect(row.acts?.[0].label).toBe("Stop…");
   });
 });
 
@@ -177,6 +178,7 @@ describe("sessions, flattened out of the scan", () => {
 describe("a session nothing is serving", () => {
   it("is told apart from a real failure", () => {
     expect(real.unserved("no ade is serving that session")).toBe(true);
+    expect(real.unserved("/api/graph/stop: no ade is running for this repository")).toBe(true);
     expect(real.unserved("the agent is wedged")).toBe(false);
     expect(real.unserved()).toBe(false);
   });
@@ -374,6 +376,20 @@ describe("sessions, under the repository each is in", () => {
 
   it("says nothing of a worktree for a session in the main checkout", () => {
     expect(place.rows.find((r) => r.id === "mid")?.meta).toBe("5h");
+  });
+
+  it("names the main checkout on a running row", () => {
+    const up = real.sessions(
+      [{ name: "ci", path: "/r/ci", checkouts: [{ name: "ci", path: "/r/ci", sessions: [{ id: "c", name: "c", dir: "/r/ci", live: true, lastUsed: at(2) }] }] }] as unknown as real.Repo[],
+      "",
+      Date.parse("2026-10-22T12:00:00Z"),
+    );
+    expect(up.rows[0].meta).toBe("ci · 2h");
+  });
+
+  it("keeps what is running in a repository outside the spaces", () => {
+    const spaced = real.sessions(repos, "", Date.parse("2026-10-22T12:00:00Z"), [], [], (r) => r.name === "lazytrivy");
+    expect(spaced.rows.map((r) => r.id)).toEqual(["hot", "lt1"]);
   });
 
   it("names a worktree once when its branch matches its name", () => {
@@ -595,6 +611,12 @@ describe("the team, as agentbus has it", () => {
       "Who is about",
       "Who is about",
     ]);
+  });
+
+  it("offers Dismiss on an offer and Clear on an answer", () => {
+    const acts = real.team(bus, now).rows.map((r) => r.acts?.map((a) => `${a.label}:${a.what}`));
+    expect(acts.slice(0, 2)).toEqual([["Dismiss:bus-dismiss"], ["Clear:bus-dismiss"]]);
+    expect(acts.slice(2).every((a) => a === undefined)).toBe(true);
   });
 
   it("counts only what needs doing something with", () => {
@@ -1215,10 +1237,11 @@ describe("ending a session from the agents list", () => {
     expect(real.endings("working").map((e) => e.value)).toEqual([
       "agent",
       "ade",
+      "done",
       "archive",
       "delete",
     ]);
-    expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "archive", "delete"]);
+    expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "done", "archive", "delete"]);
   });
 });
 
