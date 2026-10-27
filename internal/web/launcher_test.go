@@ -67,7 +67,7 @@ func TestAnAdeAnnouncesWhatItIsServingToTheLauncher(t *testing.T) {
 	}))
 
 	s := &Server{listenPort: "4321", startRoot: "/repo"}
-	s.announceServing(context.Background(), "abc")
+	require.NoError(t, s.announceServing(context.Background(), "abc"))
 
 	req := <-asked
 	assert.Equal(t, http.MethodPost, req.Method)

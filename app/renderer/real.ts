@@ -85,6 +85,10 @@ export interface Session {
   live?: boolean;
   archived?: boolean;
   lastUsed?: string;
+  // pinned is one imported by id; from names where it was recorded, when a
+  // different checkout adopted it.
+  pinned?: boolean;
+  from?: string;
 }
 
 export interface Listed {
@@ -281,6 +285,8 @@ export function sessions(
   now = Date.now(),
   machines: Machine[] = [],
   active: Active[] = [],
+  // Which repositories get a group. Running is every repository: nothing up is hidden.
+  grouped: (repo: Repo) => boolean = () => true,
 ): Place {
   // By repository, not by checkout: three worktrees of ade are three
   // ways into one repository, not three repositories called ade. What
@@ -305,15 +311,16 @@ export function sessions(
           // The worktree names itself now the heading does not, and the
           // branch only when it differs, or `fix` on `fix` says it twice.
           meta: [
-            checkout.worktree ? checkout.name : "",
+            // Running has no repository heading, so even a main checkout names itself.
+            checkout.worktree || live ? checkout.name : "",
             session.branch === checkout.branch ? "" : session.branch,
             ago(session.lastUsed, now),
           ]
             .filter(Boolean)
             .join(" · "),
           tag: session.dir === here ? { text: "here", kind: "here" as const } : undefined,
-          // Always, not only while it runs: a finished session with no
-          // verb on its row is one there is no way to be rid of.
+          // One verb, the Agents place's own endings. A finished session
+          // had none at all, and a running one only cancelled its turn.
           acts: [
             {
               label: live ? "Stop…" : "Put away…",
@@ -336,20 +343,16 @@ export function sessions(
         icon: "play",
         tone: "good" as const,
         name: serving.branch || checkout.name,
-        // Same rule as above, and it matters more here: a worktree ade
-        // create made is named for its branch, so the heading already
-        // said it and the repeat pushed "no conversation yet" out.
-        meta: [
-          checkout.worktree && checkout.name !== serving.branch ? checkout.name : "",
-          "no conversation yet",
-        ]
+        // Whenever it is not already the heading. `ade create` names a
+        // worktree for its branch, and the repeat pushed the rest out.
+        meta: [checkout.name === serving.branch ? "" : checkout.name, "no conversation yet"]
           .filter(Boolean)
           .join(" · "),
         tag: checkout.path === here ? { text: "here", kind: "here" as const } : undefined,
         acts: [{ label: "Stop…", what: "session-end" as const, name: serving.id }],
       } });
     }
-    if (found.length === 0) continue;
+    if (found.length === 0 || !grouped(repo)) continue;
     found.sort((a, b) => b.at - a.at);
     groups.push({ name, at: found[0].at, rows: found.map((f) => f.row) });
   }
@@ -420,7 +423,7 @@ export function running(state: string): boolean {
 export interface Ending {
   label: string;
   note: string;
-  value: "agent" | "ade" | "archive" | "delete";
+  value: "agent" | "ade" | "archive" | "delete" | "done";
 }
 
 // spoken is whether a transcript is behind this id: archive and delete
@@ -445,10 +448,26 @@ export function endings(state: string, said = true): Ending[] {
   });
   if (!said) return out;
   out.push(
+    { label: "Stop and put away", note: "the server goes, and the conversation leaves the lists", value: "done" },
     { label: "Archive the session", note: "out of the lists, kept on disk", value: "archive" },
     { label: "Delete the session", note: "gone from ade for good", value: "delete" },
   );
   return out;
+}
+
+export function underway(what: string): string {
+  switch (what) {
+    case "agent":
+      return "stopping";
+    case "ade":
+      return "stopping ade here";
+    case "done":
+      return "stopping and putting away";
+    case "archive":
+      return "archiving";
+    default:
+      return "deleting";
+  }
 }
 
 // ended is what was done. The launcher reports 0 with a 200, so the
@@ -460,6 +479,8 @@ export function ended(what: string, body?: unknown): string {
       return "stopped";
     case "ade":
       return "ade stopped here";
+    case "done":
+      return "stopped and put away";
     case "archive":
       return n.changed === 0 ? "nothing to archive: no conversation here yet" : "archived";
     default:
@@ -620,6 +641,7 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
       tone: "warn",
       name: offer.question || offer.pr || offer.kind,
       meta: [offer.from, offer.claimed ? "claimed" : ""].filter(Boolean).join(" · "),
+      acts: [{ label: "Dismiss", what: "bus-dismiss" as const, name: offer.id }],
     });
   }
   for (const reply of bus?.replies ?? []) {
@@ -630,6 +652,7 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
       tone: "good",
       name: reply.text || reply.verdict || reply.question || "a reply",
       meta: [reply.from, ago(reply.at, now)].filter(Boolean).join(" · "),
+      acts: [{ label: "Clear", what: "bus-dismiss" as const, name: reply.id }],
     });
   }
   for (const sent of bus?.sent ?? []) {
@@ -1147,7 +1170,7 @@ export function draftSaid(body: Drafted, pr: number): string {
 // unserved is the launcher's answer for a session with no ade behind
 // it. Not a failure to act: there was nothing there to act on.
 export function unserved(error = ""): boolean {
-  return /no ade is serving/.test(error);
+  return /no ade is (serving|running)/.test(error);
 }
 
 // ago is a stamp as a glance reads it, or nothing for one that did not

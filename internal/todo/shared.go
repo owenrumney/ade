@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const sharedBranch = "ade-todos"
+const (
+	sharedBranch = "ade-todos"
+	gitTimeout   = 20 * time.Second
+)
 
 // Shared keeps append-only todo changes on the wiki remote's private branch.
 type Shared struct {
@@ -205,7 +208,8 @@ func (s *Shared) sync(ctx context.Context) error {
 		}
 	}
 	_, _ = git(ctx, s.root, "add", "events")
-	_, _ = git(ctx, s.root, "commit", "-m", "todos")
+	// ade's own event log: a signer waiting on a touch or passphrase hung every read.
+	_, _ = git(ctx, s.root, "-c", "commit.gpgsign=false", "commit", "-m", "todos")
 	_, fetchErr := git(ctx, s.root, "fetch", "origin", sharedBranch)
 	if _, err := git(ctx, s.root, "rev-parse", "--verify", "HEAD"); err != nil {
 		// Never push an empty branch: git calls that a bad refspec.
@@ -228,8 +232,11 @@ func (s *Shared) sync(ctx context.Context) error {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	limited, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(limited, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// With what git said: "exit status 1" names neither the rejection nor

@@ -396,6 +396,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/remember", s.guard(s.handleRemember))
 	mux.HandleFunc("POST /api/sessions/delete", s.guard(s.handleDeleteSessions))
 	mux.HandleFunc("POST /api/sessions/rename", s.guard(s.handleRenameSession))
+	mux.HandleFunc("POST /api/sessions/import", s.guard(s.handleSessionImport))
 	mux.HandleFunc("POST /api/sessions/combine", s.guard(s.handleCombineSessions))
 	mux.HandleFunc("POST /api/sessions/uncombine", s.guard(s.handleUncombineSessions))
 	mux.HandleFunc("POST /api/sessions/suggestion/dismiss", s.guard(s.handleDismissSessionSuggestion))

@@ -44,6 +44,16 @@ describe("the Spaces list", () => {
     expect(place.rows[1].tone).toBe("bad");
   });
 
+  it("offers Close on one with no clone here, which is still a space you opened", () => {
+    const place = spaces([space("nobody/nowhere", { here: false })]);
+    expect(place.rows[0].acts?.map((a) => a.what)).toEqual(["space-clone", "space-close"]);
+  });
+
+  it("offers nothing on the space you are in", () => {
+    const place = spaces([space("owenrumney/ade", { current: true })]);
+    expect(place.rows[0].acts).toEqual([]);
+  });
+
   it("says how to open one rather than drawing an empty list", () => {
     expect(spaces([]).note).toContain("Open a space");
   });

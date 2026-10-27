@@ -274,6 +274,43 @@ func claudeBlocks(content json.RawMessage) []claudeBlock {
 	return blocks
 }
 
+// ClaudeProjectDir is where Claude Code records a working directory's
+// transcripts: the path with every separator, dot and underscore a dash.
+func ClaudeProjectDir(cwd string) string {
+	root := claudeRoot()
+	if root == "" || cwd == "" {
+		return ""
+	}
+	slug := strings.TrimSuffix(cwd, string(filepath.Separator))
+	for _, each := range []string{string(filepath.Separator), ".", "_"} {
+		slug = strings.ReplaceAll(slug, each, "-")
+	}
+	return filepath.Join(root, slug)
+}
+
+// ClaudeTranscript names a session's transcript file under cwd's project
+// directory. It does not check that one is there.
+func ClaudeTranscript(cwd, session string) string {
+	dir := ClaudeProjectDir(cwd)
+	if dir == "" || session == "" {
+		return ""
+	}
+	return filepath.Join(dir, session+".jsonl")
+}
+
+// ClaudeAnywhere finds a session's transcript under any project directory.
+func ClaudeAnywhere(session string) string {
+	root := claudeRoot()
+	if root == "" || session == "" {
+		return ""
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "*", session+".jsonl"))
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	return matches[0]
+}
+
 // claudeCWDFromDir unslugs Claude's project directory name. Ambiguous when a
 // directory name contains dashes, so it is only a fallback.
 func claudeCWDFromDir(path string) string {

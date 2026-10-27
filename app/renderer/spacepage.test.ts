@@ -66,6 +66,36 @@ describe("sessionsOf", () => {
   it("leaves out what this window has just archived", () => {
     expect(sessionsOf(repo, now, new Set(["new"])).map((l) => l.id)).toEqual(["old"]);
   });
+
+  // An adopted session is listed under the checkout that took it, which is the
+  // one the launcher put it in. Where it was recorded is the surprise.
+  it("says where an adopted session came from", () => {
+    const adopted: Repo = {
+      ...repo,
+      checkouts: [
+        {
+          ...repo.checkouts[0],
+          sessions: [
+            {
+              id: "taken",
+              name: "taken",
+              dir: "/code/ade",
+              pinned: true,
+              from: "/code/somewhere-else",
+              lastUsed: "2026-10-23T11:00:00Z",
+            },
+          ],
+        },
+      ],
+    };
+    const [line] = sessionsOf(adopted, now);
+    expect(line.pinned).toBe(true);
+    expect(line.meta).toBe("main · main checkout · from /code/somewhere-else · 1h");
+  });
+
+  it("says nothing extra about one listed where it was recorded", () => {
+    expect(sessionsOf(repo, now).every((l) => !l.meta.includes("from "))).toBe(true);
+  });
 });
 
 describe("designsOf", () => {

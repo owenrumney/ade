@@ -129,6 +129,8 @@ function why(e: Error): string {
 
 // gather is one round trip for everything the sidebar draws; each part
 // may fail on its own. `dir` is the checkout the window is on.
+const gatherWait = 10_000;
+
 async function gather(dir = ""): Promise<unknown> {
   const where = await found();
   if (!where) {
@@ -138,14 +140,14 @@ async function gather(dir = ""): Promise<unknown> {
   // which reads as ade having nothing rather than as a broken read.
   const trouble: Record<string, string> = {};
   const [dash, designs, repos, hosts, todos, jobs, active, spaces, limits] = await Promise.all([
-    ask(where, "/api/dash").catch((e: Error) => ({ error: e.message })),
-    ask<{ designs?: unknown[] }>(where, "/api/designs/all")
+    ask(where, "/api/dash", gatherWait).catch((e: Error) => ({ error: e.message })),
+    ask<{ designs?: unknown[] }>(where, "/api/designs/all", gatherWait)
       .then((d) => d.designs ?? [])
       .catch((e: Error) => {
         trouble.designs = why(e);
         return [];
       }),
-    ask<{ repos?: unknown[] }>(where, "/api/repos")
+    ask<{ repos?: unknown[] }>(where, "/api/repos", gatherWait)
       .then((r) => r.repos ?? [])
       .catch((e: Error) => {
         trouble.sessions = why(e);
@@ -153,19 +155,20 @@ async function gather(dir = ""): Promise<unknown> {
       }),
     // The machines already connected, and what they have checked out.
     // Nothing is dialled for this.
-    ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos")
+    ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos", gatherWait)
       .then((h) => h.hosts ?? [])
       .catch(() => []),
     ask<{ items?: unknown[] }>(
       where,
       dir ? `/api/todos?dir=${encodeURIComponent(dir)}` : "/api/todos",
+      gatherWait,
     )
       .then((t) => t.items ?? [])
       .catch((e: Error) => {
         trouble.todos = why(e);
         return [];
       }),
-    ask<{ jobs?: unknown[] }>(where, "/api/jobs")
+    ask<{ jobs?: unknown[] }>(where, "/api/jobs", gatherWait)
       .then((j) => j.jobs ?? [])
       .catch((e: Error) => {
         trouble.jobs = why(e);
@@ -173,7 +176,7 @@ async function gather(dir = ""): Promise<unknown> {
       }),
     // Every announced session and what its agent is doing, this machine
     // and every host the launcher is connected to.
-    ask<unknown[]>(where, "/api/serving")
+    ask<unknown[]>(where, "/api/serving", gatherWait)
       .then((a) => a ?? [])
       .catch((e: Error) => {
         trouble.agents = why(e);
@@ -184,6 +187,7 @@ async function gather(dir = ""): Promise<unknown> {
     ask<{ spaces?: unknown[] }>(
       where,
       dir ? `/api/spaces?dir=${encodeURIComponent(dir)}` : "/api/spaces",
+      gatherWait,
     )
       .then((s) => s.spaces ?? [])
       .catch((e: Error) => {
@@ -191,7 +195,7 @@ async function gather(dir = ""): Promise<unknown> {
         return [];
       }),
     // The plan windows. No reading is no item on the bar, not a zero.
-    ask<unknown>(where, "/api/limits").catch(() => undefined),
+    ask<unknown>(where, "/api/limits", gatherWait).catch(() => undefined),
   ]);
   return { dash, designs, repos, hosts, todos, jobs, active, spaces, limits, trouble };
 }
