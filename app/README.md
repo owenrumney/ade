@@ -40,7 +40,7 @@ built for the other platform. Nothing to do by hand, but the first
 
 Electron is the only dependency, so that is the only thing to reinstall.
 The bundles are built with the editor extension's esbuild
-(`vscode/node_modules`), which ships every platform's binary and picks at
+(`app/node_modules`), which ships every platform's binary and picks at
 run time, so it does not have the problem.
 
 **Its binary arrives through a postinstall**, and npm has two ways of not

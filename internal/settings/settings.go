@@ -79,10 +79,6 @@ type Settings struct {
 	// they should be listed. Empty is every repository the scan finds.
 	Spaces []string `json:"spaces,omitempty"`
 
-	// Front is which window `ade .` opens: "editor" or "window". Empty is
-	// the window when it is installed, and the editor otherwise.
-	Front string `json:"front,omitempty"`
-
 	// SharpenOff stops the questions a cheap model asks about a vague prompt
 	// before it is sent.
 	SharpenOff bool `json:"sharpen_off,omitempty"`

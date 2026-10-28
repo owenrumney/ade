@@ -245,3 +245,53 @@ func gitIdentity(t *testing.T) {
 		t.Setenv(key, value)
 	}
 }
+
+// Only the store's documents can start, so Start work on one written in a
+// checkout imports it first. Before this the window drew no button at all
+// on those rows, and the only way in was `ade designs import`.
+func TestADocumentInACheckoutIsImportedIntoTheStore(t *testing.T) {
+	m := newFixture(t)
+	dir := filepath.Join(m.code, "ade")
+	gitCheckout(t, dir)
+	under := filepath.Join(dir, ".git", "ade", "docs")
+	require.NoError(t, os.MkdirAll(under, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(under, "cart-redesign.md"),
+		[]byte("# Cart redesign\n\nWhat it does.\n"), 0o600))
+	s := newLauncherOn(t, m)
+	s.designs = designs.New(t.TempDir(), "")
+
+	rec := do(t, s, http.MethodPost, "/api/designs/import?dir="+dir, `{"file":"cart-redesign.md"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got struct {
+		Name string `json:"name"`
+		Held bool   `json:"held"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "cart-redesign", got.Name)
+
+	held, err := s.designs.Read("cart-redesign")
+	require.NoError(t, err)
+	assert.Equal(t, "Cart redesign", held.Meta.Title)
+
+	// Again: the same name back, and not a second copy, so pressing twice
+	// starts the design rather than failing on the first import's work.
+	rec = do(t, s, http.MethodPost, "/api/designs/import?dir="+dir, `{"file":"cart-redesign.md"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "cart-redesign", got.Name)
+	assert.True(t, got.Held)
+	list, err := s.designs.List()
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+}
+
+func TestImportingADocumentTheCheckoutDoesNotHaveIsRefused(t *testing.T) {
+	m := newFixture(t)
+	dir := filepath.Join(m.code, "ade")
+	gitCheckout(t, dir)
+	s := newLauncherOn(t, m)
+	s.designs = designs.New(t.TempDir(), "")
+
+	rec := do(t, s, http.MethodPost, "/api/designs/import?dir="+dir, `{"file":"nope.md"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

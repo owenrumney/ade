@@ -4,6 +4,7 @@ import {
   drawnFrom,
   linesOf,
   listed,
+  pairsOf,
   toneOf,
   unsent,
   wanted,
@@ -95,6 +96,17 @@ describe("comment threads on the diff", () => {
     const stuck: Thread = { ...threads[3], id: "t5", line: 12 };
     const drawn = linesOf(file, [stuck]).filter((l) => l.at === "thread");
     expect(drawn).toHaveLength(1);
+  });
+
+  it("draws the pair on one row when the diff is split", () => {
+    const drawn = pairsOf(file, threads).map((l) =>
+      l.at === "thread"
+        ? `#${l.thread.id}`
+        : l.at === "hunk"
+          ? "@@"
+          : `${l.left?.content ?? "-"}|${l.right?.content ?? "-"}`,
+    );
+    expect(drawn).toEqual(["@@", "a|a", "was|is", "#t2", "#t1", "-|and more", "#t4"]);
   });
 
   it("leaves another file's threads out", () => {

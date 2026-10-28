@@ -23,6 +23,7 @@ export const THEME = `
   --vscode-editorWidget-background: #141821;
   --vscode-editorWidget-border: #1b1f29;
   --vscode-widget-border: #1b1f29;
+  --vscode-menu-background: #141821;
   --vscode-panel-border: #1b1f29;
 
   --vscode-button-background: #e6b450;

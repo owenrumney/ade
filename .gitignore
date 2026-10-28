@@ -27,11 +27,6 @@ extension/web-ext-artifacts/
 .DS_Store
 tmp/
 shell/
-# The editor fork build tree: a VSCodium checkout plus a vscode checkout and
-# its node_modules, several GB. tools/editor/fetch.sh recreates it.
-editor/vscodium
-editor/node24/
-
 # Role and agent prompts: they name people and employers, so they live in
 # ade-private. Copy them in with `make private`.
 internal/roles/defaults/*.md

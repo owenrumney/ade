@@ -8,10 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/owenrumney/ade/internal/designs"
+	"github.com/owenrumney/ade/internal/docs"
+	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
 )
 
@@ -206,6 +209,54 @@ func (s *Server) handleDesignsSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDesignImport puts one of a checkout's documents into the store and
+// answers its name. Only the store's documents can start.
+func (s *Server) handleDesignImport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		File string `json:"file"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.File == "" {
+		writeError(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	if s.designs == nil {
+		writeError(w, http.StatusInternalServerError, "no designs store on this machine")
+		return
+	}
+	root, common, ok := s.designsDir(w, r)
+	if !ok {
+		return
+	}
+	// Already there under that name: a second copy is not what was asked.
+	name := designs.Slug(strings.TrimSuffix(req.File, ".md"))
+	if held, err := s.designs.Read(name); err == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"name": held.Name, "held": true})
+		return
+	}
+	var repo string
+	if owner, named := gitdiff.Origin(r.Context(), root); named != "" {
+		repo = strings.TrimPrefix(owner+"/"+named, "/")
+	}
+	for _, dir := range docs.SearchDirs(root, common, "") {
+		path := filepath.Join(dir, req.File)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		took := designs.ImportFile(s.designs.Root(), path, repo)
+		if !took.Took() {
+			writeError(w, http.StatusBadRequest, took.Why)
+			return
+		}
+		s.hub.Broadcast("designs", nil)
+		writeJSON(w, http.StatusOK, map[string]any{"name": took.Name})
+		return
+	}
+	writeError(w, http.StatusNotFound, req.File+" is not a document in that checkout")
 }
 
 // handleDesignStart begins work on a design: a worktree per repository it

@@ -439,10 +439,10 @@ func TestRunStateSaysWhatTheAgentIsDoing(t *testing.T) {
 	runner.noteTool("Bash: git diff")
 	runner.noteTouched("internal/web/agent.go")
 	runner.noteTouched("internal/web/agent.go")
-	runner.noteTouched("vscode/src/runstate.ts")
+	runner.noteTouched("app/pages/runstate.ts")
 	state := runner.State()
 	assert.Equal(t, "Bash: git diff", state.Doing)
-	assert.Equal(t, []string{"internal/web/agent.go", "vscode/src/runstate.ts"}, state.Touched, "each file once")
+	assert.Equal(t, []string{"internal/web/agent.go", "app/pages/runstate.ts"}, state.Touched, "each file once")
 
 	runner.finish(nil)
 	_, again := runner.begin(context.Background(), "chat")

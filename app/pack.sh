@@ -7,15 +7,15 @@ cd "$(dirname "$0")"
 
 out="${ADE_APP_OUT:-$PWD/out}"
 
-# The panels are the extension's own pages, served from vscode/ at run
-# time. They are not inside the window, so they are staged beside it and
-# main.ts reads them from there when packaged.
+# The panels are pages the window frames, read off disk at run time rather
+# than from inside the asar, so they are staged beside it and main.ts reads
+# them from there when packaged.
 stage="$PWD/out/stage"
 rm -rf "$stage"
-mkdir -p "$stage/ade/vscode"
-[ -d ../vscode/dist ] || { echo "vscode/dist is missing: run make app-build" >&2; exit 1; }
-cp -R ../vscode/dist "$stage/ade/vscode/dist"
-cp -R ../vscode/media "$stage/ade/vscode/media"
+mkdir -p "$stage/ade/app"
+[ -d dist ] || { echo "app/dist is missing: run make app-build" >&2; exit 1; }
+cp -R dist "$stage/ade/app/dist"
+cp -R media "$stage/ade/app/media"
 packager="./node_modules/.bin/electron-packager"
 [ -x "$packager" ] || packager="./node_modules/@electron/packager/bin/electron-packager.js"
 [ -e "$packager" ] || {

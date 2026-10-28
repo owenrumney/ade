@@ -93,6 +93,17 @@ describe("designs, from the shared store", () => {
     expect(row.meta).toContain("FIX-623");
   });
 
+  it("offers Start work on a document in a checkout too", () => {
+    const rows = designs(DESIGNS, ["cart-redesign.md"], "/code/ade").rows;
+    expect(rows[0].acts).toEqual([
+      { label: "Start work", what: "design-start", name: "here:cart-redesign.md" },
+    ]);
+    const spaced = designs(DESIGNS, [], "", [
+      { repo: "owenrumney/ade", path: "/code/ade", designs: ["cart-redesign.md"] },
+    ]).rows;
+    expect(spaced[0].acts?.[0].name).toBe("space:/code/ade|cart-redesign.md");
+  });
+
   it("marks the one being worked on", () => {
     expect(designs(DESIGNS).rows[0].tone).toBe("good");
     expect(designs(DESIGNS).rows[0].meta).toContain("running");
@@ -165,7 +176,7 @@ describe("sessions, flattened out of the scan", () => {
       },
     ];
     expect(sessions(quiet).rows[0].group).not.toBe("Running");
-    const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix" }]).rows[0];
+    const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix", name: "fix" }]).rows[0];
     expect(row.group).toBe("Running");
     expect(row.acts?.[0]).toEqual({ label: "Stop…", what: "session-end", name: "s9" });
     // The point of the change: a finished one is removable from its row too.

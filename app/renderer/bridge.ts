@@ -4,6 +4,10 @@ export interface Bridge {
   onCommand(then: (command: string) => void): void;
   keys(): Promise<unknown[]>;
 
+  // The audit trail: what the person set off, and what there is to read.
+  note(entry: Record<string, unknown>): void;
+  audit(day?: string): Promise<{ days?: string[]; entries?: Noted[] }>;
+
   // Everything the sidebar draws, in one round trip.
   world(dir?: string): Promise<unknown>;
   // One pull request in full, and one design's markdown.
@@ -52,6 +56,20 @@ export interface Bridge {
   where(): Promise<{ base: string; token: string } | null>;
   // The checkout the window was opened on, when one was named.
   opened(): Promise<string>;
+}
+
+// One line of the trail, as the panel draws it.
+export interface Noted {
+  at: string;
+  kind: string;
+  what: string;
+  where?: string;
+  session?: string;
+  ok?: boolean;
+  why?: string;
+  ms?: number;
+  fields?: string[];
+  trace?: string;
 }
 
 declare global {

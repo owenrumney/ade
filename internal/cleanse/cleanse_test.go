@@ -13,7 +13,7 @@ import (
 
 var (
 	prose  = strings.Repeat("The retry loop resets its counter on success, which the old test never covered. ", 4)
-	paths  = strings.Repeat("- internal/web/chat.go:884\n- `internal/web/subagent.go`\n- vscode/src/chat/main.ts\n- cmd/ade/\n- chat.go\n", 4)
+	paths  = strings.Repeat("- internal/web/chat.go:884\n- `internal/web/subagent.go`\n- app/pages/chat/main.ts\n- cmd/ade/\n- chat.go\n", 4)
 	table  = "| # | Where | Prompt |\n|---|---|---|\n" + strings.Repeat("| 1 | `extension.ts:221` | Start FIX-623 here? |\n", 6)
 	fenced = "Run this:\n\n```sh\n" + strings.Repeat("make ui && make editor-package && make editor-install\n", 5) + "```"
 )

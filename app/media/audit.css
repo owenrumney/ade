@@ -1,0 +1,45 @@
+/* The audit trail: one line per thing the person did. */
+body { margin: 0; }
+#audit { padding: 8px 12px 16px; }
+
+.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.bar select,
+.bar input,
+.bar button {
+  font: inherit;
+  color: var(--vscode-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+  padding: 3px 8px;
+}
+.bar input { flex: 1; }
+.bar button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; }
+.bar button:hover { background: var(--vscode-button-hoverBackground); }
+.bar button:active { transform: translateY(1px); }
+
+.lines { display: flex; flex-direction: column; }
+.line {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 3px 6px; border-radius: 3px;
+}
+.line:nth-child(odd) { background: var(--vscode-editor-background); }
+.line.failed .what { color: var(--vscode-errorForeground); }
+
+.clock { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.kind {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  padding: 0 6px; border-radius: 8px;
+  background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+}
+.kind.http { opacity: .7; }
+.what { font-family: var(--vscode-editor-font-family); }
+.where, .under { color: var(--vscode-descriptionForeground); }
+.why { color: var(--vscode-errorForeground); }
+.under { cursor: pointer; }
+
+.folded { flex: 1 0 100%; padding: 4px 0 4px 18px; }
+.step { color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); }
+.step.failed { color: var(--vscode-errorForeground); }
+
+.none { color: var(--vscode-descriptionForeground); }

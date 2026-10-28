@@ -193,5 +193,6 @@ export const VOCABULARY: Group[] = [
       ["ade.reconnect", "Reconnect"],
       ["ade.keys", "Keys and tokens…"],
       ["ade.showLogs", "Show the log"],
+      ["ade.audit", "What I just did…"],
     ],
   },];

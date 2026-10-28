@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REPORTS } from "./reports";
-import type { ProjectView } from "../../vscode/src/projectrow";
+import type { ProjectView } from "../pages/projectrow";
 
 const view: ProjectView = {
   name: "ade",

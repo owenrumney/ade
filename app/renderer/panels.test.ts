@@ -8,7 +8,7 @@ import { commit, newSession, WHICH, type Reach } from "./panels";
 // because the host had invented names for their buttons.
 function verbsOf(panel: string): string[] {
   const src = readFileSync(
-    join(__dirname, "..", "..", "vscode", "src", panel, "main.ts"),
+    join(__dirname, "..", "pages", panel, "main.ts"),
     "utf8",
   );
   const sent = [...src.matchAll(/send\("([a-zA-Z-]+)"/g)].map((m) => m[1]);
@@ -268,7 +268,7 @@ describe("every panel is handed the key its page reads", () => {
   // What a page takes off the state it is sent, as it names it.
   function reads(page: string): Set<string> {
     const src = readFileSync(
-      join(__dirname, "..", "..", "vscode", "src", page, "main.ts"),
+      join(__dirname, "..", "pages", page, "main.ts"),
       "utf8",
     );
     const out = new Set<string>();
@@ -453,22 +453,6 @@ describe("the purge panel while it works", () => {
     await panel.onMessage({ kind: "do", what: "remove", paths: [], force: false });
     expect(pushed).toHaveLength(1);
     expect(pushed[0].busy).toBe(true);
-  });
-});
-
-// One page, two hosts. The window's half is driven above; the editor's is
-// the same page's other host, and a verb only one of them answers is a
-// button that does nothing and says nothing.
-describe("the commit page's verbs, in the editor's host too", () => {
-  it("is answered by commitview.ts", () => {
-    const host = readFileSync(
-      join(__dirname, "..", "..", "vscode", "src", "commitview.ts"),
-      "utf8",
-    );
-    const missing = verbsOf("commitpanel").filter(
-      (what) => !host.includes(`case "${what}"`),
-    );
-    expect(missing).toEqual([]);
   });
 });
 

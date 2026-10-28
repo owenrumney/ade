@@ -27,6 +27,22 @@ jobs:
       # a clean CI checkout is empty. The cap bites locally, before the push.
       - run: go test ./...
 
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+        working-directory: app
+      - run: ./node_modules/.bin/tsc -p .
+        working-directory: app
+      - run: ./node_modules/.bin/vitest run --reporter=dot
+        working-directory: app
+
   lint:
     runs-on: ubuntu-latest
     steps:

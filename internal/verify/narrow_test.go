@@ -36,14 +36,14 @@ func TestGoNarrowsToThePackagesThatChanged(t *testing.T) {
 }
 
 func TestFilesAreTheOnesUnderTheChecksDirectory(t *testing.T) {
-	root := tree(t, "go.mod", "main.go", "vscode/src/design.ts", "vscode/src/my file.ts", "vscode/src/it's.ts")
-	checks := []Check{{Name: "vitest", Run: "npx vitest run", Dir: "vscode", Narrow: "npx vitest related --run {{.Files}}"}}
+	root := tree(t, "go.mod", "main.go", "app/pages/design.ts", "app/pages/my file.ts", "app/pages/it's.ts")
+	checks := []Check{{Name: "vitest", Run: "npx vitest run", Dir: "app", Narrow: "npx vitest related --run {{.Files}}"}}
 
-	got := Narrowed(root, checks, []string{"main.go", "vscode/src/design.ts", "vscode/src/my file.ts", "vscode/src/it's.ts"})
+	got := Narrowed(root, checks, []string{"main.go", "app/pages/design.ts", "app/pages/my file.ts", "app/pages/it's.ts"})
 
 	require.Len(t, got, 1)
-	assert.Equal(t, "vscode", got[0].Dir)
-	assert.Equal(t, `npx vitest related --run src/design.ts 'src/it'\''s.ts' 'src/my file.ts'`, got[0].Run)
+	assert.Equal(t, "app", got[0].Dir)
+	assert.Equal(t, `npx vitest related --run pages/design.ts 'pages/it'\''s.ts' 'pages/my file.ts'`, got[0].Run)
 }
 
 func TestAQuotedPathReachesTheCommandWhole(t *testing.T) {
@@ -61,10 +61,10 @@ func TestAQuotedPathReachesTheCommandWhole(t *testing.T) {
 }
 
 func TestAnEmptyExpansionSkipsTheCheck(t *testing.T) {
-	root := tree(t, "go.mod", "README.md", "testdata/x.go", "vscode/src/a.ts")
+	root := tree(t, "go.mod", "README.md", "testdata/x.go", "app/pages/a.ts")
 	checks := []Check{
 		{Name: "go test", Run: "go test ./...", Narrow: "go test {{.Packages}}"},
-		{Name: "vitest", Run: "npx vitest run", Dir: "vscode", Narrow: "npx vitest run {{.Files}}"},
+		{Name: "vitest", Run: "npx vitest run", Dir: "app", Narrow: "npx vitest run {{.Files}}"},
 		{Name: "build", Run: "go build ./..."},
 	}
 
@@ -92,8 +92,8 @@ func TestANarrowOutcomeIsNeverAPass(t *testing.T) {
 }
 
 func TestACheckRunsInItsOwnDirectory(t *testing.T) {
-	root := tree(t, "vscode/package.json")
-	out := Run(context.Background(), root, []Check{{Name: "here", Run: "test -f package.json", Dir: "vscode"}})
+	root := tree(t, "app/package.json")
+	out := Run(context.Background(), root, []Check{{Name: "here", Run: "test -f package.json", Dir: "app"}})
 	assert.True(t, out.Passed())
 }
 

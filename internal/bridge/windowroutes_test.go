@@ -72,7 +72,6 @@ func TestTheWindowOnlyAsksForRoutesThatExist(t *testing.T) {
 		"app/renderer/doing.ts",
 		"app/renderer/panels.ts",
 		"app/renderer/sources.ts",
-		"vscode/src/agentstree.ts",
 	) {
 		head := path
 		if cut := strings.SplitN(strings.TrimPrefix(path, "/api/"), "/", 2); len(cut) > 0 {

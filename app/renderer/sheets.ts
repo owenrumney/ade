@@ -1,6 +1,6 @@
 import { el } from "./omnibox";
 import { blocks, inline } from "./markdown";
-import { linesOf, wanted, type At, type Cell, type Change, type Side, type Thread } from "./changes";
+import { linesOf, pairsOf, wanted, type At, type Cell, type Change, type Side, type Thread } from "./changes";
 import type { Rules, View } from "./model";
 import {
   foldable,
@@ -8,7 +8,7 @@ import {
   nextVerb,
   shownComments,
   whyNotSendable,
-} from "../../vscode/src/commentrow";
+} from "../pages/commentrow";
 import type { PrAct, PrActId } from "./prpage";
 import { spacePage, type SpaceAct } from "./spacepage";
 
@@ -240,13 +240,19 @@ function hunks(
   at: Review,
   jump?: At,
 ): HTMLElement {
-  const out = el("div", "diff");
-  out.append(el("div", "file-head", `+${file.additions} −${file.deletions}`));
+  const out = el("div", at.split ? "diff split" : "diff");
+  const head = el("div", "file-head");
+  head.append(el("span", "", `+${file.additions} −${file.deletions}`));
+  const how = el("button", "how", at.split ? "Unified" : "Split");
+  how.title = "Switch between a unified and a side-by-side diff";
+  how.addEventListener("click", () => on({ what: "split" }));
+  head.append(how);
+  out.append(head);
   if (file.binary) {
     out.append(el("div", "hunk", "binary file"));
     return out;
   }
-  const lines = linesOf(file, threads);
+  const lines = at.split ? pairsOf(file, threads) : linesOf(file, threads);
   if (lines.length === 0) {
     out.append(el("div", "hunk", "no textual change"));
     return out;
@@ -260,6 +266,10 @@ function hunks(
       const block = thread(line.thread, on, at.hasPR, at.open.has(line.thread.id));
       block.dataset.thread = line.thread.id;
       out.append(block);
+      continue;
+    }
+    if (line.at === "pair") {
+      out.append(pair(line.left, line.right, file.path, on));
       continue;
     }
     const kind = line.kind === "context" ? "" : line.kind;
@@ -279,6 +289,24 @@ function hunks(
   return out;
 }
 
+function pair(left: Cell | null, right: Cell | null, path: string, on: OnThread): HTMLElement {
+  const row = el("div", "pair");
+  row.append(side(left, "left", path, on), side(right, "right", path, on));
+  return row;
+}
+
+function side(cell: Cell | null, which: Side, path: string, on: OnThread): HTMLElement {
+  const kind = !cell ? "gap" : cell.kind === "context" ? "" : cell.kind;
+  const node = el("div", kind ? `ln ${kind}` : "ln");
+  if (!cell) return node;
+  const no = el("span", "no", String(cell.line));
+  no.title = "Comment on this line";
+  no.addEventListener("click", () => on({ what: "new", file: path, side: which, line: cell.line }));
+  node.dataset.line = String(cell.line);
+  node.append(no, tokens(cell));
+  return node;
+}
+
 // reveal scrolls to what a jump named, once the pane is in the document:
 // a node that is not there yet cannot be scrolled to.
 function reveal(out: HTMLElement, jump?: At): void {
@@ -290,7 +318,7 @@ function reveal(out: HTMLElement, jump?: At): void {
 // What a thread's buttons ask of the window. The sheet draws and the
 // window acts: it is the one holding the session.
 export interface Asked {
-  what: "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out" | "unfold";
+  what: "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out" | "unfold" | "split";
   id?: string;
   file?: string;
   side?: Side;
@@ -304,6 +332,7 @@ export type OnThread = (asked: Asked) => void;
 export interface Review {
   hasPR: boolean;
   open: Set<string>;
+  split?: boolean;
 }
 
 // thread is one comment thread under the line it is about: one comment,

@@ -32,6 +32,10 @@ const VIEWS = [
   { name: "app-issues", place: "Issues" },
   { name: "app-open-space", place: "Spaces", keys: "k", type: "open space" },
   { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
+  { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
+  { name: "app-chat-wide", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
+  { name: "app-todo-start", place: "Todos", hover: ".sidebar .row", tap: ".sidebar .row .act", settle: 900 },
+  { name: "app-audit", place: "Todos", keys: "k", type: "What I just did", enter: true },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
   { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },
   { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item.branch" },
@@ -134,6 +138,9 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
   await new Promise((done) => setTimeout(done, 150));
   if (view.row) await clicked("row", ".sidebar .row .name", view.row);
   for (const want of view.twigs ?? []) await clicked("twig", ".sidebar .twig .nm", want);
+  // A row's act is out of the layout until the pointer is on the row, so
+  // the pointer goes there first or the click lands on nothing.
+  if (view.hover) await page.hover(view.hover);
   if (view.tap) {
     await page.waitForSelector(view.tap);
     await page.click(view.tap);

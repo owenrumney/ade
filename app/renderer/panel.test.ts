@@ -53,9 +53,9 @@ describe("the theme a panel is given", () => {
   // VS Code hands a webview its theme as --vscode-* variables. Nothing
   // set them here, so every panel drew in the browser's own colours:
   // the chat's composer was dark text on a dark ground.
-  const sheets = readdirSync(join(__dirname, "..", "..", "vscode", "media"))
+  const sheets = readdirSync(join(__dirname, "..", "media"))
     .filter((f) => f.endsWith(".css"))
-    .map((f) => readFileSync(join(__dirname, "..", "..", "vscode", "media", f), "utf8"))
+    .map((f) => readFileSync(join(__dirname, "..", "media", f), "utf8"))
     .join("\n");
 
   it("sets every variable the panels read", () => {

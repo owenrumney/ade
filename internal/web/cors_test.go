@@ -13,12 +13,12 @@ func TestAnEditorWebviewMayReadWhatItAskedFor(t *testing.T) {
 	s := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/state?t="+s.token, nil)
-	req.Header.Set("Origin", "vscode-webview://0123abcd")
+	req.Header.Set("Origin", "ade-webview://0123abcd")
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "vscode-webview://0123abcd", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "ade-webview://0123abcd", rec.Header().Get("Access-Control-Allow-Origin"))
 	assert.Contains(t, rec.Header().Values("Vary"), "Origin")
 }
 
@@ -38,7 +38,7 @@ func TestTheAllowanceIsNotAWayIn(t *testing.T) {
 	s := newTestServer(t)
 
 	req := httptest.NewRequest("GET", "/api/state", nil)
-	req.Header.Set("Origin", "vscode-webview://0123abcd")
+	req.Header.Set("Origin", "ade-webview://0123abcd")
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 
@@ -50,7 +50,7 @@ func TestAPreflightIsAnsweredWithoutAToken(t *testing.T) {
 	s := newTestServer(t)
 
 	req := httptest.NewRequest("OPTIONS", "/api/chat", nil)
-	req.Header.Set("Origin", "vscode-webview://0123abcd")
+	req.Header.Set("Origin", "ade-webview://0123abcd")
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 
@@ -74,7 +74,7 @@ func TestAPreflightAllowsEverySettingsMethod(t *testing.T) {
 	s := newTestServer(t)
 
 	req := httptest.NewRequest("OPTIONS", "/api/settings", nil)
-	req.Header.Set("Origin", "vscode-webview://0123abcd")
+	req.Header.Set("Origin", "ade-webview://0123abcd")
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 
@@ -88,11 +88,10 @@ func TestAPreflightAllowsEverySettingsMethod(t *testing.T) {
 }
 
 // ade's own app registers this scheme and serves its panels from it, so
-// their fetches reach the session server the same way a VS Code
-// webview's do.
-func TestTheAppsOwnWebviewSchemeIsAllowedToo(t *testing.T) {
+// their fetches reach the session server.
+func TestOnlyTheAppsOwnWebviewSchemeIsAllowed(t *testing.T) {
 	assert.True(t, editorOrigin("ade-webview://0123abcd"))
-	assert.True(t, editorOrigin("vscode-webview://0123abcd"))
+	assert.False(t, editorOrigin("vscode-webview://0123abcd"))
 	assert.False(t, editorOrigin("file://"))
 	assert.False(t, editorOrigin("http://evil.example"))
 	assert.False(t, editorOrigin(""))

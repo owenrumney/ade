@@ -32,6 +32,14 @@ export function declare(): void {
 const pages = new Map<string, string>();
 const keys = new Map<string, string>();
 
+// panelOf is the id behind a frame's url, for the menu that opens over it.
+export function panelOf(url: string): string | undefined {
+  const key = /^ade-webview:\/\/panel\/([^/?#]+)/.exec(url)?.[1];
+  if (!key) return undefined;
+  for (const [id, held] of keys) if (held === key) return id;
+  return undefined;
+}
+
 // A panel's id is not a path: a design in another space carries the
 // checkout's, slashes and all. The key is opaque; the id stays here.
 export function hold(id: string, html: string): string {
@@ -44,8 +52,7 @@ export function hold(id: string, html: string): string {
   return `${SCHEME}://panel/${key}`;
 }
 
-// serve answers the scheme: a held page, or a file under vscode/ for
-// the bundles and stylesheets the panels load.
+// serve answers the scheme: a held page, or a file under app/.
 export function serve(root: string): void {
   protocol.handle(SCHEME, async (request) => {
     const at = new URL(request.url);
@@ -57,11 +64,10 @@ export function serve(root: string): void {
       });
     }
     if (at.host === "asset") {
-      // Under vscode/ and nowhere else: the path comes from a page, and
-      // a page is not a thing to trust with a path.
+      // Under app/ and nowhere else: a page is not to be trusted with a path.
       const want = normalize(at.pathname).replace(/^(\.\.[/\\])+/, "");
-      const file = join(root, "vscode", want);
-      if (!file.startsWith(join(root, "vscode"))) {
+      const file = join(root, "app", want);
+      if (!file.startsWith(join(root, "app"))) {
         return new Response("no", { status: 403 });
       }
       try {

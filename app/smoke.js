@@ -3,6 +3,7 @@
 // together under a real Electron rather than under a bundler.
 const { app, BrowserWindow, net } = require("electron");
 const { join } = require("node:path");
+const { readdirSync } = require("node:fs");
 const { Keymap, merge } = require("./dist/keymap.js");
 const { declare, hold, serve } = require("./dist/webview.js");
 
@@ -16,7 +17,8 @@ const mac = process.platform === "darwin";
 // the renderer draws what it draws with no launcher: one place, holding
 // the line that says so. That it got that far is the point.
 const want = {
-  places: 1,
+  // The one place an offline window has, and the terminal button beside it.
+  places: 2,
   rows: 1,
   offline: true,
   bridge: "object",
@@ -28,17 +30,44 @@ const want = {
 // the iframe showed "no such panel".
 const PANEL_IDS = [
   "ade.openChat",
+  "ade.commitPanel",
+  "ade.audit",
+  "ade.openSettings",
+  "ade.worktrees",
+  "ade.newSession",
   "design:spaces.md",
   "spacedesign:/Users/x/code/infracost/coast|FIX-818.md",
   "pr:412",
 ];
 
+// One bundle per page, as the Makefile's PAGES builds them. A panel whose
+// bundle is missing frames and then draws nothing.
+const BUNDLES = [
+  "chat", "settings", "commit", "worktrees", "repo", "purge",
+  "designprune", "quiz", "designedit", "newsession", "sandbox", "audit",
+];
+
 async function panelsAreReachable() {
-  serve(process.cwd());
+  serve(join(__dirname, ".."));
   for (const id of PANEL_IDS) {
     const res = await net.fetch(hold(id, `<!doctype html><title>${id}</title>`));
     if (!res.ok) {
       console.error(`panel ${id} is not reachable: ${res.status}`);
+      return false;
+    }
+  }
+  // Every bundle and every stylesheet, off the same scheme: a wrong asset
+  // root is a panel that frames and then draws nothing.
+  const assets = [
+    ...BUNDLES.map((b) => `dist/${b}.js`),
+    ...readdirSync(join(__dirname, "media"))
+      .filter((f) => f.endsWith(".css"))
+      .map((f) => `media/${f}`),
+  ];
+  for (const asset of assets) {
+    const res = await net.fetch(`ade-webview://asset/${asset}`);
+    if (!res.ok) {
+      console.error(`${asset} is not reachable: ${res.status}`);
       return false;
     }
   }

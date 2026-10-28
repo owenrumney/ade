@@ -54,7 +54,7 @@ export type Doing =
   | { at: "session"; path: string; body?: Record<string, unknown>; needs?: Ask[]; how?: Method }
   | { at: "panel"; panel: string }
   | { at: "rules" }
-  // A document the window renders through the extension's own page
+  // A document the window renders through a page's own
   // builders. `also` is a second read a builder wants.
   | { at: "report"; from: "launcher" | "session"; path: string; also?: string; render: string }
   | { at: "find"; from: "launcher" | "session"; path: string; open: string; title: string }
@@ -214,6 +214,7 @@ export const WIRED: Record<string, Doing> = {
 
   // ── Commit and pull request ──
   "ade.commitPanel": { at: "panel", panel: "ade.commitPanel" },
+  "ade.audit": { at: "panel", panel: "ade.audit" },
   // No title keeps the last commit's message, which the server allows
   // only for an amend.
   "ade.commitAmend": S(

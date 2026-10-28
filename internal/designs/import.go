@@ -34,12 +34,13 @@ func Import(root, from, repo string) ([]Imported, error) {
 		if each.IsDir() || !strings.HasSuffix(each.Name(), ".md") {
 			continue
 		}
-		out = append(out, importOne(root, filepath.Join(from, each.Name()), repo))
+		out = append(out, ImportFile(root, filepath.Join(from, each.Name()), repo))
 	}
 	return out, nil
 }
 
-func importOne(root, path, repo string) Imported {
+// ImportFile copies one document into the store.
+func ImportFile(root, path, repo string) Imported {
 	name := strings.TrimSuffix(filepath.Base(path), ".md")
 	got := Imported{From: path, Name: Slug(name)}
 	raw, err := os.ReadFile(path) // #nosec G304 -- a checkout's own docs directory

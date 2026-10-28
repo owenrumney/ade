@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/owenrumney/ade/internal/editor"
 	"github.com/owenrumney/ade/internal/render"
+	"github.com/owenrumney/ade/internal/window"
 
 	"github.com/owenrumney/ade/internal/agents"
 	"github.com/owenrumney/ade/internal/bridge"
@@ -1164,25 +1164,14 @@ func detachTo(dir, state, record string, args []string, openBrowser bool) error 
 	return nil
 }
 
-// openUnwatched shows a session in the editor, which is the only front end.
-// dir empty is a session on another machine: its address is all there is.
+// openUnwatched shows a session in ade's window. dir empty is elsewhere.
 func openUnwatched(_ context.Context, url, dir string) {
 	if dir == "" {
-		fmt.Println("open the session from the editor's Sessions view:", url)
+		fmt.Println("open the session from the window's Sessions view:", url)
 		return
 	}
-	// The window when it is installed, unless the editor is asked for.
-	if want := editor.Wanted(); want != "editor" {
-		err := editor.OpenWindow(dir)
-		if err == nil {
-			return
-		}
-		if want == "window" {
-			fmt.Printf("%v; opening the editor instead\n", err)
-		}
-	}
-	if err := editor.OpenDesk(dir); err != nil {
-		fmt.Printf("%v; open %s in your editor, where the ade extension finds it at %s\n", err, dir, url)
+	if err := window.Open(dir); err != nil {
+		fmt.Printf("%v; the session is at %s\n", err, url)
 	}
 }
 

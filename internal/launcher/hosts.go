@@ -76,14 +76,9 @@ type conn struct {
 	// cmu holds everything below: the port stream and a window resolving an
 	// authority both change what is wanted.
 	cmu sync.Mutex
-	// launcher is where this machine reaches that one's launcher, ports what
-	// it last published, and editor its editor server. Zero until one asks.
-	launcher     remote.Mapping
-	ports        []int
-	editor       remote.Mapping
-	editorCommit string
-	// What `uname` said. A machine does not change arch.
-	system, machine string
+	// Where this machine reaches that one's launcher, and what it publishes.
+	launcher remote.Mapping
+	ports    []int
 }
 
 // want is the whole forwarded set, rebuilt rather than patched: the port
@@ -91,45 +86,13 @@ type conn struct {
 func (c *conn) want() []remote.Mapping {
 	c.cmu.Lock()
 	defer c.cmu.Unlock()
-	return mappings(c.ports, c.launcher, c.editor)
+	return mappings(c.ports, c.launcher)
 }
 
 func (c *conn) setPorts(ports []int) {
 	c.cmu.Lock()
 	c.ports = ports
 	c.cmu.Unlock()
-}
-
-func (c *conn) setEditor(mapping remote.Mapping, commit string) {
-	c.cmu.Lock()
-	c.editor, c.editorCommit = mapping, commit
-	c.cmu.Unlock()
-}
-
-// editorServer is the forward and the build running there, or a zero mapping
-// when no window ever asked for one.
-func (c *conn) editorServer() (remote.Mapping, string) {
-	c.cmu.Lock()
-	defer c.cmu.Unlock()
-	return c.editor, c.editorCommit
-}
-
-// arch is the host's own names for the tarball it can run.
-func (c *conn) arch(ctx context.Context) (string, string, error) {
-	c.cmu.Lock()
-	system, machine := c.system, c.machine
-	c.cmu.Unlock()
-	if system != "" {
-		return system, machine, nil
-	}
-	system, machine, err := c.host.Arch(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	c.cmu.Lock()
-	c.system, c.machine = system, machine
-	c.cmu.Unlock()
-	return system, machine, nil
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -998,12 +961,6 @@ func (s *Server) disconnect(name string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Before the forwards: they are the only way into that server.
-	if _, commit := live.editorServer(); commit != "" {
-		if err := live.host.StopEditorServer(ctx, commit); err != nil {
-			slog.Debug("stop the editor server", "host", name, "err", err)
-		}
-	}
 	if err := live.fwd.Close(ctx); err != nil {
 		slog.Debug("drop forwards", "host", name, "err", err)
 	}

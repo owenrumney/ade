@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,12 +17,19 @@ import (
 const (
 	sharedBranch = "ade-todos"
 	gitTimeout   = 20 * time.Second
+	// How stale a read may be: a fetch per poll is the read on the network.
+	syncEvery = 30 * time.Second
 )
 
 // Shared keeps append-only todo changes on the wiki remote's private branch.
 type Shared struct {
 	root, remote string
-	mu           sync.Mutex
+	// mu is the checkout: git and the event files it rewrites.
+	mu sync.Mutex
+	// smu guards when the last sync was and whether one is running.
+	smu      sync.Mutex
+	syncedAt time.Time
+	syncing  bool
 }
 
 type change struct {
@@ -37,14 +45,57 @@ func NewShared(root, remote string) *Shared {
 
 func (s *Shared) Enabled() bool { return s.remote != "" }
 
-// List reads the newest change for every item in scope. Empty scope is global.
+// List reads the newest change for every item in scope, global when the
+// scope is empty. Only the first read waits for the remote.
 func (s *Shared) List(ctx context.Context, scope string) ([]Item, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.sync(ctx); err != nil {
-		return nil, err
+	if s.cold() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err := s.sync(ctx); err != nil {
+			return nil, err
+		}
+		s.synced()
+		return s.list(scope)
 	}
+	s.refresh()
 	return s.list(scope)
+}
+
+func (s *Shared) cold() bool {
+	s.smu.Lock()
+	defer s.smu.Unlock()
+	return s.syncedAt.IsZero()
+}
+
+func (s *Shared) synced() {
+	s.smu.Lock()
+	defer s.smu.Unlock()
+	s.syncedAt = time.Now()
+}
+
+// refresh syncs behind the read: one at a time, not oftener than syncEvery,
+// and a failure is timed too, so a dead remote is dialled no harder.
+func (s *Shared) refresh() {
+	s.smu.Lock()
+	if s.syncing || time.Since(s.syncedAt) < syncEvery {
+		s.smu.Unlock()
+		return
+	}
+	s.syncing = true
+	s.smu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		s.mu.Lock()
+		err := s.sync(ctx)
+		s.mu.Unlock()
+		if err != nil {
+			slog.Warn("sync the shared todos", "err", err)
+		}
+		s.smu.Lock()
+		s.syncing, s.syncedAt = false, time.Now()
+		s.smu.Unlock()
+	}()
 }
 
 func (s *Shared) Add(ctx context.Context, scope string, item Item) (Item, error) {
@@ -64,6 +115,7 @@ func (s *Shared) Add(ctx context.Context, scope string, item Item) (Item, error)
 	if err := s.append(change{Item: item, Scope: scope, At: time.Now().UTC()}); err != nil {
 		return Item{}, err
 	}
+	defer s.synced()
 	return item, s.sync(ctx)
 }
 
@@ -118,6 +170,7 @@ func (s *Shared) Update(ctx context.Context, scope, id string, p Patch) (Item, e
 	if err := s.append(change{Item: *item, Scope: scope, At: time.Now().UTC()}); err != nil {
 		return Item{}, err
 	}
+	defer s.synced()
 	return *item, s.sync(ctx)
 }
 
@@ -141,6 +194,7 @@ func (s *Shared) Delete(ctx context.Context, scope, id string) error {
 	if err := s.append(change{Item: Item{ID: id}, Scope: scope, Deleted: true, At: time.Now().UTC()}); err != nil {
 		return err
 	}
+	defer s.synced()
 	return s.sync(ctx)
 }
 
@@ -157,9 +211,11 @@ func (s *Shared) list(scope string) ([]Item, error) {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
+		// A sync behind this read may be rewriting the directory, so a
+		// file that has gone is skipped rather than failing the read.
 		body, err := os.ReadFile(filepath.Join(s.root, "events", entry.Name()))
 		if err != nil {
-			return nil, err
+			continue
 		}
 		var c change
 		if json.Unmarshal(body, &c) != nil || c.Scope != scope || c.Item.ID == "" {

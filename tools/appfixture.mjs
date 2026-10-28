@@ -613,6 +613,22 @@ export function shell() {
     // cannot, so the stub listens instead: the command names are the same.
     window.ade = {
       watch: async () => ({ ok: true }),
+      listen: async () => ({ ok: true }),
+      note() {},
+      audit: async () => ({
+        days: ["2026-10-27"],
+        entries: [
+          { at: "2026-10-27T20:59:31.000Z", kind: "command", what: "ade.commitPanel", where: "todos", trace: "a1" },
+          { at: "2026-10-27T20:59:31.420Z", kind: "http", what: "GET /api/state", trace: "a1", ok: true, ms: 42 },
+          { at: "2026-10-27T21:00:02.000Z", kind: "verb", what: "todo-start 001fa1d4239d", where: "todos" },
+          { at: "2026-10-27T21:00:14.000Z", kind: "command", what: "ade.push", where: "review", trace: "b2" },
+          { at: "2026-10-27T21:00:14.900Z", kind: "http", what: "POST /api/push", trace: "b2", ok: false, why: "the remote has the branch at a commit this push would drop", ms: 870 },
+          { at: "2026-10-27T21:01:40.000Z", kind: "command", what: "ade.openSettings", where: "sessions", trace: "c3" },
+          { at: "2026-10-27T21:01:41.000Z", kind: "http", what: "PUT /api/settings", trace: "c3", ok: true, ms: 1100, fields: ["dashboardToken", "previewOff"] },
+          { at: "2026-10-27T21:02:10.000Z", kind: "command", what: "ade.todos", where: "todos", trace: "d4" },
+          { at: "2026-10-27T21:02:20.000Z", kind: "http", what: "GET /api/todos", trace: "d4", ok: false, why: "The operation was aborted due to timeout", ms: 10000 },
+        ],
+      }),
       term: async () => ({ ok: true }),
       termSend() {},
       termResize() {},

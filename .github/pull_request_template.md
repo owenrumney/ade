@@ -12,7 +12,7 @@
 
 - [ ] `make test` passes
 - [ ] `make lint` passes
-- [ ] `make shots VIEWS=…` run and the pictures attached — **required if `vscode/src` moved**
+- [ ] `make app-shots VIEWS=…` run and the pictures attached — **required if `app/` moved**
 
 <!--
 House rules that fail the build, in case they bite:
