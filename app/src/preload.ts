@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld("ade", {
   onCommand: (then: (command: string) => void) =>
     ipcRenderer.on("command", (_event, command: string) => then(command)),
   keys: () => ipcRenderer.invoke("ade.keys") as Promise<unknown[]>,
+  // What the person just set off. The reach records what came of it.
+  // Never thrown: the trail may not be the reason the window stops.
+  note: (entry: Record<string, unknown>) =>
+    void (ipcRenderer.invoke("ade.note", entry) as Promise<void>).catch(() => {}),
+  audit: (day?: string) => ipcRenderer.invoke("ade.audit", day) as Promise<unknown>,
   // world is everything the sidebar draws, gathered in one round trip.
   world: (dir?: string) => ipcRenderer.invoke("ade.world", dir) as Promise<unknown>,
   pr: (repo: string, number: number) =>

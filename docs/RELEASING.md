@@ -75,13 +75,11 @@ ade has never been run on Windows. The sandbox, the `PATH` handling in the
 browser host, and the Keychain branch all assume macOS or Linux. This is not a
 "coming soon"; it is a "no".
 
-## The VS Code extension — **undecided**
+## The window
 
-`make vscode-package` builds `vscode/ade.vsix` and
-`make vscode-remote HOST=<host>` carries it to a Remote-SSH host. That is the
-whole distribution story. Nothing publishes it to a marketplace, and a release
-archive does not carry it. The window, `make app-install`, is the front end
-that is actually used.
+`make app-install` builds `ADE.app` and puts it in /Applications. That is the
+whole distribution story for the front end: nothing publishes it, and a release
+archive does not carry it.
 
 ## The sandbox image
 
@@ -107,7 +105,7 @@ the upload is only how Mozilla signs it.
   push, but a release is worth one by hand.
 - `go-licenses report ./...` — everything in the Go tree is currently MIT,
   Apache-2.0, BSD-3-Clause or ISC.
-- `npx license-checker --summary` in `web/` and `vscode/` — no GPL or AGPL. `web/`
+- `npx license-checker --summary` in `web/` and `app/` — no GPL or AGPL. `web/`
   pulls `lightningcss` (MPL-2.0) and `caniuse-lite` (CC-BY-4.0), both build-time
   only and neither shipped.
 

@@ -5,18 +5,12 @@ import (
 	"strings"
 )
 
-// The schemes a webview of ade's own calls itself by. The scheme is the
-// whole rule: the rest is a per-window id nobody can enumerate.
-const (
-	webviewOrigin = "vscode-webview://"
-	appOrigin     = "ade-webview://"
-)
+// The scheme a webview of ade's own calls itself by. Not a browser's.
+const appOrigin = "ade-webview://"
 
-// editorOrigin reports whether an Origin is a webview ade put the page
-// in. Neither scheme is reachable from a browser.
+// editorOrigin reports whether an Origin is a webview ade put the page in.
 func editorOrigin(origin string) bool {
-	return strings.HasPrefix(origin, webviewOrigin) ||
-		strings.HasPrefix(origin, appOrigin)
+	return strings.HasPrefix(origin, appOrigin)
 }
 
 // allowEditor lets a webview read a reply it was already allowed. The token is

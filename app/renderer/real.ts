@@ -1,5 +1,5 @@
 import type { Place, Row, Status, World } from "./model";
-import { page as jobPage, unread as unreadOutcomes, type Outcome } from "../../vscode/src/jobpage";
+import { page as jobPage, unread as unreadOutcomes, type Outcome } from "../pages/jobpage";
 
 // ade's own answers, as the window draws them: one function per
 // endpoint. Nothing is invented that the launcher does not send.
@@ -225,6 +225,7 @@ export function designs(
             icon: "design",
             name: file.replace(/\.md$/, ""),
             meta: "",
+            acts: startWork(`space:${space.path ?? ""}|${file}`),
           })),
         )
       : here.map((file) => ({
@@ -233,9 +234,16 @@ export function designs(
           icon: "design",
           name: file.replace(/\.md$/, ""),
           meta: "",
+          acts: startWork(`here:${file}`),
         }));
   const place = store(all);
   return { ...place, rows: [...mine, ...place.rows] };
+}
+
+// A document in a checkout starts the same way one in the store does;
+// the window imports it on the way through.
+function startWork(name: string): Row["acts"] {
+  return [{ label: "Start work", what: "design-start" as const, name }];
 }
 
 function store(all: Design[]): Place {
@@ -394,17 +402,17 @@ export function sessions(
   };
 }
 
-// The tree, the states and the ordering are `vscode/src/agents.ts`:
+// The tree, the states and the ordering are `app/pages/agents.ts`:
 // one answer for both windows. Renamed, as waiting() is taken here.
 import {
   detail,
   queues,
   tree,
   waiting as wantingYou,
-} from "../../vscode/src/agents";
-import type { Active } from "../../vscode/src/agents";
-export type { Active, Health } from "../../vscode/src/agents";
-export { attention, stateOf } from "../../vscode/src/agents";
+} from "../pages/agents";
+import type { Active } from "../pages/agents";
+export type { Active, Health } from "../pages/agents";
+export { attention, stateOf } from "../pages/agents";
 
 const TONE: Record<string, Row["tone"]> = {
   failed: "bad",
@@ -1183,8 +1191,7 @@ export function unserved(error = ""): boolean {
   return /no ade is (serving|running)/.test(error);
 }
 
-// ago is a stamp as a glance reads it, or nothing for one that did not
-// come. The same rule the extension's own lists use.
+// ago is a stamp as a glance reads it, or nothing for one that did not come.
 export function ago(stamp: string | undefined, now = Date.now()): string {
   if (!stamp) return "";
   const at = Date.parse(stamp);

@@ -1,4 +1,4 @@
-.PHONY: private full app-install vscode vscode-test vscode-package vscode-remote build ui install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
+.PHONY: private full app-install build install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
 
 # What `ade --version` reports. A tag when there is one, the commit otherwise,
 # and -dirty for a working tree that is not the commit it claims to be.
@@ -37,14 +37,6 @@ sign-setup:
 private:
 	@./tools/private.sh
 
-# The binary and the extension together. The extension is a stock editor's
-# front end now that the fork is gone; the window is `make app-install`.
-ui: killall
-	go install -ldflags "$(LDFLAGS)" ./cmd/ade
-	@./tools/sign.sh "$(GOBIN)/ade"
-	@cd vscode && if [ -d node_modules ]; then npm run build; \
-	else echo "vscode: no node_modules — run make vscode once"; fi
-
 version:
 	@echo $(VERSION)
 
@@ -56,12 +48,8 @@ version:
 # mounts read-write anyway, so the boundary buys nothing — and it costs a docker
 # round trip on every turn plus a container whose fixed name clashes when a run
 # is orphaned. Sessions you did not start yourself still sandbox by default.
-# VIEWS names the views to shoot: all of them is more than one reply can show.
-shots:
-	./tools/shots.sh $(VIEWS)
-
 # The app spike: a window of ade's own. See app/README.md.
-ESBUILD := ../vscode/node_modules/.bin/esbuild
+ESBUILD := ./node_modules/.bin/esbuild
 
 # Electron is a hundred megabytes, so it is installed on demand rather than
 # by every target that only needs the bundles. The check is for the binary
@@ -75,13 +63,22 @@ app-deps:
 app-doctor:
 	cd app && ./doctor.sh
 
-# The window's own bundles, and the extension's: the panels are its
-# webviews, so a stale or missing vscode/dist is a blank pane with a
-# 404 nobody sees.
+# The window's own bundles, the panels among them: a missing one is a
+# blank pane with a 404 nobody sees.
+# PAGES are the panels the window frames: one bundle each, named as the
+# host asks for them in app/renderer/panels.ts.
+PAGES := chat:chat settings:settings commitpanel:commit worktreepanel:worktrees \
+	repo:repo purgepanel:purge designprunepanel:designprune quizpanel:quiz \
+	designedit:designedit newsession:newsession sandboxpanel:sandbox audit:audit
+
 app-build:
-	@cd vscode && if [ -d node_modules ]; then npm run build >/dev/null; \
-		else echo "vscode/node_modules is missing, so the panels will be blank"; fi
 	cd app && mkdir -p dist \
+		&& for page in $(PAGES); do \
+			$(ESBUILD) "pages/$${page%%:*}/main.ts" --bundle \
+				--outfile="dist/$${page##*:}.js" --format=iife --platform=browser \
+				--log-level=warning || exit 1; \
+		done \
+		&& cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js \
 		&& $(ESBUILD) src/main.ts --bundle --outfile=dist/main.js \
 			--platform=node --external:electron --format=cjs \
 		&& $(ESBUILD) src/preload.ts --bundle --outfile=dist/preload.js \
@@ -98,8 +95,8 @@ app-build:
 			--loader:.ttf=dataurl --external:vs/*
 
 app-test:
-	cd app && ../vscode/node_modules/.bin/tsc -p . \
-		&& ../vscode/node_modules/.bin/vitest run --root . --reporter=dot
+	cd app && ./node_modules/.bin/tsc -p . \
+		&& ./node_modules/.bin/vitest run --root . --reporter=dot
 
 # Starts the real window headless and checks it drew. Needs a display, or
 # xvfb-run on a machine without one.
@@ -125,7 +122,7 @@ app: app-deps app-build
 
 test:
 	go test ./...
-	$(MAKE) vscode-test
+	$(MAKE) app-test
 
 # The binary and the app, in order: a rebuild after a pull.
 full:
@@ -176,28 +173,6 @@ worker-ship:
 # Signing wants WEB_EXT_API_KEY and WEB_EXT_API_SECRET in the environment.
 extension:
 	cd extension && npm install && npx web-ext lint && npx web-ext build
-
-# The VS Code extension. A client of the HTTP API in this same tree, which is
-# why it lives here: a route and its caller change in one commit.
-
-# --ignore-scripts: vsce brings keytar, whose install step
-# fetches a prebuilt binary from a release url the lockfile cannot vouch for.
-vscode:
-	cd vscode && npm install --no-audit --no-fund --ignore-scripts && npm run check && npm run build
-
-vscode-test:
-	cd vscode && npm install --no-audit --no-fund --ignore-scripts && npm run check && npm test
-
-# vsce is a devDependency, so this packages with the version the lockfile
-# resolved rather than whatever is latest on the day it runs.
-vscode-package: vscode
-	cd vscode && npx vsce package --out ade.vsix
-
-# Installs the extension into another machine's editor server, for a Remote-SSH
-# window: there the extension runs on the remote host.
-vscode-remote: vscode-package
-	@test -n "$(HOST)" || { echo "usage: make vscode-remote HOST=<ssh host>"; exit 1; }
-	@./tools/vscode-remote.sh "$(HOST)" vscode/ade.vsix
 
 extension-sign:
 	cd extension && npm install && npx web-ext sign

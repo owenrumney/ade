@@ -1,4 +1,4 @@
-import type { BranchPR } from "../../vscode/src/client";
+import type { BranchPR } from "../pages/client";
 
 export type PrActId = "ade" | "web" | "mute" | "unmute" | "approve" | "request-changes" | "merge";
 

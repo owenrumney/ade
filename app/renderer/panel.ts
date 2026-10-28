@@ -2,12 +2,9 @@ import { el } from "./omnibox";
 import { THEME } from "./vstheme";
 import "./bridge";
 
-// Hosting the extension's own webviews: one iframe each, as VS Code
-// does. Nothing here adapts them — it builds the same skeleton.
+// Hosting the pages under app/pages: one iframe each, as VS Code does.
 
 export interface Panel {
-  // id is what the window calls it; root is the element its bundle
-  // expects to find; bundle and styles are files under vscode/.
   id: string;
   title: string;
   root: string;
@@ -16,6 +13,8 @@ export interface Panel {
   // onMessage answers what the panel sends. Returning a value posts it
   // back, which is how these webviews are fed.
   onMessage(said: Record<string, unknown>): Promise<unknown>;
+  // A page that never reaches a session server draws before one is picked.
+  launcher?: boolean;
   // stirs is whether an ade event hands this panel a fresh state. Opt
   // in: the designs sweep is a `gh pr list` per repository.
   stirs?: boolean;
@@ -29,11 +28,10 @@ export interface Panel {
   // design editor wants mermaid on the window before it starts.
   before?: string[];
   // css is a rule or two the page needs that are nobody's stylesheet,
-  // as the extension's own host writes them inline.
   css?: string;
 }
 
-// The extension's built assets, on the webview scheme. Not file://:
+// The pages' built assets, on the webview scheme. Not file://:
 // the session server allows CORS to a webview scheme and nothing else.
 export const UNDER = "ade-webview://asset";
 
@@ -55,8 +53,8 @@ export function skeleton(panel: Panel): string {
     <meta charset="utf-8" />
     <!-- The panel's own policy: its bundle and styles come from this
          scheme, and it reaches ade over loopback. Same shape as the
-         one the extension's own view writes, with this scheme in
-         place of vscode-webview's cspSource. -->
+         one a webview host writes, with this scheme in
+         place of a webview's own cspSource. -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'none'; style-src ade-webview: 'unsafe-inline'; script-src 'nonce-${nonce}' ade-webview:; img-src ade-webview: data: http://127.0.0.1:* http://localhost:*; font-src ade-webview:; connect-src http://127.0.0.1:* http://localhost:*;" />
     <!-- The theme first: a panel is a VS Code webview and reads the
@@ -126,8 +124,7 @@ export function open(panel: Panel): { frame: HTMLIFrameElement; stop: () => void
       kind: "error",
       error: err.message,
     }));
-    // An answer may be several: the design editor is handed its
-    // style and then its text, as the extension's host hands them.
+    // An answer may be several: the design editor gets style then text.
     if (answer === undefined) return;
     for (const one of Array.isArray(answer) ? answer : [answer]) {
       frame.contentWindow?.postMessage(one, "*");

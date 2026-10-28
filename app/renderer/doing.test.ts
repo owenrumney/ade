@@ -1,6 +1,6 @@
 import { WHICH } from "./panels";
 import { describe, expect, it } from "vitest";
-import { live, owed, WIRED, wired } from "./doing";
+import { live, owed, WIRED, wired, type Ask } from "./doing";
 import { UNLISTED, VOCABULARY } from "./verbs";
 import { BAR } from "./model";
 
@@ -94,7 +94,9 @@ describe("a verb that needs something first", () => {
 
   // The two that review everything, so the usual answer is one Enter.
   it("opens the reviewer pick with security and staff-reviewer ticked", () => {
-    const ask = (WIRED["ade.reviewWithAgents"].needs ?? [])[0];
+    const doing = WIRED["ade.reviewWithAgents"];
+    const needs = "needs" in doing ? (doing.needs ?? []) : [];
+    const ask = needs[0] as Ask;
     expect(ask.ask).toBe("many");
     expect(ask.ask === "many" && ask.ticks).toEqual(["security", "staff-reviewer"]);
   });

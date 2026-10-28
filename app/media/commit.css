@@ -1,0 +1,121 @@
+/* The editor's own tokens throughout: this is a pane of VS Code. */
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font: var(--vscode-font-size) var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+h2 {
+  font-size: 1em;
+  margin: 18px 0 8px;
+  color: var(--vscode-descriptionForeground);
+}
+h2:first-child { margin-top: 0; }
+
+.message {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  resize: vertical;
+}
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+/* The warning on the left, the verb on the right: the message's own row. */
+.under { justify-content: space-between; }
+.verbs { margin-top: 18px; }
+
+button {
+  font: inherit;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: 0.5; }
+/* The press itself, before the work answers. */
+button:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.9); }
+
+.bulk { margin: 0 0 8px; gap: 14px; }
+
+/* Push and its tickbox read as one verb, so they sit together. */
+.pushing { display: inline-flex; align-items: center; gap: 8px; }
+.lease {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Stage all and Unstage all change what is on screen; they are not the verbs
+   this panel is for, and a button each would say they were. */
+.linkish {
+  padding: 0;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+}
+.linkish:hover:not(:disabled) {
+  background: none;
+  color: var(--vscode-textLink-activeForeground);
+}
+
+/* A grid, not a flex row: the four right-hand columns have to line up down the
+   list, and a flex row lines them up only when every row is the same width. */
+.file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 10em 4em;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.file .path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file .dir { color: var(--vscode-descriptionForeground); }
+.file .status {
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+}
+/* The change as a length, against the busiest file. The numbers are the title. */
+.file .churn {
+  display: flex;
+  gap: 1px;
+  height: 7px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.file .churn .added { background: var(--vscode-gitDecoration-addedResourceForeground); }
+.file .churn .removed { background: var(--vscode-gitDecoration-deletedResourceForeground); }
+
+.warn { color: var(--vscode-editorWarning-foreground); }
+.signed { color: var(--vscode-charts-green); }
+.unsigned { color: var(--vscode-editorWarning-foreground); }
+.said, .none { color: var(--vscode-descriptionForeground); }
+.note { color: var(--vscode-errorForeground); }
+
+/* Where the commit would land, above the message that describes it. */
+.branch { margin: 0 0 8px; }
+.branch .where { font-weight: 600; }
+.branch .name {
+  flex: 1;
+  min-width: 180px;
+  font: inherit;
+  padding: 4px 8px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+
+/* The Files heading and its re-read, on one line. */
+.head2 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.head2 h2 { margin-bottom: 4px; }

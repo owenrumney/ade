@@ -2,6 +2,7 @@ package todo
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -39,4 +40,22 @@ func bareRemote(t *testing.T) string {
 	out, err := exec.Command("git", "init", "--bare", dir).CombinedOutput()
 	require.NoError(t, err, string(out))
 	return dir
+}
+
+// The bug this pins: every GET /api/todos ran a fetch, a merge and a push,
+// so the window's poll timed out whenever the remote was slow — the list
+// flapped between the todos and "the operation was aborted due to timeout".
+func TestASecondListDoesNotWaitOnTheRemote(t *testing.T) {
+	remote := bareRemote(t)
+	ctx := context.Background()
+	s := NewShared(filepath.Join(t.TempDir(), "todos"), remote)
+	_, err := s.Add(ctx, "", Item{Text: "fix the thing"})
+	require.NoError(t, err)
+
+	// Nothing to dial: a read that still reaches the remote fails here.
+	require.NoError(t, os.RemoveAll(remote))
+	items, err := s.List(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "fix the thing", items[0].Text)
 }

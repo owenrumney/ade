@@ -1,9 +1,9 @@
 import { UNDER as ASSETS, type Panel } from "./panel";
-import { body as chatBody } from "../../vscode/src/chat/body";
-import { fresh, names, type Chosen } from "../../vscode/src/newsession/view";
-import { BODY as SETTINGS_BODY } from "../../vscode/src/settings/body";
-import { split } from "../../vscode/src/commit";
-import { byRepo, chosen, confirm, rows, told, type Sweep } from "../../vscode/src/purgepanel/view";
+import { body as chatBody } from "../pages/chat/body";
+import { fresh, names, type Chosen } from "../pages/newsession/view";
+import { BODY as SETTINGS_BODY } from "../pages/settings/body";
+import { split } from "../pages/commit";
+import { byRepo, chosen, confirm, rows, told, type Sweep } from "../pages/purgepanel/view";
 
 
 export interface Reach {
@@ -145,8 +145,7 @@ export function settings(reach: Reach): Panel {
       if (!path.startsWith("/api/settings")) {
         return { kind: "api.result", id: said.id, error: "not a settings path" };
       }
-      // The page reads `view` or `error`, as the extension's relay
-      // answers. Any other name draws nothing and says nothing.
+      // The page reads `view` or `error`; any other name draws nothing.
       const got = await reach.call(
         "session",
         path,
@@ -226,6 +225,7 @@ function stateful(spec: Stateful, reach: Reach): Panel {
     root: spec.root,
     bundle: spec.bundle,
     styles: spec.styles,
+    launcher: spec.at === "launcher",
     stirs: true,
     async onMessage(said) {
       if (said.kind === "ready") {
@@ -556,7 +556,7 @@ export function commit(reach: Reach): Panel {
     title: "Commit",
     root: "commit",
     bundle: "commit.js",
-    styles: ["commit.css"],
+    styles: ["commit.css", "menu.css"],
     // The drafting agent finishes elsewhere, and the page is how you
     // learn it did: without a push the box stays disabled.
     stirs: true,
@@ -590,10 +590,14 @@ export function commit(reach: Reach): Panel {
         case "commit":
           return doing("commit", async () => {
             const message = split(String(body.message ?? ""));
-            await reach.send("session", "/api/commit", message);
+            await reach.send("session", "/api/commit", { ...message });
             if (body.push) await reach.send("session", "/api/push", { force: false });
             committed = true;
           });
+        // A file row's menu: the window opens it, the page cannot.
+        case "open":
+          reach.open(String(body.path ?? ""));
+          return undefined;
         case "showPR":
           reach.run("ade.showPR");
           return undefined;
@@ -607,6 +611,31 @@ export function commit(reach: Reach): Panel {
   };
 }
 
+// audit is what the person did, as the trail kept it. The window's own
+// record, so it reads the shell rather than ade.
+export function audit(reach: Reach): Panel {
+  let day = "";
+  const state = async () => {
+    const got = (await window.ade?.audit(day)) ?? {};
+    day = day || (got.days ?? [])[0] || "";
+    return { kind: "state", entries: got.entries ?? [], days: got.days ?? [], day };
+  };
+  return {
+    id: "audit",
+    title: "What I did",
+    root: "audit",
+    bundle: "audit.js",
+    styles: ["audit.css"],
+    launcher: true,
+    async onMessage(said) {
+      if (said.kind === "ready") return state();
+      if (said.kind !== "do") return undefined;
+      if (said.what === "day") day = String(said.day ?? "");
+      return state();
+    },
+  };
+}
+
 // prune is the stale-design sweep. Its own panel: the list is two
 // reads, the repositories and then a sweep for each.
 export function prune(reach: Reach): Panel {
@@ -616,6 +645,7 @@ export function prune(reach: Reach): Panel {
     root: "prune",
     bundle: "designprune.js",
     styles: ["designprune.css"],
+    launcher: true,
     async onMessage(said) {
       const what = said.kind === "do" ? String(said.what ?? "") : "";
       if (said.kind !== "ready" && what !== "refresh") {
@@ -673,7 +703,7 @@ async function designsIn(
 }
 
 export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
-  // The extension's own default, plus what the thing you started from
+  // The page's own default, plus what the thing you started from
   // knows: a todo's text is the first message.
   let chosen: Record<string, unknown> = { ...fresh, mode: "direct", ...seed };
   const offer = async () => {
@@ -705,6 +735,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
     root: "newsession",
     bundle: "newsession.js",
     styles: ["newsession.css", "mounts.css"],
+    launcher: true,
     async onMessage(said) {
       if (said.kind === "ready") {
         return { kind: "state", chosen, offer: await offer(), busy: false, note: "" };
@@ -777,6 +808,7 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.worktrees": from("worktrees"),
   "ade.worktreeGraph": from("worktrees"),
   "ade.showRepo": from("repo"),
+  "ade.audit": audit,
   "ade.commitPanel": commit,
   "ade.purgeWorktrees": from("purge"),
   "ade.disk": from("purge"),

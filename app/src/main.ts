@@ -7,11 +7,14 @@ import { StringDecoder } from "node:string_decoder";
 import WebSocket from "ws";
 import { Keymap, merge, shared, type Binding } from "./keymap";
 import { askForLocalNetwork } from "./localnetwork";
+import { keeper } from "./held";
+import { wire } from "./contextmenu";
+import { named, note, prune, read as auditRead, days as auditDays } from "./audit";
 import { shellPath } from "./shellpath";
 import { ask, found, tell, type At } from "./launcher";
-import { events } from "../../vscode/src/launcher";
-import { declare, hold, serve } from "./webview";
-import { launcherArgs, start } from "../../vscode/src/start";
+import { events } from "../pages/launcher";
+import { declare, hold, panelOf, serve } from "./webview";
+import { launcherArgs, start } from "../pages/start";
 
 // Before whenReady: a privileged scheme cannot be declared after it.
 declare();
@@ -79,8 +82,13 @@ function make(map: Keymap): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  wire(win, panelOf);
   void win.loadFile(join(__dirname, "..", "renderer", "index.html"));
   win.once("ready-to-show", () => win.show());
+  // A page error used to go nowhere at all: `make app` prints them now.
+  win.webContents.on("console-message", (_e, level, message, line, source) => {
+    if (level >= 2) console.error(`renderer: ${message} (${source}:${line})`);
+  });
 
   // Every keystroke, before the page sees it. This is why ade is an
   // app: the chord table decides and nothing else gets a say.
@@ -112,6 +120,7 @@ function menu(): void {
     Menu.buildFromTemplate([
       ...(mac ? [{ role: "appMenu" as const }] : []),
       { role: "editMenu" },
+      { label: "View", submenu: [{ role: "reload" as const }, { role: "toggleDevTools" as const }] },
       { role: "windowMenu" },
     ]),
   );
@@ -131,6 +140,45 @@ function why(e: Error): string {
 // may fail on its own. `dir` is the checkout the window is on.
 const gatherWait = 10_000;
 
+const kept = keeper(why);
+
+// The intent a call is put under: whatever the person set off last, if it
+// was recent. A press and the calls it makes are milliseconds apart.
+let lately = { trace: "", at: 0 };
+const TRACE_MS = 2_000;
+
+// logged is one reach into ade, as the trail records it: the route and the
+// field names it carried, never a value — a settings write holds tokens.
+function logged(
+  method: string,
+  path: string,
+  body: unknown,
+  session: string | undefined,
+  began: number,
+  why?: string,
+): void {
+  note({
+    at: new Date().toISOString(),
+    kind: "http",
+    what: `${method} ${path.split("?")[0]}`,
+    trace: Date.now() - lately.at < TRACE_MS ? lately.trace : undefined,
+    session,
+    ok: !why,
+    why: why || undefined,
+    ms: Date.now() - began,
+    fields: named(body),
+  });
+}
+
+function parsed(body?: string): unknown {
+  if (!body) return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}
+
 async function gather(dir = ""): Promise<unknown> {
   const where = await found();
   if (!where) {
@@ -141,59 +189,54 @@ async function gather(dir = ""): Promise<unknown> {
   const trouble: Record<string, string> = {};
   const [dash, designs, repos, hosts, todos, jobs, active, spaces, limits] = await Promise.all([
     ask(where, "/api/dash", gatherWait).catch((e: Error) => ({ error: e.message })),
-    ask<{ designs?: unknown[] }>(where, "/api/designs/all", gatherWait)
-      .then((d) => d.designs ?? [])
-      .catch((e: Error) => {
-        trouble.designs = why(e);
-        return [];
-      }),
-    ask<{ repos?: unknown[] }>(where, "/api/repos", gatherWait)
-      .then((r) => r.repos ?? [])
-      .catch((e: Error) => {
-        trouble.sessions = why(e);
-        return [];
-      }),
+    kept(
+      "designs",
+      dir,
+      ask<{ designs?: unknown[] }>(where, "/api/designs/all", gatherWait).then((d) => d.designs ?? []),
+      trouble,
+    ),
+    kept(
+      "sessions",
+      "",
+      ask<{ repos?: unknown[] }>(where, "/api/repos", gatherWait).then((r) => r.repos ?? []),
+      trouble,
+    ),
     // The machines already connected, and what they have checked out.
     // Nothing is dialled for this.
     ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos", gatherWait)
       .then((h) => h.hosts ?? [])
       .catch(() => []),
-    ask<{ items?: unknown[] }>(
-      where,
-      dir ? `/api/todos?dir=${encodeURIComponent(dir)}` : "/api/todos",
-      gatherWait,
-    )
-      .then((t) => t.items ?? [])
-      .catch((e: Error) => {
-        trouble.todos = why(e);
-        return [];
-      }),
-    ask<{ jobs?: unknown[] }>(where, "/api/jobs", gatherWait)
-      .then((j) => j.jobs ?? [])
-      .catch((e: Error) => {
-        trouble.jobs = why(e);
-        return [];
-      }),
+    kept(
+      "todos",
+      dir,
+      ask<{ items?: unknown[] }>(
+        where,
+        dir ? `/api/todos?dir=${encodeURIComponent(dir)}` : "/api/todos",
+        gatherWait,
+      ).then((t) => t.items ?? []),
+      trouble,
+    ),
+    kept(
+      "jobs",
+      "",
+      ask<{ jobs?: unknown[] }>(where, "/api/jobs", gatherWait).then((j) => j.jobs ?? []),
+      trouble,
+    ),
     // Every announced session and what its agent is doing, this machine
     // and every host the launcher is connected to.
-    ask<unknown[]>(where, "/api/serving", gatherWait)
-      .then((a) => a ?? [])
-      .catch((e: Error) => {
-        trouble.agents = why(e);
-        return [];
-      }),
+    kept("agents", "", ask<unknown[]>(where, "/api/serving", gatherWait).then((a) => a ?? []), trouble),
     // The repositories kept open. A launcher too old to know of them
     // answers 404, which is no spaces and not a failure to read.
-    ask<{ spaces?: unknown[] }>(
-      where,
-      dir ? `/api/spaces?dir=${encodeURIComponent(dir)}` : "/api/spaces",
-      gatherWait,
-    )
-      .then((s) => s.spaces ?? [])
-      .catch((e: Error) => {
-        trouble.spaces = why(e);
-        return [];
-      }),
+    kept(
+      "spaces",
+      dir,
+      ask<{ spaces?: unknown[] }>(
+        where,
+        dir ? `/api/spaces?dir=${encodeURIComponent(dir)}` : "/api/spaces",
+        gatherWait,
+      ).then((s) => s.spaces ?? []),
+      trouble,
+    ),
     // The plan windows. No reading is no item on the bar, not a zero.
     ask<unknown>(where, "/api/limits", gatherWait).catch(() => undefined),
   ]);
@@ -205,6 +248,7 @@ void app.whenReady().then(async () => {
     void askForLocalNetwork();
     process.env.PATH = (await shellPath()) ?? process.env.PATH;
   }
+  void prune();
   const map = keys();
   const ico = mark();
   if (ico && app.dock) app.dock.setIcon(ico);
@@ -357,6 +401,7 @@ void app.whenReady().then(async () => {
         nodeIntegration: false,
       },
     });
+    wire(win, panelOf);
     void win.loadFile(join(__dirname, "..", "renderer", "index.html"), {
       query: { only: panel, session },
     });
@@ -375,6 +420,24 @@ void app.whenReady().then(async () => {
   ipcMain.handle("ade.link", (_e, href: string) => {
     if (/^https?:\/\//i.test(href)) void shell.openExternal(href);
   });
+  // What the person set off, said by the window itself: a command, or a
+  // row's verb. The reach below says what it then did.
+  ipcMain.handle("ade.note", (_e, entry: Record<string, unknown>) => {
+    lately = { trace: Math.random().toString(36).slice(2, 8), at: Date.now() };
+    note({
+      at: new Date().toISOString(),
+      trace: lately.trace,
+      kind: entry.kind === "verb" ? "verb" : entry.kind === "panel" ? "panel" : "command",
+      what: String(entry.what ?? ""),
+      where: entry.where ? String(entry.where) : undefined,
+      session: entry.session ? String(entry.session) : undefined,
+      dir: entry.dir ? String(entry.dir) : undefined,
+    });
+  });
+  ipcMain.handle("ade.audit", async (_e, day?: string) => ({
+    days: await auditDays(),
+    entries: await auditRead(day || undefined),
+  }));
   ipcMain.handle("ade.keys", () => map.listed());
   ipcMain.handle("ade.world", (_e, dir?: string) => gather(dir));
   // act performs one verb from the table; this only knows how to reach
@@ -395,10 +458,15 @@ void app.whenReady().then(async () => {
         return { error: "pick a session first; this acts on one" };
       }
       const full = at === "session" ? `/s/${session}${path}` : path;
+      const began = Date.now();
       try {
-        return (await tell(where, full, body ?? {}, method)) ?? {};
+        const got = ((await tell(where, full, body ?? {}, method)) ?? {}) as { error?: string };
+        logged(method ?? "POST", path, body, session, began, got.error);
+        return got;
       } catch (err) {
-        return { error: String(err instanceof Error ? err.message : err) };
+        const why = String(err instanceof Error ? err.message : err);
+        logged(method ?? "POST", path, body, session, began, why);
+        return { error: why };
       }
     },
   );
@@ -419,15 +487,21 @@ void app.whenReady().then(async () => {
       if (!where) return { status: 0, error: "ade is not running" };
       if (at === "session" && !session) return { status: 0, error: "no session picked" };
       const full = at === "session" ? `/s/${session}${path}` : path;
+      const began = Date.now();
       try {
         const res = await fetch(where.base + full, {
           method,
           headers: { "X-Ade-Token": where.token, "Content-Type": "application/json" },
           body,
         });
+        if (method !== "GET") {
+          logged(method, path, parsed(body), session, began, res.ok ? "" : String(res.status));
+        }
         return { status: res.status, ok: res.ok, text: await res.text() };
       } catch (err) {
-        return { status: 0, error: String(err instanceof Error ? err.message : err) };
+        const why = String(err instanceof Error ? err.message : err);
+        if (method !== "GET") logged(method, path, parsed(body), session, began, why);
+        return { status: 0, error: why };
       }
     },
   );

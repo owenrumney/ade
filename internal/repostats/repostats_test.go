@@ -110,7 +110,7 @@ func TestABranchWithNoUpstreamIsOrdinary(t *testing.T) {
 
 func TestLanguageOf(t *testing.T) {
 	tests := map[string]string{
-		"internal/web/web.go": "Go", "vscode/src/chat.ts": "TypeScript",
+		"internal/web/web.go": "Go", "app/pages/chat.ts": "TypeScript",
 		"Dockerfile": "Docker", "deploy/Makefile": "Make",
 		"notes.md": "Markdown", "a/b/thing.unknown": "Other",
 		"SHELL.SH": "Shell",

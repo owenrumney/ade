@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BranchPR } from "../../vscode/src/client";
+import type { BranchPR } from "../pages/client";
 import { prActs } from "./prpage";
 
 const url = "https://github.com/o/r/pull/7";

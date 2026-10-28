@@ -359,3 +359,8 @@ body.dragging { cursor: col-resize; user-select: none; }
 .sidebar .comments .sev.critical, .sidebar .comments .sev.high { color: var(--bad); }
 .sidebar .comments .sev.medium { color: var(--warn); }
 .sidebar .comments .sev.low { color: var(--ink-dim); }
+
+/* Expanded: the dock takes what the editor area had, out to the sidebar.
+   The main pane keeps its iframes, at no width. */
+.window.chatwide .dock { flex: 1 1 auto; width: auto; }
+.window.chatwide .main { display: none; }

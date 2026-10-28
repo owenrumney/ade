@@ -74,7 +74,7 @@ describe("sessionsOf", () => {
       ...repo,
       checkouts: [
         {
-          ...repo.checkouts[0],
+          ...repo.checkouts![0],
           sessions: [
             {
               id: "taken",

@@ -53,8 +53,8 @@ export type Side = "left" | "right";
 // and a line of one side, with every comment on it.
 // The editor's, not a second declaration of it. A narrower copy here is what
 // left the window with no notion of a draft at all.
-import type { Thread } from "../../vscode/src/client";
-export type { Comment as Said, Thread } from "../../vscode/src/client";
+import type { Thread } from "../pages/client";
+export type { Comment as Said, Thread } from "../pages/client";
 
 // One line of the drawn diff: a hunk header, a cell with the number it
 // has on whichever side it belongs to, or a thread anchored under one.
@@ -195,4 +195,31 @@ export function listed(threads: Thread[]): Listed[] {
 function firstLine(body: string): string {
   const line = body.split("\n").find((one) => one.trim()) ?? "";
   return line.replace(/^[#>*\-\s]+/, "").replace(/`|\*\*/g, "").trim();
+}
+
+// One row of the file drawn split: the two sides of a pair, side by side.
+export type Pair =
+  | { at: "hunk"; text: string }
+  | { at: "pair"; left: Cell | null; right: Cell | null }
+  | { at: "thread"; thread: Thread };
+
+// The file drawn split: the server paired the lines, so a row is a row.
+export function pairsOf(file: Change | undefined, threads: Thread[] = []): Pair[] {
+  const out: Pair[] = [];
+  const mine = threads.filter((t) => t.file === file?.path);
+  const under = (side: Side, no: number) => {
+    for (const thread of mine.filter((t) => !t.orphaned && t.side === side && t.line === no)) {
+      out.push({ at: "thread", thread });
+    }
+  };
+  for (const hunk of file?.hunks ?? []) {
+    out.push({ at: "hunk", text: [hunk.header, hunk.heading].filter(Boolean).join(" ") });
+    for (const row of hunk.rows ?? []) {
+      out.push({ at: "pair", left: row.left, right: row.right });
+      if (row.left) under("left", row.left.line);
+      if (row.right) under("right", row.right.line);
+    }
+  }
+  for (const thread of mine.filter((t) => t.orphaned)) out.push({ at: "thread", thread });
+  return out;
 }

@@ -13,7 +13,7 @@ import {
   topLanguages,
   weeks,
   type Repo as Stats,
-} from "../../vscode/src/repo/view";
+} from "../pages/repo/view";
 
 // What a space opens as: its conversations, its designs and what the
 // repository has been doing. Design: .git/ade/docs/space-page.md.

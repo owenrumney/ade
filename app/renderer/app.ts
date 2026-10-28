@@ -44,9 +44,9 @@ import { menu, type Row as MenuRow } from "./menu";
 import { edits, mount, mountDiff, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
-import { page as prPage } from "../../vscode/src/prpage";
+import { page as prPage } from "../pages/prpage";
 import { prActs, type PrActId } from "./prpage";
-import { plan, type Usage } from "../../vscode/src/usage";
+import { plan, type Usage } from "../pages/usage";
 import { refreshFor } from "./refresh";
 import { inSpaces, keyOf, spaces as spacesPlace, type Space } from "./spaces";
 import {
@@ -56,8 +56,8 @@ import {
   type Seen,
   type SpaceAct,
 } from "./spacepage";
-import type { Repo as Stats } from "../../vscode/src/repo/view";
-import type { BranchPR, Check } from "../../vscode/src/client";
+import type { Repo as Stats } from "../pages/repo/view";
+import type { BranchPR, Check } from "../pages/client";
 
 // The shell. It owns the keyboard outright and hands the window named
 // commands, never keystrokes. Absent only under `make app-shots`.
@@ -170,6 +170,11 @@ class Ade {
   // The chat dock: its own width, and shut only because you shut it.
   private chatWidth = Number(localStorage.getItem("ade.chat")) || 400;
   private chatShut = localStorage.getItem("ade.chat.shut") === "1";
+  // What the sidebar last drew as, so an unchanged poll leaves it alone.
+  private sidebarHTML = "";
+  // Expanded: the chat takes the editor area, out to the sidebar.
+  private chatWide = localStorage.getItem("ade.chat.wide") === "1";
+  private split = localStorage.getItem("ade.diff.split") === "1";
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
   private watching = "";
@@ -580,6 +585,7 @@ class Ade {
   }
 
   run(command: string): void {
+    this.noted("command", command);
     const what = wired(command);
     if (!what || what.at === "soon") return this.say(owed(command));
     if (what.at === "panel") {
@@ -775,6 +781,14 @@ class Ade {
     pushTo("chat", { kind: "focus" });
   }
 
+  // Flex on one class, not a width this would have to keep in step.
+  private wideChat(on: boolean): void {
+    this.chatWide = on;
+    if (on) localStorage.setItem("ade.chat.wide", "1");
+    else localStorage.removeItem("ade.chat.wide");
+    this.draw();
+  }
+
   private shutChat(): void {
     this.chatShut = true;
     localStorage.setItem("ade.chat.shut", "1");
@@ -787,7 +801,8 @@ class Ade {
     if (!this.shell) return;
     const { dock, dockHead, dockBody, chatGrip } = this.shell;
     dock.hidden = this.chatShut;
-    chatGrip.hidden = this.chatShut;
+    chatGrip.hidden = this.chatShut || this.chatWide;
+    this.root.classList.toggle("chatwide", !this.chatShut && this.chatWide);
     if (this.chatShut) return;
     dockHead.replaceChildren(...this.dockHead());
     const wait = this.waiting(CHAT_TAB);
@@ -805,6 +820,10 @@ class Ade {
 
   private dockHead(): HTMLElement[] {
     const name = el("div", "nm", "Chat");
+    const wide = el("div", "x");
+    wide.append(icon(this.chatWide ? "narrower" : "wider", 12));
+    wide.title = this.chatWide ? "Back to the dragged width" : "Widen it to the sidebar";
+    wide.addEventListener("click", () => this.wideChat(!this.chatWide));
     const again = el("div", "x");
     again.append(icon("refresh", 12));
     again.title = "Read the conversation again";
@@ -812,7 +831,7 @@ class Ade {
     const shut = el("div", "x", "✕");
     shut.title = "Hide the chat";
     shut.addEventListener("click", () => this.shutChat());
-    return [name, again, shut];
+    return [name, wide, again, shut];
   }
 
   // In the tab strip, so the dock comes back by mouse as well as omnibox.
@@ -916,6 +935,10 @@ class Ade {
     } else if (asked.what === "resolve") {
       const now = this.threads.find((t) => t.id === asked.id);
       got = await send(`/api/threads/${id}/resolve`, { resolved: !now?.resolved });
+    } else if (asked.what === "split") {
+      this.split = !this.split;
+      localStorage.setItem("ade.diff.split", this.split ? "1" : "0");
+      return this.draw();
     } else if (asked.what === "unfold") {
       this.openThreads = toggled(this.openThreads, asked.id ?? "");
       return this.draw();
@@ -1149,8 +1172,7 @@ class Ade {
     this.openRow(row);
   }
 
-  // viewFor is what a row opens as: a pull request through the
-  // extension's own page builder, anything else as its document.
+  // What a row opens as.
   private openRow(row: Row): void {
     // A session opens as its conversation, which is what it is.
     if (this.place === "sessions" || this.place === "agents") return this.chat();
@@ -1358,7 +1380,7 @@ class Ade {
     void this.read();
   }
 
-  // readPR renders the pull request with `vscode/src/prpage.ts`, and
+  // readPR renders the pull request with `app/pages/prpage.ts`, and
   // what can be done with it as buttons above.
   private async readPR(row: Row, at: { repo: string; number: number }): Promise<void> {
     if (!window.ade) return;
@@ -1517,10 +1539,18 @@ class Ade {
     // The list is rebuilt every few seconds, so where you had scrolled to
     // is kept across it, as the panes below keep theirs.
     const read = sidebar.querySelector(".list")?.scrollTop ?? 0;
-    sidebar.replaceChildren(...this.sidebar());
+    // Only when it draws differently. A rebuild under the pointer takes
+    // the node a press started on, and the click never lands.
+    const drawn = el("div");
+    drawn.append(...this.sidebar());
+    const moved = drawn.innerHTML !== this.sidebarHTML;
+    if (moved) {
+      this.sidebarHTML = drawn.innerHTML;
+      sidebar.replaceChildren(...drawn.childNodes);
+    }
     const list = sidebar.querySelector(".list");
-    if (list && read) list.scrollTop = read;
-    if (typing) {
+    if (moved && list && read) list.scrollTop = read;
+    if (moved && typing) {
       const find = sidebar.querySelector<HTMLInputElement>(".find");
       find?.focus();
       find?.setSelectionRange(find.value.length, find.value.length);
@@ -1575,7 +1605,8 @@ class Ade {
     if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
     if (view.kind !== "hunks") return "";
     if (view.editing) return `editing:${view.file.path}`;
-    return drawnFrom(view.file.path, this.threads, this.openThreads, Boolean(this.world.status.pr));
+    const how = this.split ? "split" : "unified";
+    return `${how}:${drawnFrom(view.file.path, this.threads, this.openThreads, Boolean(this.world.status.pr))}`;
   }
 
   // waiting is why a panel tab cannot draw its page yet, or empty when
@@ -1590,6 +1621,12 @@ class Ade {
   // the same tab, with whatever it now says.
   private show(what: Tab["what"], title: string, icon = "file"): void {
     const id = idOf(what);
+    // The expanded chat covers the editor area, so opening something new
+    // into it is a verb that does nothing at all. Opening wins.
+    if (this.chatWide && this.active !== id) {
+      this.chatWide = false;
+      localStorage.removeItem("ade.chat.wide");
+    }
     this.tabs = opened(this.tabs, { id, title, icon, what });
     this.active = id;
     this.remember();
@@ -2325,10 +2362,14 @@ class Ade {
     // What the row does besides open, shown on hover.
     for (const act of row.acts ?? []) {
       const node2 = el("span", "act", act.label);
-      node2.addEventListener("click", (e) => {
+      // On the press: a redraw between down and up takes the node the
+      // click would have needed, and the button did nothing at all.
+      node2.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         void this.rowAct(act);
       });
+      node2.addEventListener("click", (e) => e.stopPropagation());
       node.append(node2);
     }
     if (row.acts?.length) {
@@ -2347,6 +2388,7 @@ class Ade {
   // rowAct is the one thing a row does besides open. Each is a verb
   // ade already has; the row only says which and on what.
   private async rowAct(act: NonNullable<Row["acts"]>[number]): Promise<void> {
+    this.noted("verb", `${act.what} ${act.name}`);
     if (act.what === "design-start") return this.startDesign(act.name);
     if (act.what === "space-close" || act.what === "space-clone") {
       return this.space(act.what === "space-close" ? "close" : "clone", act.name);
@@ -2470,15 +2512,30 @@ class Ade {
   // fromTodo opens the New session screen with the todo in it. Not
   // started here: what it runs against is a choice.
   private fromTodo(id: string): void {
-    const text = this.todoAt(id);
-    if (!text) return this.say("that todo is not on the list any more");
+    // Always a tab, seeded when the list has the todo: a button that
+    // answers with nothing reads as broken.
+    if (!this.todoAt(id)) this.say("that todo is not on the list any more");
     this.show({ panel: `todo:${id}` }, "New session", "session");
   }
 
   // startDesign checks out every repository the document names, on one
   // branch, and opens a session across them.
-  private async startDesign(name: string): Promise<void> {
+  // noted puts one line in the audit trail: what was set off, and where
+  // from. What came of it is written by the reach it makes.
+  private noted(kind: "command" | "verb" | "panel", what: string): void {
+    window.ade?.note({
+      kind,
+      what,
+      where: this.place,
+      session: this.session,
+      dir: this.where.get(this.session) ?? "",
+    });
+  }
+
+  private async startDesign(asked: string): Promise<void> {
     if (!window.ade) return;
+    const name = await this.intoStore(asked);
+    if (!name) return;
     const machine = await this.whichMachine(name);
     if (machine === undefined) return;
     this.say(`starting ${name}…`);
@@ -2489,6 +2546,31 @@ class Ade {
     if (back.error) return this.say(back.error);
     await this.read();
     this.say(machine ? `started ${name} on ${machine}` : `started ${name}`);
+  }
+
+  // Only the store's documents can start, so one written in a checkout is
+  // imported on the way. A name already in the store is handed straight back.
+  private async intoStore(asked: string): Promise<string | undefined> {
+    const space = asked.startsWith("space:");
+    if (!space && !asked.startsWith("here:")) return asked;
+    const rest = asked.slice(asked.indexOf(":") + 1);
+    const cut = space ? rest.indexOf("|") : -1;
+    const dir = space ? rest.slice(0, cut) : this.homeDir;
+    const file = space ? rest.slice(cut + 1) : rest;
+    if (!dir) {
+      this.say("that document has no checkout on this machine");
+      return undefined;
+    }
+    this.say(`importing ${file}…`);
+    const got = await window
+      .ade!.act("launcher", `/api/designs/import?dir=${encodeURIComponent(dir)}`, { file })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got);
+    if (back.error) {
+      this.say(back.error);
+      return undefined;
+    }
+    return (back.body as { name?: string }).name;
   }
 
   // Connected machines only; "" is here, undefined a cancelled pick.
@@ -2614,24 +2696,25 @@ class Ade {
       // rather than one of the fixed set.
       const which = tab.what.panel;
       const doc = this.writable(which);
-      const todo = which.startsWith("todo:") ? this.todoAt(which.slice(5)) : "";
+      const fromTodo = which.startsWith("todo:");
+      const todo = fromTodo ? this.todoAt(which.slice(5)) : "";
       const inDir = which.startsWith("in:") ? which.slice(3) : "";
       const make = doc
         ? (reach: Reach, at?: { base: string; token: string }) => written(reach, at, doc)
-        : todo
+        : fromTodo
           ? (reach: Reach) => newSession(reach, { message: todo })
           : inDir
             ? (reach: Reach) => newSession(reach, { mode: "work", repos: [inDir] })
             : WHICH[which];
       if (!make) return el("div", "nothing", `no panel called ${which}`);
-      const wait = this.waiting(tab);
-      if (wait) return el("div", "nothing", wait);
       // The chat reaches the session's own server, so it is given that
       // address rather than the launcher's.
-      return frame(
-        make(this.reach(), this.sessionAt()),
-        `${tab.id}:${this.session}:${this.launcher?.base ?? ""}`,
-      );
+      const panel = make(this.reach(), this.sessionAt());
+      // A launcher page draws with no session picked: New session is how
+      // you get one, and it used to say "Pick a session." instead.
+      const wait = panel.launcher ? "" : this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      return frame(panel, `${tab.id}:${this.session}:${this.launcher?.base ?? ""}`);
     }
     const view = tab.what;
     if (view.kind === "term") return openTerm(this.session, (why) => this.say(why));
@@ -2658,7 +2741,7 @@ class Ade {
       (rule) => void this.forget(rule),
       (asked) => void this.onThread(asked),
       (id) => void this.prAct(id),
-      { hasPR: Boolean(this.world.status.pr), open: this.openThreads },
+      { hasPR: Boolean(this.world.status.pr), open: this.openThreads, split: this.split },
       (who, text) => void this.askPerson(who, text),
       (did) => void this.spaceAct(did),
     );

@@ -14,15 +14,11 @@
     "skipLibCheck": true,
     "types": [
       "node"
-    ],
-    "paths": {
-      "vitest": [
-        "../vscode/node_modules/vitest"
-      ]
-    }
+    ]
   },
   "include": [
     "src",
-    "renderer"
+    "renderer",
+    "pages"
   ]
 }

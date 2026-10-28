@@ -1,11 +1,9 @@
-import { page as statsPage, type Stats } from "../../vscode/src/statspage";
-import { page as graphPage, type GraphRepo } from "../../vscode/src/graphpage";
-import { page as usagePage, type WindowSpend } from "../../vscode/src/windowpage";
-import type { Usage } from "../../vscode/src/usage";
-import { roots, type Entry, type ProjectView } from "../../vscode/src/projectrow";
+import { page as statsPage, type Stats } from "../pages/statspage";
+import { page as graphPage, type GraphRepo } from "../pages/graphpage";
+import { page as usagePage, type WindowSpend } from "../pages/windowpage";
+import type { Usage } from "../pages/usage";
+import { roots, type Entry, type ProjectView } from "../pages/projectrow";
 
-// A report is one read drawn by the extension's own page builders, so
-// the app renders the same document the fork does.
 export const REPORTS: Record<string, (got: unknown, also?: unknown) => string> = {
   stats: (got) => statsPage(got as Stats),
   graph: (got) => graphPage(((got as { repos?: GraphRepo[] }).repos ?? [])),

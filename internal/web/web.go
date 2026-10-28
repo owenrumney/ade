@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/owenrumney/ade/internal/editor"
 	"github.com/owenrumney/ade/internal/httpx"
+	"github.com/owenrumney/ade/internal/window"
 
 	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
@@ -730,11 +730,10 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	}
 
 	fmt.Println(url)
-	// The editor is the front end: a window already on this checkout comes
-	// forward, and with no editor cli the address above is what there is.
+	// A window already on this checkout comes forward.
 	if openBrowser {
-		if err := editor.OpenDesk(s.startRoot); err != nil {
-			fmt.Printf("%v; open %s in your editor, where the ade extension finds this session\n", err, s.startRoot)
+		if err := window.Open(s.startRoot); err != nil {
+			fmt.Printf("%v; the session is at %s\n", err, url)
 		}
 	}
 

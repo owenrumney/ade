@@ -388,3 +388,21 @@
 .menu .item.off { color: var(--ink-dim); cursor: default; }
 .menu .item.off:hover { background: transparent; }
 .menu .rule { height: 1px; margin: 4px 0; background: var(--line); }
+
+/* The unified/split switch, on the row that counts the change. */
+.diff .file-head { display: flex; align-items: center; justify-content: space-between; }
+.diff .file-head .how {
+  font: var(--ui-size)/1.45 var(--ui); color: var(--ink-dim);
+  background: var(--bg-raised); border: 1px solid var(--line-strong);
+  border-radius: 4px; padding: 1px 9px; cursor: pointer;
+}
+.diff .file-head .how:hover { color: var(--ink-bright); border-color: var(--accent); }
+
+/* Split: the two sides share the width, and a side with no line is blank. */
+.diff.split .pair { display: flex; }
+.diff.split .pair > .ln { flex: 1 1 50%; min-width: 0; }
+/* Wrapped, not clipped: half the width is too narrow to lose the end of
+   a line in. */
+.diff.split .src { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff.split .pair > .ln + .ln { border-left: 1px solid var(--line); }
+.diff.split .pair > .gap { background: var(--bg-raised); }

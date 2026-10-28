@@ -6,7 +6,9 @@
   "license": "Apache-2.0",
   "main": "dist/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "check": "tsc -p .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -15,9 +17,20 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
     "@electron/packager": "^20.3.0",
+    "@lezer/highlight": "^1.2.5",
+    "@lezer/markdown": "^1.8.0",
+    "@types/node": "^22.0.0",
     "@types/ws": "^8.18.2",
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.3"
   },
   "allowScripts": {
     "electron@33.4.11": true

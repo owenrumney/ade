@@ -50,12 +50,12 @@ not injected, and `go test` runs packages in parallel. `internal/agentshim` puts
 a refusal on PATH for those two suites, which is a floor and not a licence: one
 package at a time, in the foreground. `internal/web` takes two minutes.
 
-On macOS a build is signed by `tools/sign.sh` from `make install` and `make ui`,
-under a certificate `make sign-setup` creates once. Ad-hoc
+On macOS a build is signed by `tools/sign.sh` from `make install`, under a
+certificate `make sign-setup` creates once. Ad-hoc
 signatures make every rebuild a new identity, so a permission granted to one
 build does not survive the next.
 
-**Never run `make install`, `make ui` or `make full` from a session.** Each
+**Never run `make install` or `make full` from a session.** Each
 depends on `killall`, which quits ADE.app and kills every `ade` — including
 the launcher and the server running the session you are in. Install the same
 binary without that: `go install -ldflags "-X main.version=$(git describe
@@ -64,21 +64,17 @@ Replacing the file does not disturb the running process; the next start picks
 it up.
 
 **`make install` is the Go binary and nothing else.** Not the pages. Change
-anything under `vscode/src` or `app/renderer` and telling someone to `make
-install` ships them none of it — the symptom is a backend that plainly works
-and a UI that cannot draw it.
+anything under `app/` and telling someone to `make install` ships them none of
+it — the symptom is a backend that plainly works and a UI that cannot draw it.
 
 **Building is not installing.** `make app-build` only writes `app/dist`;
 `/Applications/ADE.app` runs the copy inside it, which `make app-install`
-replaces. The extension's own bundles are `make ui`, and a Remote-SSH host
-takes them through `make vscode-remote HOST=<host>`.
+replaces.
 
-**Local Network is granted to the editor, not the binary.** macOS judges a
-connection by the process it holds responsible, which for an `ade` the
-extension starts is `Code.app`, and for one a terminal starts is the terminal.
-ade has no Settings row of its own in the editor's tree and never will, and
-nothing this repository ships can ask on the editor's behalf: a dial from the
-Go binary is judged exactly as the ssh it stands in for.
+**Local Network is granted to the app, not the binary.** macOS judges a
+connection by the process it holds responsible, which for an `ade` the window
+starts is ADE.app, and for one a terminal starts is the terminal. A dial from
+the Go binary is judged exactly as the ssh it stands in for.
 
 The symptom is ssh to a LAN host failing with `No route to host` from the
 Machines tree while Tailscale, the router and the internet all work. Measure
@@ -89,10 +85,10 @@ it in this order, and do not skip step 1:
    unsigned one gets its own Settings row and its own refusal. That mistake
    cost this repository an evening. If `nc` fails, the Mac cannot reach the
    host and nothing here will change it.
-2. The same dial from inside the editor-spawned tree, or `ade.diagnose`
+2. The same dial from inside the window-spawned tree, or `ade.diagnose`
    (**ade: Check the network**), which dials every bookmarked machine from the
    launcher. This is the verdict.
-3. Only if step 2 says `No route to host`: the *editor's* row under Settings →
+3. Only if step 2 says `No route to host`: the *window's* row under Settings →
    Privacy & Security → Local Network.
 
 **Only `No route to host` is a refusal.** Do not read `ifconfig`, `arp` or
@@ -117,46 +113,25 @@ nothing; duplicate Settings rows; and a relaunch to pick up a fresh grant.
 
 ## Screenshots
 
-`make shots` is how a UI change gets looked at rather than described. It drives a
-headless chromium over a fixture home and writes PNGs to `.git/ade/outbox/`,
-which ade attaches to the reply. The views it captures are listed in
-`tools/shots/shots.mjs`.
+`make app-shots` is how a UI change gets looked at rather than described. It
+drives a headless chromium over a fixture home and writes PNGs to
+`.git/ade/outbox/`, which ade attaches to the reply. The views are listed in
+`tools/appshots.mjs`.
 
-Run it after any change under `vscode/src`. A picture of the change is worth
-more than a paragraph claiming it works.
+Run it after any change under `app/renderer`, `app/pages` or `app/media`. A
+picture of the change is worth more than a paragraph claiming it works.
 
 The outbox itself is not specific to this repository: `$ADE_OUTBOX` names it in
 every session, and the system prompt tells every editing agent to use it.
 
-Name the views: `make shots VIEWS=launcher-worktrees`. A reply carries four
-pictures, and the outbox picks them in name order, so a bare `make shots` always
-sends the four alphabetically first and never the one the change is about.
-
-`make app-shots` is the same for the app's window, and it will not send one
-you did not name: `make app-shots VIEWS="app-chat app-code"`. Named views are
-the only ones shot and the only ones copied to the outbox; a bare run writes
-every view to `app/dist/shots` and sends none. `make app-shots VIEWS=nope`
-lists the names.
+It will not send a view you did not name: `make app-shots VIEWS="app-chat
+app-code"`. Named views are the only ones shot and the only ones copied to the
+outbox; a bare run writes every view to `app/dist/shots` and sends none. `make
+app-shots VIEWS=nope` lists the names. A reply carries four pictures.
 
 A reprovisioned container has neither chromium nor `tools/shots/node_modules`;
 the script installs both. Every build and install step reports its own failure,
 so when a shot does not appear, the reason is in the output.
-
-The VS Code extension's chat is shot too — `editor-chat` and `editor-chat-wide`.
-`tools/shots/editor.mjs` rebuilds that webview over a page already on ade's
-origin, which is what makes its fetches work: the server only sends CORS headers
-to a `vscode-webview://` origin, so anything else is blocked.
-
-The editor's own UI is shot as the `code-*` views: `code-sidebar`,
-`code-memory`, `code-drift` and so on. `tools/shots.sh` serves the real
-workbench with `code serve-web`, installs the extension into it, and the same
-chromium drives it, so a tree or a row is photographed and not redrawn. Run
-one after any change under `vscode/src` that draws something.
-
-It runs under the fixture home on purpose. The extension starts `ade` in the
-folder it opens and talks to whichever launcher its home names, so the same
-thing under the real home starts a real session. The first run downloads the
-VS Code server and accepts its licence terms; `code` has to be on PATH.
 
 `internal/web/preview.go` is a different feature — the post-turn preview capture
 of a local dev server. It is off under a sandbox by design. It is not this.
@@ -204,22 +179,23 @@ gets the one line that says what could not be read off the line below it.
 
 ## Style
 
-There is no stylesheet of ade's own any more. `internal/ui/tokens.css` went with
-the pages it dressed; what the editor draws wears `--vscode-*` variables, in
-`vscode/media/chat.css`. Take a colour from the theme rather than naming one.
+There is no stylesheet of ade's own any more. The window's own chrome is
+`app/renderer/*.css`; a page wears `--vscode-*` variables, which
+`app/renderer/vstheme.ts` puts on the document. Take a colour from the theme
+rather than naming one.
 
 ## The front end
 
-ade's own window is the front end: `app/`, an Electron shell over a renderer
+ade's own window is the whole of it: `app/`, an Electron shell over a renderer
 that talks to the launcher and the session servers over HTTP. `make app` runs
 it from source, `make app-install` puts it in /Applications. The VSCodium fork
-is gone; `.git/ade/docs/editor-removal.md` is the plan it went by.
+and the VS Code extension are both gone; `.git/ade/docs/editor-removal.md` is
+the plan they went by.
 
-The extension under `vscode/` still builds for a stock VS Code, but the
-proposed APIs the fork granted it are not granted there, so some menus do not
-draw. The pages it holds are what the window loads, which is why the directory
-is still here — see stage 3 of the same document.
-
-- Anything the extension puts to the person goes through `vscode/src/pick.ts`:
-  `pick()`, `input()`, `quickPick()` or `inputBox()`, never the stock four,
-  and `pick.test.ts` fails the build on a stock one.
+- `app/renderer` is the window: tabs, the sidebar, the diff, the chat dock.
+- `app/pages` are the panels it frames, one iframe each, talking to a host in
+  `app/renderer/panels.ts` over `postMessage`. They were the extension's
+  webviews and still wear its contract: `acquireVsCodeApi()`, a `ready`
+  message, a `state` back.
+- `app/media` is their CSS. `make app-build` bundles one `dist/<name>.js` per
+  page; the list is `PAGES` in the Makefile.

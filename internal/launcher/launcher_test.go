@@ -59,7 +59,6 @@ func TestTheTokenIsRequired(t *testing.T) {
 		{http.MethodPost, "/api/scratch"},
 		{http.MethodGet, "/api/stats"},
 		{http.MethodPost, "/api/provision"},
-		{http.MethodPost, "/api/remote/editor-server"},
 	} {
 		req := httptest.NewRequest(route[0], route[1], strings.NewReader("{}"))
 		rec := httptest.NewRecorder()

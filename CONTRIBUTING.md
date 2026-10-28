@@ -8,7 +8,7 @@
 | You need | Why |
 | --- | --- |
 | Go 1.26.9 or later | the binary. `go.mod` names the version |
-| Node and npm | `web/` and `vscode/` are npm projects |
+| Node and npm | `web/` and `app/` are npm projects |
 | `git` | ade drives it constantly |
 | `gh` | pull requests, checks, review comments |
 | Docker, or Apple's `container` | the agent sandbox. Optional; `--sandbox=false` skips it |
@@ -17,7 +17,7 @@
 ```bash
 make build     # npm install && npm run build in web/, then go build into ./bin
 make install   # the same, into your GOPATH
-make quick-start  # sandbox and worker images, the binary, then the VS Code extension
+make quick-start  # sandbox and worker images, the binary, then the window
 ```
 
 The browser page is a Vite + Preact + TypeScript app under `web/`, built into
@@ -26,26 +26,6 @@ is not committed**, so a bare `go build ./cmd/ade` on a fresh checkout fails on
 the embed until the frontend has been built once. `make build` does both in
 order. For the same reason `go install github.com/owenrumney/ade/cmd/ade@latest`
 does not work — install from a checkout.
-
-The extension uses proposed VS Code APIs: the Comments pane's thread menu, the
-Draft state on a comment, and a button in the commit message box. A stock VS
-Code grants them only to an extension named in `~/.vscode/argv.json`. Run
-**Preferences: Configure Runtime Arguments**, add this line, and restart:
-
-```json
-"enable-proposed-api": ["owenrumney.ade"]
-```
-
-Without it the extension works, and those three are missing. `vsce package`
-accepts the proposals; only `vsce publish` refuses them.
-
-A choice or a prompt the extension puts to you opens in ade's omnibox, the
-large quick input of ade's own editor. The extension gets there through
-`vscode/src/pick.ts`, whose `pick`, `input`, `quickPick` and `inputBox` ask the
-editor for the big box before they show, and are the stock calls on a stock VS
-Code. Use them rather than `vscode.window.showQuickPick` and its three
-siblings: `pick.test.ts` fails on a stock one, because a follow-up in the small
-widget breaks the one-box feel the omnibox is for.
 
 On first run ade writes `~/.ade/settings.json` with `~/code` as the one directory
 it scans for checkouts, and creates `~/.ade` for its own state. Nothing is
@@ -78,8 +58,7 @@ go: go.mod requires go >= 1.26.9 (running go 1.26.6; GOTOOLCHAIN=local)
 ```
 
 `mise use -g go@1.26.9` fixes it, usually without a download. It surfaces
-anywhere that shells out to Go — `make shots` dies on its `seedchat` step with
-the same message and no picture. Check `which go` before editing `go.mod` or
+anywhere that shells out to Go. Check `which go` before editing `go.mod` or
 calling the check unverifiable.
 
 `make dev` runs with `--sandbox=false`. The agent is editing ade's own checkout,
@@ -106,16 +85,14 @@ keychain password, which is what lets it give codesign standing access to the
 new key; without that the keychain stops every build to ask. Answering nothing
 is fine — the first dialog's **Always Allow** settles it just as well. Rerun
 `make sign-setup` any time to set it for a certificate you already have. After it,
-`make install` and `make ui` sign what they build under that identity, and a
+`make install` signs what it builds under that identity, and a
 grant survives a rebuild. Grant ade Local Network once in System Settings →
 Privacy & Security and it stays.
 
 **Which row that is depends on who started ade.** macOS judges a local network
 connection by the process it holds *responsible*, not the one that dials. Start
 ade from a terminal and that is the terminal, or ade under its own name. Let
-the VS Code extension start it and that is the editor: ade has no row of its
-own there and never will. The editor usually holds the grant already, because
-Remote-SSH and port forwarding ask for it.
+the window start it and that is ADE.app.
 
 The binary signs as `uk.co.owenrumney.ade-cli`. It may not be renamed: the
 permission is keyed to the exact string, so a rename throws it away and leaves
@@ -128,10 +105,10 @@ pins it.
    judged: `nc -vz -G 3 <lan host> 22`. Not a binary you just built — an
    unsigned one gets its own Settings row and its own refusal. If `nc` fails,
    the Mac cannot reach the host and nothing here is the cause.
-2. The same dial from a terminal inside the editor, or **ade: Check the
+2. The same dial from a terminal inside the window, or **ade: Check the
    network** from the ade menu, which dials every bookmarked machine from the
    launcher itself. This is the verdict.
-3. Only if step 2 says `No route to host`: turn on the *editor's* row in System
+3. Only if step 2 says `No route to host`: turn on the *window's* row in System
    Settings → Privacy & Security → Local Network.
 
 Only `No route to host` is a refusal. `ifconfig` showing every MAC as
@@ -148,7 +125,7 @@ a reminder and carry on.
 | `cmd/ade` | the CLI: flags, subcommands, and starting the server |
 | `internal/` | everything else. 58 packages; see below for the large one |
 | `web/` | the browser page — Vite, Preact, TypeScript |
-| `vscode/` | the VS Code extension: native trees, the chat, and frames around the pages |
+| `app/` | ade's own window: an Electron shell, the renderer, and the pages it frames |
 | `extension/` | the Firefox add-on that puts *Open in ADE* on a GitHub PR |
 | `sandbox/` | the Dockerfile for the container the agent runs in |
 | `tools/` | screenshots, icons, and other build-time scripts |
@@ -198,12 +175,12 @@ not an oversight.
 ### Style
 
 There is no stylesheet of ade's own any more. `internal/ui/tokens.css` went with
-the pages it dressed when the editor became the only front end; the design is
-`.git/ade/docs/shell-and-web-removal.md`.
+the pages it dressed; the design is `.git/ade/docs/shell-and-web-removal.md`.
 
-What the editor draws wears the theme's own variables, in `vscode/media/chat.css`.
-Take a colour from `--vscode-*` rather than naming one: a hard-coded colour is
-right in one theme and wrong in every other.
+The window's own chrome is `app/renderer/*.css`. A page under `app/pages` wears
+the theme's variables, which `app/renderer/vstheme.ts` puts on the document:
+take a colour from `--vscode-*` rather than naming one, because a hard-coded
+colour is right in one theme and wrong in every other.
 
 ### Running the tests
 
@@ -219,29 +196,16 @@ not a licence: `internal/web` still takes two minutes, so run it deliberately.
 ## Screenshots
 
 ```bash
-make shots VIEWS=launcher-worktrees
+make app-shots VIEWS="app-review app-chat"
 ```
 
-Run it after any change under `vscode/src`. It drives a headless chromium over a
+Run it after any change under `app/`. It drives a headless chromium over a
 fixture home and writes PNGs. A picture of the change is worth more than a
 paragraph claiming it works.
 
-**Name the views.** A reply carries four pictures and they are picked in name
-order, so a bare `make shots` always sends the four alphabetically first and
-never the one your change is about. The views are listed in
-`tools/shots/shots.mjs`.
-
-**A change under `vscode/src` is looked at the same way.** The `code-*` views
-photograph the extension inside the real VS Code workbench:
-
-```bash
-make shots VIEWS="code-sidebar code-memory"
-```
-
-It needs `code` on PATH. The first run downloads the VS Code server and
-accepts its licence terms on your behalf, then keeps it under
-`~/Library/Caches/ade/code-cli` (or `~/.cache/ade/code-cli`). Everything runs
-under the fixture home, so it never touches your own sessions.
+**Name the views.** A bare run writes every view to `app/dist/shots` and sends
+none; only named views reach the outbox, and a reply carries four. The views
+are listed in `tools/appshots.mjs`, and `VIEWS=nope` prints them.
 
 ## Commits and pull requests
 
@@ -249,7 +213,7 @@ under the fixture home, so it never touches your own sessions.
   `fix(web): …`, `chore(deps): …`.
 - **One logical change per pull request.** Mechanical renames go in their own,
   so review is a single read.
-- Say how you verified it. For a `vscode/src` change, that means screenshots.
+- Say how you verified it. For a change under `app/`, that means screenshots.
 
 The pull request template asks for exactly this.
 
@@ -284,16 +248,18 @@ licence — there is no separate CLA to sign.
 
 ## The front end
 
-ade's own window is the front end: `app/`, an Electron shell with a renderer
-of its own. `make app` runs it from source, `make app-test` type checks and
-tests it, `make app-install` puts `ADE.app` in /Applications. The VSCodium
-fork that used to be the editor is gone; the plan it went by is
-`.git/ade/docs/editor-removal.md`.
+ade's own window is the whole front end: `app/`, an Electron shell with a
+renderer of its own. `make app` runs it from source, `make app-test` type
+checks and tests it, `make app-install` puts `ADE.app` in /Applications. The
+VSCodium fork and the VS Code extension are both gone; the plan they went by
+is `.git/ade/docs/editor-removal.md`.
 
-The extension under `vscode/` is still here because the window loads its
-pages. It builds for a stock VS Code — `make vscode-package`, and
-`make vscode-remote HOST=<host>` for a Remote-SSH host — but the proposed
-APIs the fork granted it are not granted there, so some menus do not draw.
+- `app/renderer` is the window itself.
+- `app/pages` are the panels it frames, one iframe each, talking to a host in
+  `app/renderer/panels.ts` over `postMessage`. They were the extension's
+  webviews and keep its contract: `acquireVsCodeApi()`, a `ready` message, a
+  `state` back.
+- `app/media` is their CSS, and `PAGES` in the Makefile is the bundle list.
 
 ## The prompts that are not here
 
