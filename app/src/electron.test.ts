@@ -11,7 +11,7 @@ const here = join(__dirname);
 const types = join(here, "..", "node_modules", "electron", "electron.d.ts");
 
 function sources(): string {
-  return ["main.ts", "webview.ts", "preload.ts"]
+  return ["main.ts", "webview.ts", "preload.ts", "contextmenu.ts"]
     .map((f) => readFileSync(join(here, f), "utf8"))
     .join("\n");
 }

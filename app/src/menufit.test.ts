@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fit } from "./contextmenu";
+import { fit } from "./menufit";
 
 const what = (params: Parameters<typeof fit>[0], where?: Parameters<typeof fit>[1]) =>
   fit(params, where)

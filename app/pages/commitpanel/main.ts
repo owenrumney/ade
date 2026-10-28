@@ -124,7 +124,12 @@ function draw(): void {
   );
   root.append(under);
 
-  root.append(el("h2", undefined, "Files"));
+  // The heading carries the re-read: the list is a snapshot, and the one
+  // moment you doubt it is when a file you just wrote is not in it.
+  const filesHead = el("div", "head2");
+  filesHead.append(el("h2", undefined, "Files"));
+  filesHead.append(link(busy === "refresh" ? "Reading…" : "Refresh", () => act("refresh"), !idle(busy)));
+  root.append(filesHead);
   const bulk = el("div", "row bulk");
   bulk.append(
     link(

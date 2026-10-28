@@ -1,59 +1,8 @@
 import { clipboard, Menu, shell, type BrowserWindow, type ContextMenuParams } from "electron";
+import { fit } from "./menufit";
 
 // The menu at the pointer, for what a page does not own: editing, a
-// link, and the panel the click landed in.
-
-export interface Item {
-  label?: string;
-  role?: string;
-  type?: "separator";
-  // what names the item for a test. Electron ignores it.
-  what?: string;
-}
-
-export interface Where {
-  // The panel the frame belongs to, when the click was inside one.
-  panel?: string;
-  dev?: boolean;
-}
-
-// fit is what the menu holds, worked out from the click. Pure, so the
-// shape of a menu is a test rather than a thing to right-click and see.
-type Clicked = Omit<Partial<ContextMenuParams>, "editFlags"> & {
-  editFlags?: Partial<ContextMenuParams["editFlags"]>;
-};
-
-export function fit(params: Clicked, where: Where = {}): Item[] {
-  const out: Item[] = [];
-  const flags = params.editFlags ?? {};
-  const selected = (params.selectionText ?? "").trim().length > 0;
-  if (params.isEditable) {
-    out.push({ role: "cut", what: "cut" });
-    out.push({ role: "copy", what: "copy" });
-    out.push({ role: "paste", what: "paste" });
-    out.push({ type: "separator" });
-    out.push({ role: "selectAll", what: "selectAll" });
-  } else if (selected) {
-    out.push({ role: "copy", what: "copy" });
-    if (flags.canSelectAll) out.push({ role: "selectAll", what: "selectAll" });
-  }
-  if (params.linkURL) {
-    if (out.length) out.push({ type: "separator" });
-    out.push({ label: "Open the link", what: "open-link" });
-    out.push({ label: "Copy the link", what: "copy-link" });
-  }
-  // Nothing to edit and nothing to follow: offer the panel itself rather
-  // than no menu at all, which reads as a dead right-click.
-  if (where.panel) {
-    if (out.length) out.push({ type: "separator" });
-    out.push({ label: "Reload this panel", what: "reload-panel" });
-  }
-  if (where.dev) {
-    if (out.length) out.push({ type: "separator" });
-    out.push({ label: "Inspect", what: "inspect" });
-  }
-  return out;
-}
+// link, and the panel the click landed in. What it holds is menufit.ts.
 
 // wire puts it on a window. `panelOf` says which panel a frame's url is,
 // so the menu can name it.
