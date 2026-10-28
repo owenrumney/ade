@@ -722,9 +722,12 @@ export function todos(items: Todo[], now = Date.now()): Place {
           .join(" · "),
         // A todo is a thing to do, so the row does it: a session with
         // the todo as its first message. One already started has one.
-        acts: item.started
-          ? []
-          : [{ label: "Start", what: "todo-start" as const, name: item.id }],
+        // Done and Drop are menu-only: the row has space for Start alone.
+        acts: [
+          ...(item.started ? [] : [{ label: "Start", what: "todo-start" as const, name: item.id }]),
+          { label: "Mark as done", what: "todo-done" as const, name: item.id, menu: true as const },
+          { label: "Drop it", what: "todo-drop" as const, name: item.id, menu: true as const },
+        ],
       };
     });
   return { id: "todos", title: "Todos", icon: "todo", rows };

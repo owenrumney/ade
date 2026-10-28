@@ -480,8 +480,14 @@ describe("the todo list", () => {
 
   it("offers to start one, and not one already under way", () => {
     const [late, , going] = real.todos(items, now).rows;
-    expect(late.acts).toEqual([{ label: "Start", what: "todo-start", name: "1" }]);
-    expect(going.acts).toEqual([]);
+    expect(late.acts?.[0]).toEqual({ label: "Start", what: "todo-start", name: "1" });
+    expect(going.acts?.map((a) => a.what)).not.toContain("todo-start");
+  });
+
+  it("takes one off the list from the context menu, and nowhere else", () => {
+    const [late] = real.todos(items, now).rows;
+    const menu = (late.acts ?? []).filter((a) => a.menu).map((a) => a.what);
+    expect(menu).toEqual(["todo-done", "todo-drop"]);
   });
 });
 

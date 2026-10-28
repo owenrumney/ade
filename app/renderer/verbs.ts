@@ -189,6 +189,7 @@ export const VOCABULARY: Group[] = [
       ["ade.syncWorktrees", "Sync a repository's worktrees onto its base"],
       ["ade.purgeWorktrees", "Purge worktrees on this machine"],
       ["ade.disk", "What ade is costing in space…"],
+      ["ade.toggleSidebar", "Hide or show the sidebar"],
       ["ade.openPermissions", "Permissions"],
       ["ade.reconnect", "Reconnect"],
       ["ade.keys", "Keys and tokens…"],

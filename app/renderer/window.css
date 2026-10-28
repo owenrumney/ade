@@ -69,6 +69,8 @@
   min-width: 15px; text-align: center;
 }
 .activity .gap { flex: 1; }
+/* The fold arrows sit under the last icon, half the height of one. */
+.activity button.fold { height: 28px; color: var(--ink-dim); }
 
 .sidebar {
   width: var(--sidebar-w);
@@ -79,6 +81,7 @@
   flex-direction: column;
   min-height: 0;
 }
+.sidebar[hidden] { display: none; }
 .sidebar h2 {
   margin: 0;
   padding: 10px 16px 6px;

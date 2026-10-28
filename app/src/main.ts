@@ -450,7 +450,7 @@ void app.whenReady().then(async () => {
       path: string,
       body: Record<string, unknown>,
       session?: string,
-      method?: "POST" | "PUT" | "DELETE",
+      method?: "POST" | "PUT" | "PATCH" | "DELETE",
     ) => {
       const where = await found();
       if (!where) return { error: "ade is not running" };

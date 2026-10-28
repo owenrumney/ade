@@ -67,7 +67,7 @@ export async function tell<T>(
   where: At,
   path: string,
   body: unknown,
-  method: "POST" | "PUT" | "DELETE" = "POST",
+  method: "POST" | "PUT" | "PATCH" | "DELETE" = "POST",
 ): Promise<T> {
   const res = await fetch(where.base + path, {
     method,

@@ -41,12 +41,13 @@ export type Verb =
   | "dictate"
   | "history"
   | "terminal"
+  | "sidebar"
   | "float"
   | "review-draft"
   | "review-finish"
   | "open-pr";
 
-export type Method = "PUT" | "DELETE";
+export type Method = "PUT" | "PATCH" | "DELETE";
 
 export type Doing =
   | { at: "window"; place?: string; verb?: Verb }
@@ -359,6 +360,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.exposePort": L("/api/ports/expose", {}, type("port", "Which port?")),
   // xterm in the window, over the session server's own shell.
   "ade.openTerminal": W(undefined, "terminal"),
+  "ade.toggleSidebar": W(undefined, "sidebar"),
   "ade.diagnose": S("/api/diagnose/net"),
 
   // ── ade itself ──

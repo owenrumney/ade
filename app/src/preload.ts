@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld("ade", {
     path: string,
     body: Record<string, unknown>,
     session?: string,
-    method?: "POST" | "PUT" | "DELETE",
+    method?: "POST" | "PUT" | "PATCH" | "DELETE",
   ) => ipcRenderer.invoke("ade.act", at, path, body, session, method) as Promise<unknown>,
   call: (
     at: "launcher" | "session",

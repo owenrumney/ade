@@ -22,9 +22,9 @@ export interface Row {
   // The pull request a row is about, where it is about one. A
   // notification carries a url and not an id, so this is read off it.
   pr?: { repo: string; number: number };
-  // What a row does besides open, drawn on hover: a verb that needs the
-  // row to mean anything. `on` is the session it runs against.
-  acts?: { label: string; what: Act; name: string; on?: string }[];
+  // What a row does besides open, drawn on hover unless `menu`, which
+  // keeps it to the context menu. `on` is the session it runs against.
+  acts?: { label: string; what: Act; name: string; on?: string; menu?: true }[];
 }
 
 
@@ -47,6 +47,8 @@ export type Act =
   | "job-run"
   | "job-pause"
   | "todo-start"
+  | "todo-done"
+  | "todo-drop"
   | "space-close"
   | "space-clone"
   | "bus-dismiss";

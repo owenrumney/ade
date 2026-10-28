@@ -174,6 +174,8 @@ class Ade {
   private sidebarHTML = "";
   // Expanded: the chat takes the editor area, out to the sidebar.
   private chatWide = localStorage.getItem("ade.chat.wide") === "1";
+  // The sidebar folded away, by the arrows under the activity bar.
+  private sideShut = localStorage.getItem("ade.side.shut") === "1";
   private split = localStorage.getItem("ade.diff.split") === "1";
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
@@ -643,7 +645,11 @@ class Ade {
       if (what.verb === "terminal") {
         return this.show({ kind: "term", title: "Terminal" }, "Terminal", "code");
       }
-      if (what.place) this.place = what.place;
+      if (what.verb === "sidebar") return this.shutSide(!this.sideShut);
+      if (what.place) {
+        this.place = what.place;
+        if (this.sideShut) return this.shutSide(false);
+      }
       return this.draw();
     }
     void this.perform(command, what);
@@ -1530,7 +1536,9 @@ class Ade {
       return;
     }
     if (!this.shell) this.shell = this.build();
-    const { titlebar, activity, sidebar, head, sheet, statusbar } = this.shell;
+    const { titlebar, activity, sidebar, head, sheet, statusbar, sideGrip } = this.shell;
+    sidebar.hidden = this.sideShut;
+    sideGrip.hidden = this.sideShut;
     this.drawDock();
     titlebar.replaceChildren(...this.titlebar());
     activity.replaceChildren(...this.activity());
@@ -1623,7 +1631,7 @@ class Ade {
     const id = idOf(what);
     // The expanded chat covers the editor area, so opening something new
     // into it is a verb that does nothing at all. Opening wins.
-    if (this.chatWide && this.active !== id) {
+    if (this.chatWide) {
       this.chatWide = false;
       localStorage.removeItem("ade.chat.wide");
     }
@@ -1789,11 +1797,12 @@ class Ade {
     const dock = el("div", "dock");
     dock.append(dockHead, dockBody);
     const chatGrip = this.grip("chat");
+    const sideGrip = this.grip();
     const body = el("div", "body");
-    body.append(activity, sidebar, this.grip(), main, chatGrip, dock);
+    body.append(activity, sidebar, sideGrip, main, chatGrip, dock);
     this.root.replaceChildren(titlebar, body, statusbar);
     this.root.className = "window";
-    return { titlebar, activity, sidebar, head, sheet, statusbar, dock, dockHead, dockBody, chatGrip };
+    return { titlebar, activity, sidebar, head, sheet, statusbar, dock, dockHead, dockBody, chatGrip, sideGrip };
   }
 
   private titlebar(): HTMLElement[] {
@@ -1817,15 +1826,33 @@ class Ade {
       const n = counted(place);
       if (n > 0) button.append(el("span", "count", String(n)));
       button.addEventListener("click", () => {
+        // The same place twice folds the sidebar away; another opens it.
+        this.sideShut = place.id === this.place ? !this.sideShut : false;
         this.place = place.id;
+        localStorage.setItem("ade.side.shut", this.sideShut ? "1" : "0");
         this.remember();
         this.draw();
       });
       if (place.id === "review") bar.push(el("div", "gap"));
       bar.push(button);
     }
-    bar.push(this.terminalButton());
+    bar.push(this.terminalButton(), this.foldButton());
     return bar;
+  }
+
+  private foldButton(): HTMLElement {
+    const button = document.createElement("button");
+    button.className = "fold";
+    button.title = this.sideShut ? "Show the sidebar" : "Hide the sidebar";
+    button.append(icon(this.sideShut ? "unfold" : "fold", 18));
+    button.addEventListener("click", () => this.shutSide(!this.sideShut));
+    return button;
+  }
+
+  private shutSide(on: boolean): void {
+    this.sideShut = on;
+    localStorage.setItem("ade.side.shut", on ? "1" : "0");
+    this.draw();
   }
 
   // Not a place: it opens a tab rather than filling the sidebar.
@@ -2361,6 +2388,7 @@ class Ade {
     if (row.tag) node.append(el("span", `tag ${row.tag.kind}`, row.tag.text));
     // What the row does besides open, shown on hover.
     for (const act of row.acts ?? []) {
+      if (act.menu) continue;
       const node2 = el("span", "act", act.label);
       // On the press: a redraw between down and up takes the node the
       // click would have needed, and the button did nothing at all.
@@ -2394,6 +2422,7 @@ class Ade {
       return this.space(act.what === "space-close" ? "close" : "clone", act.name);
     }
     if (act.what === "todo-start") return this.fromTodo(act.name);
+    if (act.what === "todo-done" || act.what === "todo-drop") return this.todoOff(act);
     if (act.what === "bus-dismiss") {
       const team = this.world.places.find((p) => p.id === "team");
       if (team) this.redrawPlace(without(team, new Set([act.name])));
@@ -2516,6 +2545,28 @@ class Ade {
     // answers with nothing reads as broken.
     if (!this.todoAt(id)) this.say("that todo is not on the list any more");
     this.show({ panel: `todo:${id}` }, "New session", "session");
+  }
+
+  // todoOff takes a todo off the list: done keeps it as history, dropped
+  // deletes it. The row goes at once, before the next read confirms it.
+  private async todoOff(act: NonNullable<Row["acts"]>[number]): Promise<void> {
+    if (!window.ade) return;
+    const done = act.what === "todo-done";
+    const todos = this.world.places.find((p) => p.id === "todos");
+    if (todos) this.redrawPlace(without(todos, new Set([act.name])));
+    const at = `/api/todos/${encodeURIComponent(act.name)}`;
+    const got = await window.ade
+      .act(
+        "launcher",
+        done ? at : `${at}?dir=${encodeURIComponent(this.homeDir)}`,
+        done ? { dir: this.homeDir, done: true } : {},
+        undefined,
+        done ? "PATCH" : "DELETE",
+      )
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.say(back.error || (done ? "marked as done" : "dropped"));
+    await this.read();
   }
 
   // startDesign checks out every repository the document names, on one
@@ -2873,6 +2924,7 @@ interface Shell {
   dockHead: HTMLElement;
   dockBody: HTMLElement;
   chatGrip: HTMLElement;
+  sideGrip: HTMLElement;
 }
 
 // prAt reads a pull request out of a row id of the window's own

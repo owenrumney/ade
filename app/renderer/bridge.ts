@@ -38,7 +38,7 @@ export interface Bridge {
     path: string,
     body: Record<string, unknown>,
     session?: string,
-    method?: "POST" | "PUT" | "DELETE",
+    method?: "POST" | "PUT" | "PATCH" | "DELETE",
   ): Promise<{ error?: string } | undefined>;
   read(at: "launcher" | "session", path: string, session?: string): Promise<unknown>;
   // The raw one, for a panel's relay: status, ok, and the body as text.

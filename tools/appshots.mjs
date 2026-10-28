@@ -35,6 +35,8 @@ const VIEWS = [
   { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
   { name: "app-chat-wide", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
   { name: "app-todo-start", place: "Todos", hover: ".sidebar .row", tap: ".sidebar .row .act", settle: 900 },
+  { name: "app-todo-menu", place: "Todos", right: ".sidebar .row" },
+  { name: "app-side-folded", place: "Todos", tap: ".activity button.fold", settle: 300 },
   { name: "app-audit", place: "Todos", keys: "k", type: "What I just did", enter: true },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
   { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },

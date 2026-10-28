@@ -30,6 +30,8 @@ export const PATHS: Record<string, string> = {
   "folder-open": "M3 7h6l2 2h8v2H6l-3 8zM3 19h14l3-8",
   file: "M6 3h8l5 5v13H6zM14 3v5h5",
   chevron: "M9 6l6 6-6 6",
+  fold: "M13 6l-6 6 6 6M19 6l-6 6 6 6",
+  unfold: "M5 6l6 6-6 6M11 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   wider: "M4 5v14M20 5v14M10 8l-4 4 4 4M14 8l4 4-4 4",
