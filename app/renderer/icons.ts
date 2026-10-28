@@ -32,6 +32,10 @@ export const PATHS: Record<string, string> = {
   chevron: "M9 6l6 6-6 6",
   fold: "M13 6l-6 6 6 6M19 6l-6 6 6 6",
   unfold: "M5 6l6 6-6 6M11 6l6 6-6 6",
+  // Upright pairs, because groups shut upwards. The sideways pair above is
+  // the sidebar folding away, and one glyph cannot mean both.
+  collapse: "M6 11l6-6 6 6M6 18l6-6 6 6",
+  expand: "M6 6l6 6 6-6M6 13l6 6 6-6",
   plus: "M12 5v14M5 12h14",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   wider: "M4 5v14M20 5v14M10 8l-4 4 4 4M14 8l4 4-4 4",

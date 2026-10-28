@@ -329,6 +329,7 @@ body.dragging { cursor: col-resize; user-select: none; }
   color: var(--ink-dim); cursor: pointer;
 }
 .sidebar .again:hover { background: var(--hover); color: var(--ink); }
+.sidebar .side-head .fold-all { margin-left: -4px; }
 
 /* A failing check in the status bar. */
 .statusbar .item.bad { color: var(--bad); cursor: pointer; }

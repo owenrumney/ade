@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strings"
 
+	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
@@ -112,7 +112,7 @@ func designsAnywhereIn(ctx context.Context, repo sessions.Repo, main string) []s
 			}
 		}
 	}
-	sort.Strings(out)
+	docs.SortFiles(out)
 	return out
 }
 

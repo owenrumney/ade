@@ -155,6 +155,9 @@ func designsIn(root, common string) ([]string, error) {
 			}
 		}
 	}
+	// Each directory arrives sorted, so without this the heading restarts at
+	// A for every directory that held a document.
+	docs.SortFiles(out)
 	return out, nil
 }
 

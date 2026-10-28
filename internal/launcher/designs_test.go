@@ -83,8 +83,10 @@ func TestEveryDirectoryDocumentsCanLiveInIsListed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(under, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(under, "cart.md"), []byte("# x\n"), 0o600))
 
+	// One heading, so one alphabet: the directory a document came from does
+	// not move it in the list.
 	s := newLauncherOn(t, m)
-	assert.Equal(t, []string{"scratched.md", "cart.md"}, designsOf(t, s, dir))
+	assert.Equal(t, []string{"cart.md", "scratched.md"}, designsOf(t, s, dir))
 
 	// And read from wherever it was listed, not only the first directory.
 	rec := do(t, s, http.MethodGet, "/api/design?file=cart.md&dir="+dir, "")

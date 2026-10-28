@@ -2010,11 +2010,48 @@ class Ade {
     again.title = "Refresh: ask GitHub and ade again";
     again.append(icon("refresh", 14));
     again.addEventListener("click", () => void this.again());
-    head.append(find, again);
+    head.append(find);
+    const all = this.foldAll(place);
+    if (all) head.append(all);
+    head.append(again);
     if (place.id !== "review") return head;
     const heads = el("div", "heads");
     heads.append(head, this.reviewBar());
     return heads;
+  }
+
+  // foldAll shuts every group in a place, or opens them all once they are
+  // shut. Nothing to fold means no button: a place without headings would
+  // otherwise carry a control that does nothing.
+  private foldAll(place: Place): HTMLElement | undefined {
+    const names = this.groupNames(place);
+    if (names.length === 0) return undefined;
+    const shut = names.every((name) => this.folded.has(`${place.id}:${name}`));
+    const button = el("button", "again fold-all");
+    button.title = shut ? "Expand every group" : "Collapse every group";
+    button.append(icon(shut ? "expand" : "collapse", 14));
+    button.addEventListener("click", () => {
+      for (const name of names) {
+        const key = `${place.id}:${name}`;
+        if (shut) this.folded.delete(key);
+        else this.folded.add(key);
+      }
+      this.draw();
+    });
+    return button;
+  }
+
+  // The headings a place is showing. The filter counts: collapsing all of
+  // them should not reach a group the filter has taken off the screen.
+  private groupNames(place: Place): string[] {
+    if (place.files) return [];
+    const want = (this.filters.get(place.id) ?? "").toLowerCase();
+    const rows = want
+      ? place.rows.filter((r) => `${r.name} ${r.meta ?? ""}`.toLowerCase().includes(want))
+      : place.rows;
+    return grouped(rows)
+      .map((g) => g.name)
+      .filter(Boolean);
   }
 
   // reviewBar is where the review stands and the one thing that ends it.

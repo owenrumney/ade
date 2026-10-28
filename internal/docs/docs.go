@@ -191,6 +191,15 @@ func List(dir string) ([]string, error) {
 	return markdownFiles(dir)
 }
 
+// SortFiles orders documents by name, case folded so a capital does not jump
+// the list. Every heading that lists documents sorts through here, so two of
+// them never disagree about where a name belongs.
+func SortFiles(files []string) {
+	slices.SortFunc(files, func(a, b string) int {
+		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	})
+}
+
 // Stem is a document's name without its directory or extension, which is what
 // a branch's last segment is matched against.
 func Stem(file string) string { return stem(file) }
@@ -476,9 +485,7 @@ func markdownFiles(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("walk %s: %w", dir, err)
 	}
-	slices.SortFunc(files, func(a, b string) int {
-		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
-	})
+	SortFiles(files)
 	return files, nil
 }
 
