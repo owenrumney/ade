@@ -39,6 +39,7 @@ const VIEWS = [
   { name: "app-side-folded", place: "Todos", tap: ".activity button.fold", settle: 300 },
   { name: "app-audit", place: "Todos", keys: "k", type: "What I just did", enter: true },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
+  { name: "app-new-session", place: "Sessions", keys: "n", after: ".tab.on", settle: 1200 },
   { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },
   { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item.branch" },
   { name: "app-verbs", place: "Pull requests", keys: "k", type: "review" },
@@ -162,7 +163,7 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     await page.keyboard.down("Control");
     await page.keyboard.press(view.keys);
     await page.keyboard.up("Control");
-    await page.waitForSelector(".omnibox input");
+    await page.waitForSelector(view.after ?? ".omnibox input");
     if (view.type) await page.type(".omnibox input", view.type);
     if (view.enter) {
       await page.keyboard.press("Enter");

@@ -48,7 +48,7 @@ func (s *Store) Ensure(ctx context.Context) error {
 
 func (s *Store) ensure(ctx context.Context) error {
 	if _, err := os.Stat(filepath.Join(s.root, ".git")); err == nil {
-		return nil
+		return s.pointAtRemote(ctx)
 	}
 	if err := os.MkdirAll(filepath.Dir(s.root), 0o700); err != nil {
 		return err
@@ -81,6 +81,27 @@ func (s *Store) ensure(ctx context.Context) error {
 	return err
 }
 
+// pointAtRemote wires an existing store up to the configured remote. One set
+// after the store was made would otherwise never push, failing every sync.
+func (s *Store) pointAtRemote(ctx context.Context) error {
+	if s.remote == "" {
+		return nil
+	}
+	if err := safeRemote(s.remote); err != nil {
+		return err
+	}
+	have, err := s.run(ctx, s.root, "remote", "get-url", "origin")
+	if err != nil {
+		_, err = s.run(ctx, s.root, "remote", "add", "origin", s.remote)
+		return err
+	}
+	if strings.TrimSpace(have) == s.remote {
+		return nil
+	}
+	_, err = s.run(ctx, s.root, "remote", "set-url", "origin", s.remote)
+	return err
+}
+
 // Sync brings the store level with the remote and sends what is here. A
 // conflict is git's to report and yours to resolve, in the store.
 func (s *Store) Sync(ctx context.Context) error {
@@ -96,7 +117,9 @@ func (s *Store) Sync(ctx context.Context) error {
 		return nil
 	}
 	if _, err := s.run(ctx, s.root, "fetch", "origin", branch); err == nil {
-		if _, err := s.run(ctx, s.root, "merge", "--no-edit", "origin/"+branch); err != nil {
+		// Each machine starts its own store, so the first join of two is
+		// unrelated histories rather than a conflict.
+		if _, err := s.run(ctx, s.root, "merge", "--no-edit", "--allow-unrelated-histories", "origin/"+branch); err != nil {
 			return fmt.Errorf("the designs store has a conflict to resolve in %s: %w", s.root, err)
 		}
 	}

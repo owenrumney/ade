@@ -2985,7 +2985,7 @@ function note(place: Place, why: string | undefined, instead = ""): Place {
 function shotHarness(run: (command: string) => void): void {
   document.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey)) return;
-    const of: Record<string, string> = { k: "omnibox", b: "sidebar.toggle" };
+    const of: Record<string, string> = { k: "omnibox", b: "sidebar.toggle", n: "ade.newSession" };
     const command = of[e.key.toLowerCase()];
     if (!command) return;
     e.preventDefault();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keymap, chordOf, merge, shared, DEFAULTS, type Binding } from "./keymap";
 import { BAR } from "../renderer/model";
+import { panelFor } from "../renderer/doing";
 
 const on = (bindings: Binding[], mac = true) => new Keymap(bindings, mac);
 
@@ -75,6 +76,14 @@ describe("the shipped table", () => {
     }
     expect(map.match({ key: "0", meta: true })).toBe("place.review");
     expect(map.match({ key: "0", meta: true, shift: true })).toBe("place.code");
+  });
+
+  // The command has to be one the window's table knows, or the key is
+  // dead: ⌘N named a command nothing handled.
+  it("opens the new session panel on cmd+n", () => {
+    const command = on(DEFAULTS).match({ key: "n", meta: true });
+    expect(command).toBe("ade.newSession");
+    expect(panelFor(command as string)).toBe("ade.newSession");
   });
 
   it("binds no chord twice", () => {

@@ -30,7 +30,7 @@ export const DEFAULTS: Binding[] = [
   { keys: "mod+k", command: "omnibox" },
   { keys: "mod+p", command: "omnibox.files" },
   { keys: "mod+shift+p", command: "omnibox.commands" },
-  { keys: "mod+n", command: "session.new" },
+  { keys: "mod+n", command: "ade.newSession" },
   { keys: "mod+shift+l", command: "chat.focus" },
   // The digits follow the activity bar, top to bottom, or they lie about
   // where they go. Review and Code sit under it and take the last two.

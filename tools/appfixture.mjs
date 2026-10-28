@@ -640,7 +640,7 @@ export function shell() {
       onCommand(then) {
         document.addEventListener("keydown", (e) => {
           if (!(e.metaKey || e.ctrlKey)) return;
-          const of = { k: "omnibox" };
+          const of = { k: "omnibox", n: "ade.newSession" };
           const command = of[e.key.toLowerCase()];
           if (!command) return;
           e.preventDefault();

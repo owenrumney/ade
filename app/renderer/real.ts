@@ -253,7 +253,7 @@ function store(all: Design[]): Place {
     icon: "design",
     rows: all.map((d) => ({
       id: d.name,
-      group: "Shared store" + (d.repo ? " · " + d.repo : ""),
+      group: d.repo || "Designs",
       icon: (d.missing ?? []).length > 0 ? "warn" : d.live ? "play" : "ring",
       tone: (d.missing ?? []).length > 0 ? "bad" : d.live ? "good" : undefined,
       name: d.name,

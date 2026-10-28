@@ -73,7 +73,7 @@ describe("the Design tab", () => {
     expect(place.rows.map((r) => r.group)).toEqual([
       "owenrumney/ade",
       "infracost/coast",
-      "Shared store",
+      "Designs",
     ]);
     // The checkout is in the id: a design read against the wrong one is a
     // 404 at best and another repository's document at worst.

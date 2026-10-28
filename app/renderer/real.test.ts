@@ -76,11 +76,11 @@ const DESIGNS: Design[] = [
   { name: "retry-429", dir: "/d/b", file: "/d/b/design.md", meta: { repos: ["infracost/cli", "infracost/infra"], ticket: "FIX-623" }, repo: "infracost/cli", here: ["/code/cli"], missing: ["infracost/infra"] },
 ];
 
-describe("designs, from the shared store", () => {
+describe("designs, from the store", () => {
   it("groups by the repository each is home to", () => {
     expect(designs(DESIGNS).rows.map((r) => r.group)).toEqual([
-      "Shared store · owenrumney/ade",
-      "Shared store · infracost/cli",
+      "owenrumney/ade",
+      "infracost/cli",
     ]);
   });
 
