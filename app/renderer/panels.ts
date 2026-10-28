@@ -702,6 +702,44 @@ async function designsIn(
   }
 }
 
+// Checkout is one row of the Open branch pick: a worktree carries its path,
+// a branch without one carries none and is checked out when it is opened.
+interface Checkout {
+  name: string;
+  at: string;
+  note: string;
+}
+
+// checkoutsIn is home's worktrees and the branches that have none, newest
+// first within each. Only for the row that asks: it costs a git call.
+async function checkoutsIn(
+  reach: Reach,
+  chosen: Chosen,
+): Promise<{ checkouts?: Checkout[]; checkoutNote?: string }> {
+  const dir = chosen.repos?.[0];
+  if (!dir || chosen.mode !== "branch") return {};
+  try {
+    const got = (await reach.get("launcher", `/api/branches?repo=${encodeURIComponent(dir)}`)) as {
+      worktrees?: { path: string; name: string; branch?: string; main?: boolean }[] | null;
+      branches?: { name: string; at?: string }[] | null;
+      error?: string;
+    };
+    if (got.error) return { checkoutNote: `Could not list them: ${got.error}` };
+    const held = (got.worktrees ?? [])
+      // A detached worktree has no branch to open it by.
+      .filter((one) => one.branch)
+      .map((one) => ({
+        name: one.branch ?? "",
+        at: one.path,
+        note: one.main ? "main checkout" : one.name,
+      }));
+    const loose = (got.branches ?? []).map((one) => ({ name: one.name, at: "", note: one.at ?? "" }));
+    return { checkouts: [...held, ...loose] };
+  } catch (err) {
+    return { checkoutNote: `Could not list them: ${String(err)}` };
+  }
+}
+
 export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
   // The page's own default, plus what the thing you started from
   // knows: a todo's text is the first message.
@@ -713,7 +751,10 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
       reach.get("launcher", "/api/models").catch(() => ({ models: [] })),
     ]);
     const list = (repos as { repos?: { name: string; path: string }[] }).repos ?? [];
-    const listed = await designsIn(reach, chosen as unknown as Chosen);
+    const [listed, held] = await Promise.all([
+      designsIn(reach, chosen as unknown as Chosen),
+      checkoutsIn(reach, chosen as unknown as Chosen),
+    ]);
     return {
       machines: [],
       repos: list,
@@ -726,6 +767,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
       ),
       roles: ((roles as { roles?: { name: string }[] }).roles ?? []).map((r) => r.name),
       ...listed,
+      ...held,
       recent: [],
     };
   };
@@ -744,9 +786,9 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         const was = chosen as unknown as Chosen;
         const want = (said.chosen ?? chosen) as unknown as Chosen;
         chosen = want as unknown as Record<string, unknown>;
-        // Only a new home has a new list of documents. Answering every
-        // keystroke redraws the page and takes the cursor out of the box.
-        if (want.repos[0] === was.repos[0]) return undefined;
+        // Only a new home or a new row has a new list to offer. Answering
+        // every keystroke redraws the page and takes the cursor out of the box.
+        if (want.repos[0] === was.repos[0] && want.mode === was.mode) return undefined;
         return { kind: "state", chosen, offer: await offer(), busy: false, note: "" };
       }
       if (said.kind === "start") {
@@ -770,12 +812,44 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         }
         const [home, ...also] = want.repos;
         if (!home) return { kind: "state", chosen, busy: false, note: "tick a repository" };
+        // Open branch names a branch the repository already has, so nothing is
+        // scaffolded: find its checkout, make one only when it has none, and
+        // open that as the plain open does.
+        if (want.mode === "branch") {
+          reach.push("newsession", {
+            kind: "state",
+            chosen,
+            busy: true,
+            note: want.at ? `Opening ${want.branch}…` : `Checking ${want.branch} out…`,
+          });
+          let at = want.at;
+          if (!at) {
+            const made = (await reach.send("launcher", "/api/branches/worktree", {
+              repo: home,
+              branch: want.branch,
+            })) as { path?: string; error?: string };
+            if (made.error || !made.path) {
+              return { kind: "state", chosen, busy: false, note: made.error ?? "no checkout was made" };
+            }
+            at = made.path;
+          }
+          const opened = await reach.send("launcher", "/api/open", {
+            dir: at,
+            fresh: true,
+            direct: !want.machine,
+            ...picked(want, files),
+          });
+          return { kind: "state", chosen, busy: false, note: started(reach, opened, at) };
+        }
+        // The ticket instead of a name on that row: the document is named
+        // after the ticket, and only the server can read a GitHub issue.
+        const ticket = want.mode === "ticket" ? want.ticket.trim() : "";
         // `ade create` is seconds, and said nothing for all of them.
         reach.push("newsession", {
           kind: "state",
           chosen,
           busy: true,
-          note: `Starting ${names(want) || home.split("/").pop()}…`,
+          note: `Starting ${ticket || names(want) || home.split("/").pop()}…`,
         });
         // Every default the row showed: one on screen that Start does
         // not send is accepted without being made.
@@ -783,7 +857,8 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         // and a session started without it is a plain one with no brief.
         const got = await reach.send("launcher", "/api/open", {
           dir: home,
-          name: names(want) || undefined,
+          name: ticket ? undefined : names(want) || undefined,
+          ticket: ticket || undefined,
           also: also.length > 0 ? also : undefined,
           fresh: true,
           direct: !want.machine,

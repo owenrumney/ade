@@ -124,6 +124,30 @@ func TestANamedSessionIsCreatedAsAWorkspace(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, refused.Code)
 }
 
+func TestATicketIsCreatedAsAWorkspaceAndCheckedBeforeAnythingStarts(t *testing.T) {
+	m := newFixture(t)
+	repo := filepath.Join(m.home, "elsewhere", "thing")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o700))
+
+	s := newLauncherOn(t, m)
+	var work sessions.Work
+	s.create = func(_ context.Context, _ string, w sessions.Work) (string, string, error) {
+		work = w
+		return "http://127.0.0.1:27431/?t=tok", repo + "-fix-623", nil
+	}
+
+	rec := do(t, s, http.MethodPost, "/api/open", `{"dir":"`+repo+`","fresh":true,"ticket":" FIX-623 "}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "FIX-623", work.Ticket)
+	assert.Empty(t, work.Name, "the flag names the document, so there is no positional name")
+
+	// A bad reference is a bad request, not an empty Design tab in a worktree.
+	work = sessions.Work{}
+	refused := do(t, s, http.MethodPost, "/api/open", `{"dir":"`+repo+`","fresh":true,"ticket":"not a ticket"}`)
+	assert.Equal(t, http.StatusBadRequest, refused.Code)
+	assert.Empty(t, work.Ticket)
+}
+
 func TestASessionAcrossRepositoriesPassesTheOthersToCreate(t *testing.T) {
 	m := newFixture(t)
 	home := filepath.Join(m.home, "elsewhere", "home")

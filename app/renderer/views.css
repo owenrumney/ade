@@ -25,6 +25,9 @@
 .twig.changed .nm { color: var(--git-mod); }
 .twig.removed .nm { color: var(--git-del); }
 .twig .mark { margin-left: auto; color: var(--ink-dim); font-size: 11px; }
+/* Ticked off in the diff. The name recedes; the status letter keeps its
+   weight, since that is the part carrying information. */
+.twig.viewed .nm, .twig.viewed .ico { opacity: 0.4; }
 
 /* One guide per level above this row's own, drawn as a border on a spacer
    so it lines up with the chevron that opened it. */
@@ -389,8 +392,15 @@
 .menu .item.off:hover { background: transparent; }
 .menu .rule { height: 1px; margin: 4px 0; background: var(--line); }
 
-/* The unified/split switch, on the row that counts the change. */
+/* The viewed tick and the unified/split switch, on the counts row. */
 .diff .file-head { display: flex; align-items: center; justify-content: space-between; }
+.diff .file-head .file-acts { display: flex; align-items: center; gap: 10px; }
+.diff .file-head .seen {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--ink-dim); cursor: pointer; user-select: none;
+}
+.diff .file-head .seen:hover { color: var(--ink-bright); }
+.diff .file-head .seen input { margin: 0; cursor: pointer; accent-color: var(--accent); }
 .diff .file-head .how {
   font: var(--ui-size)/1.45 var(--ui); color: var(--ink-dim);
   background: var(--bg-raised); border: 1px solid var(--line-strong);

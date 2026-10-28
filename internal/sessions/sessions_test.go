@@ -71,6 +71,38 @@ func TestTheLauncherNeverDropsTheSandboxForAProvider(t *testing.T) {
 	assert.NotContains(t, openArgs("claude", "claude-opus-5", ""), "--sandbox=false")
 }
 
+// A ticket reaches a command line, so the shape is the boundary.
+func TestATicketIsEitherALinearKeyOrAnIssueNumber(t *testing.T) {
+	for want, refs := range map[string][]string{
+		"--linear": {"FIX-623", "fix-623", " TRK-1072 "},
+		"--github": {"#12", "12"},
+	} {
+		for _, ref := range refs {
+			args, err := TicketArgs(ref)
+			require.NoErrorf(t, err, "refused %q", ref)
+			assert.Equalf(t, want, args[0], "%q", ref)
+		}
+	}
+	assert.Equal(t, []string{"--linear", "FIX-623"}, mustArgs(t, "fix-623"))
+	assert.Equal(t, []string{"--github", "12"}, mustArgs(t, "#12"))
+
+	none, err := TicketArgs("  ")
+	require.NoError(t, err)
+	assert.Nil(t, none)
+
+	for _, bad := range []string{"#0", "cancel-running-process", "FIX-623-x", "https://linear.app/x/issue/FIX-623"} {
+		_, err := TicketArgs(bad)
+		assert.Errorf(t, err, "accepted %q", bad)
+	}
+}
+
+func mustArgs(t *testing.T, ref string) []string {
+	t.Helper()
+	args, err := TicketArgs(ref)
+	require.NoError(t, err)
+	return args
+}
+
 func TestTruncate(t *testing.T) {
 	assert.Equal(t, "abc", truncate("abc", 5))
 	assert.Equal(t, "abc…", truncate("abcdef", 3))

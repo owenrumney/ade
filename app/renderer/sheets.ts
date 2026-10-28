@@ -243,10 +243,19 @@ function hunks(
   const out = el("div", at.split ? "diff split" : "diff");
   const head = el("div", "file-head");
   head.append(el("span", "", `+${file.additions} −${file.deletions}`));
+  const acts = el("div", "file-acts");
+  const seen = el("label", "seen");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = at.viewed?.has(file.path) ?? false;
+  box.addEventListener("change", () => on({ what: "viewed", file: file.path }));
+  seen.title = "Tick this file off; it dims in the tree until it changes again";
+  seen.append(box, el("span", "", "Viewed"));
   const how = el("button", "how", at.split ? "Unified" : "Split");
   how.title = "Switch between a unified and a side-by-side diff";
   how.addEventListener("click", () => on({ what: "split" }));
-  head.append(how);
+  acts.append(seen, how);
+  head.append(acts);
   out.append(head);
   if (file.binary) {
     out.append(el("div", "hunk", "binary file"));
@@ -318,7 +327,9 @@ function reveal(out: HTMLElement, jump?: At): void {
 // What a thread's buttons ask of the window. The sheet draws and the
 // window acts: it is the one holding the session.
 export interface Asked {
-  what: "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out" | "unfold" | "split";
+  what:
+    | "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out"
+    | "unfold" | "split" | "viewed";
   id?: string;
   file?: string;
   side?: Side;
@@ -333,6 +344,8 @@ export interface Review {
   hasPR: boolean;
   open: Set<string>;
   split?: boolean;
+  // Ticked off, by path. Already pruned of stale ones.
+  viewed?: Set<string>;
 }
 
 // thread is one comment thread under the line it is about: one comment,

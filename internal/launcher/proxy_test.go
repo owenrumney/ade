@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -605,4 +606,60 @@ func TestASessionNoMachineHasIsStillNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = res.Body.Close() }()
 	assert.Equal(t, http.StatusNotFound, res.StatusCode)
+}
+
+// Recorded, running, and not answering: the default proxy writes a bare 502,
+// which reaches a person as "/api/chat: 502" and says nothing they can act on.
+func TestAnAdeThatDoesNotAnswerSaysSoRatherThanJustFailing(t *testing.T) {
+	up := newUpstream(t, func(http.ResponseWriter, *http.Request) {})
+	s := newTestLauncher(t)
+	dead := up.port(t)
+	up.server.Close()
+
+	dir := t.TempDir()
+	s.locate = func(_ context.Context, id string) (string, int, bool) {
+		return dir, dead, id == "abc"
+	}
+	front := httptest.NewServer(s.routes())
+	t.Cleanup(front.Close)
+
+	res, err := http.Get(front.URL + "/s/abc/api/chat?t=" + s.token)
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusBadGateway, res.StatusCode)
+	assert.Contains(t, string(body), "no ade is answering for that session")
+	assert.Contains(t, string(body), "stop and put it away")
+}
+
+// The claim goes with it, so the next request is the 404 the window already
+// knows how to end a session from.
+func TestAnAdeThatDoesNotAnswerStopsBeingClaimedAsServing(t *testing.T) {
+	up := newUpstream(t, func(http.ResponseWriter, *http.Request) {})
+	s := newTestLauncher(t)
+	dead := up.port(t)
+	up.server.Close()
+
+	// A record that still names the dead port, so the claim is believed
+	// right up to the dial. That is the state this is about.
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	require.NoError(t, session.Write(session.Path(sessions.GitDir(dir)), session.Record{
+		PID: os.Getpid(), Root: dir, StartedAt: time.Now(),
+		URL: fmt.Sprintf("http://127.0.0.1:%d/?t=upstream-token", dead),
+	}))
+	s.served = map[string]Serving{"abc": {ID: "abc", Dir: dir, Port: dead}}
+	front := httptest.NewServer(s.routes())
+	t.Cleanup(front.Close)
+
+	res, err := http.Get(front.URL + "/s/abc/api/chat?t=" + s.token)
+	require.NoError(t, err)
+	require.NoError(t, res.Body.Close())
+
+	s.mu.Lock()
+	_, still := s.served["abc"]
+	s.mu.Unlock()
+	assert.False(t, still, "the dead claim was dropped")
 }

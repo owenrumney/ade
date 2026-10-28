@@ -596,6 +596,17 @@ describe("the New session panel's Design row", () => {
     expect(offer.designs.map((d) => d.file)).toEqual(["FIX-818.md", "TRK-1065.md"]);
   });
 
+  // What a workspace's New session hands over: the repository is ticked
+  // before the screen draws, so Work is one name away from starting.
+  it("opens with the workspace's repository already ticked", async () => {
+    const got = (await newSession(reachWith({ designs: [] }), {
+      mode: "work",
+      repos: ["/r/coast"],
+    }).onMessage({ kind: "ready" })) as { chosen: { mode: string; repos: string[] } };
+    expect(got.chosen.repos).toEqual(["/r/coast"]);
+    expect(got.chosen.mode).toBe("work");
+  });
+
   it("says a failed read failed, rather than that there are none", async () => {
     const offer = await offerOf(reachWith(new Error("404 Not Found")), {
       mode: "design",
@@ -643,9 +654,24 @@ describe("the New session panel's Design row", () => {
     ship: false,
   });
 
+  // `ade create --linear` and `--github` name the document themselves.
+  it("starts a ticket by its reference rather than a name", async () => {
+    const opened: Record<string, unknown>[] = [];
+    const panel = newSession(reachWith({ designs: [] }, opened), {});
+    await panel.onMessage({
+      kind: "start",
+      chosen: { ...typed(""), mode: "ticket", ticket: " fix-623 " },
+    });
+    expect(opened[0].path).toBe("/api/open");
+    expect(opened[0].ticket).toBe("fix-623");
+    expect(opened[0].name).toBeUndefined();
+  });
+
   // A state back is a redraw, and a redraw takes the cursor out of the box.
+  // Seeded on the same row the keystrokes are typed on: changing row is a
+  // new list to offer, and that one does answer.
   it("answers a keystroke with nothing", async () => {
-    const panel = newSession(reachWith({ designs: [] }), { repos: ["/r/coast"] });
+    const panel = newSession(reachWith({ designs: [] }), { mode: "work", repos: ["/r/coast"] });
     expect(await panel.onMessage({ kind: "change", chosen: typed("c") })).toBeUndefined();
     expect(await panel.onMessage({ kind: "change", chosen: typed("ca") })).toBeUndefined();
   });
@@ -868,5 +894,111 @@ describe("refreshing the purge page", () => {
     const panel = WHICH["ade.showRepo"](reach);
     await panel.onMessage({ kind: "do", what: "refresh" });
     expect(read).toEqual(["/api/repo"]);
+  });
+});
+
+describe("the New session panel's Open branch row", () => {
+  const BRANCHES = {
+    worktrees: [
+      { path: "/r/coast", name: "coast", branch: "main", main: true },
+      { path: "/r/coast-fix-pricing", name: "coast-fix-pricing", branch: "fix-pricing" },
+      { path: "/r/coast-detached", name: "coast-detached" },
+    ],
+    branches: [{ name: "feat/ADE-211", at: "3 days ago" }],
+  };
+
+  function reachWith(answer: unknown = BRANCHES, sent: Record<string, unknown>[] = []): Reach {
+    return {
+      get: async (_at, path) => {
+        if (path.startsWith("/api/branches?repo=")) {
+          if (answer instanceof Error) throw answer;
+          return answer;
+        }
+        if (path === "/api/repos") return { repos: [{ name: "coast", path: "/r/coast" }] };
+        return {};
+      },
+      call: async () => ({ status: 200, ok: true, text: "{}" }),
+      send: async (_at, path, body) => {
+        sent.push({ path, ...body });
+        return path === "/api/branches/worktree" ? { path: "/r/coast-feat-ade-211" } : { url: "u" };
+      },
+      open: () => {},
+      link: () => {},
+      run: () => {},
+      push: () => {},
+      follow: () => {},
+    };
+  }
+
+  const offerOf = async (reach: Reach, seed: Record<string, unknown>) => {
+    const got = (await newSession(reach, seed).onMessage({ kind: "ready" })) as {
+      offer: { checkouts?: { name: string; at: string }[]; checkoutNote?: string };
+    };
+    return got.offer;
+  };
+
+  const chose = (branch: string, at: string) => ({
+    mode: "branch",
+    repos: ["/r/coast"],
+    branch,
+    at,
+    name: "",
+    design: "",
+    message: "",
+    machine: "",
+    agent: "",
+    model: "",
+    role: "",
+    sandbox: true,
+    ship: false,
+  });
+
+  it("offers the worktrees first, then the branches with none", async () => {
+    const offer = await offerOf(reachWith(), { mode: "branch", repos: ["/r/coast"] });
+    expect(offer.checkouts).toEqual([
+      { name: "main", at: "/r/coast", note: "main checkout" },
+      { name: "fix-pricing", at: "/r/coast-fix-pricing", note: "coast-fix-pricing" },
+      { name: "feat/ADE-211", at: "", note: "3 days ago" },
+    ]);
+  });
+
+  // Nothing names it, so it cannot be opened by name.
+  it("leaves out a worktree on no branch", async () => {
+    const offer = await offerOf(reachWith(), { mode: "branch", repos: ["/r/coast"] });
+    expect(offer.checkouts?.map((one) => one.at)).not.toContain("/r/coast-detached");
+  });
+
+  it("does not read the branches for another row", async () => {
+    const offer = await offerOf(reachWith(), { mode: "work", repos: ["/r/coast"] });
+    expect(offer.checkouts).toBeUndefined();
+  });
+
+  it("says a failed read failed, rather than that there are none", async () => {
+    const offer = await offerOf(reachWith(new Error("not a git repository")), {
+      mode: "branch",
+      repos: ["/r/coast"],
+    });
+    expect(offer.checkoutNote).toContain("not a git repository");
+    expect(offer.checkouts).toBeUndefined();
+  });
+
+  // The checkout is already there, so nothing is made: it opens as it is.
+  it("opens a worktree it already has without making one", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const panel = newSession(reachWith(BRANCHES, sent), {});
+    await panel.onMessage({ kind: "start", chosen: chose("fix-pricing", "/r/coast-fix-pricing") });
+    expect(sent.map((one) => one.path)).toEqual(["/api/open"]);
+    expect(sent[0].dir).toBe("/r/coast-fix-pricing");
+    expect(sent[0].name).toBeUndefined();
+  });
+
+  // A branch with no checkout gets one, and the session opens in that.
+  it("checks a branch out first when it has no worktree", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const panel = newSession(reachWith(BRANCHES, sent), {});
+    await panel.onMessage({ kind: "start", chosen: chose("feat/ADE-211", "") });
+    expect(sent.map((one) => one.path)).toEqual(["/api/branches/worktree", "/api/open"]);
+    expect(sent[0]).toMatchObject({ repo: "/r/coast", branch: "feat/ADE-211" });
+    expect(sent[1].dir).toBe("/r/coast-feat-ade-211");
   });
 });

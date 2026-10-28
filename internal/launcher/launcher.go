@@ -402,6 +402,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/browse", s.guard(s.handleBrowse))
 	mux.HandleFunc("GET /api/worktrees", s.guard(s.handleWorktrees))
 	mux.HandleFunc("GET /api/worktrees/all", s.guard(s.handleWorktreesAll))
+	mux.HandleFunc("GET /api/branches", s.guard(s.handleBranches))
+	mux.HandleFunc("POST /api/branches/worktree", s.guard(s.handleBranchWorktree))
 	mux.HandleFunc("POST /api/prune", s.guard(s.handlePrune))
 	mux.HandleFunc("POST /api/sync", s.guard(s.handleSync))
 	mux.HandleFunc("GET /api/events", s.guard(s.hub.HandleSSE))
@@ -683,6 +685,8 @@ type openRequest struct {
 	// Name makes a workspace for the session rather than using this
 	// checkout: a document, and a worktree on the branch it names.
 	Name string `json:"name,omitempty"`
+	// Ticket makes the same workspace from FIX-623 or #12 instead of a name.
+	Ticket string `json:"ticket,omitempty"`
 	// Also are other checkouts the session works in, a worktree each on the
 	// same branch. Dir is home: the agent and the document go there.
 	Also []string `json:"also,omitempty"`
@@ -737,14 +741,23 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if name := strings.TrimSpace(req.Name); name != "" {
+	name, ticket := strings.TrimSpace(req.Name), strings.TrimSpace(req.Ticket)
+	if ticket != "" {
+		// Before the worktree: a reference that is neither a Linear key nor an
+		// issue number is a bad request, not an empty Design tab.
+		if _, err := sessions.TicketArgs(ticket); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if name != "" || ticket != "" {
 		also, err := s.checkouts(all, req.Also)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), req.Prompt, req.Files,
-			sessions.Work{Name: name, Agent: req.Agent, Model: req.Model, Role: req.Role, Also: also, Sandbox: req.Sandbox},
+			sessions.Work{Name: name, Ticket: ticket, Agent: req.Agent, Model: req.Model, Role: req.Role, Also: also, Sandbox: req.Sandbox},
 			req.Brief)
 		return
 	}

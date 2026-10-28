@@ -344,6 +344,35 @@ func EnsureWorktree(ctx context.Context, root, path, branch string) (bool, error
 	return EnsureWorktreeFrom(ctx, root, path, branch, nil)
 }
 
+// EnsureWorktreeForBranch is the checkout to work on a branch in, by name
+// alone: the worktree that already holds it, one made for a branch that
+// exists, or a new branch off start. added marks a checkout made now.
+//
+// The three cases are separate because `worktree add -b` refuses a branch
+// the repository already has, and git refuses a second checkout of one.
+func EnsureWorktreeForBranch(
+	ctx context.Context,
+	root, branch string,
+	start func() string,
+) (path string, added bool, err error) {
+	if branch == "" {
+		return "", false, fmt.Errorf("a worktree needs a branch")
+	}
+	if at := WorktreeOn(ctx, root, branch); at != "" {
+		return at, false, nil
+	}
+	// The branch keeps its name; the directory cannot. `feat/ADE-211` as a
+	// path segment would nest the worktree inside a `repo-feat` directory.
+	path = WorktreePath(root, pathSafe(branch))
+	// A path already taken goes through Ensure, which reuses it only when it
+	// really is this branch's checkout and says so otherwise.
+	if _, taken := os.Stat(path); taken == nil || !HasBranch(ctx, root, branch) {
+		added, err = EnsureWorktreeFrom(ctx, root, path, branch, start)
+		return path, added, err
+	}
+	return path, true, AddWorktreeOn(ctx, root, path, branch)
+}
+
 // EnsureWorktreeFrom is EnsureWorktree branching a new checkout off start,
 // a function because resolving one costs a fetch and reuse must not wait.
 func EnsureWorktreeFrom(ctx context.Context, root, path, branch string, start func() string) (bool, error) {
@@ -397,6 +426,21 @@ func AddWorktree(ctx context.Context, root, path, branch string) error {
 		return fmt.Errorf("git worktree add failed: %w", err)
 	}
 	return nil
+}
+
+// pathSafe is a branch name as one directory name, by the rule the slug of a
+// design document already follows.
+func pathSafe(branch string) string {
+	out := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '.', r == '_', r == '-':
+			return r
+		}
+		return '-'
+	}, branch)
+	return strings.Trim(out, "-.")
 }
 
 // HasBranch reports whether the repository already has this branch.

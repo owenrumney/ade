@@ -91,6 +91,9 @@ export class Omnibox {
         draw();
       });
       input.addEventListener("keydown", (e) => {
+        // The keys that close the box are the box's. Left to bubble, the
+        // same one reaches the window and opens the sidebar's picked row.
+        if (e.key === "Escape" || e.key === "Enter") shut(e);
         if (e.key === "Escape") return finish(undefined);
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -142,6 +145,7 @@ export class Omnibox {
         done(said);
       };
       input.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" || e.key === "Enter") shut(e);
         if (e.key === "Escape") return finish(undefined);
         // Enter on an empty box is an empty answer, not a change of mind:
         // a few verbs read one, and only escape cancels.
@@ -215,6 +219,7 @@ export class Omnibox {
       return draw();
     }
     if (e.key === "Enter") {
+      shut(e);
       const one = this.shown[this.at];
       this.close();
       if (one) this.pick(one);
@@ -233,6 +238,12 @@ export class Omnibox {
     });
     return row;
   }
+}
+
+// shut keeps a key the box has answered from going anywhere else.
+function shut(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 // loose is the picker's match: every word, in any order, so a label with a

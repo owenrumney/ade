@@ -552,3 +552,63 @@ func TestAWorktreeBranchDoesNotTrackWhateverItWasMadeFrom(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "origin/fresh", got)
 }
+
+// Opening a branch by name is three different git calls depending on what is
+// already there, and `worktree add -b` refuses a branch the repository has.
+func TestEnsureWorktreeForBranch(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("uses the worktree the branch is already checked out in", func(t *testing.T) {
+		dir := testRepo(t)
+		made := filepath.Join(t.TempDir(), "repo-fix-623")
+		_, err := EnsureWorktree(ctx, dir, made, "fix-623")
+		require.NoError(t, err)
+
+		path, added, err := EnsureWorktreeForBranch(ctx, dir, "fix-623", nil)
+		require.NoError(t, err)
+		assert.False(t, added)
+		assert.Equal(t, made, path)
+	})
+
+	// The case `worktree add -b` cannot do: the branch exists, nothing has it out.
+	t.Run("checks out a branch that has no worktree", func(t *testing.T) {
+		dir := testRepo(t)
+		_, err := run(ctx, dir, "branch", "fix-623")
+		require.NoError(t, err)
+
+		path, added, err := EnsureWorktreeForBranch(ctx, dir, "fix-623", nil)
+		require.NoError(t, err)
+		assert.True(t, added)
+		assert.Equal(t, "fix-623", Branch(ctx, path))
+	})
+
+	t.Run("makes the branch when the repository has none", func(t *testing.T) {
+		dir := testRepo(t)
+
+		path, added, err := EnsureWorktreeForBranch(ctx, dir, "fix-623", nil)
+		require.NoError(t, err)
+		assert.True(t, added)
+		assert.Equal(t, "fix-623", Branch(ctx, path))
+	})
+
+	t.Run("needs a branch", func(t *testing.T) {
+		_, _, err := EnsureWorktreeForBranch(ctx, testRepo(t), "", nil)
+		require.Error(t, err)
+	})
+}
+
+// A branch name is not a directory name: `feat/ADE-211` would otherwise put
+// the worktree inside a `repo-feat` directory, away from its siblings.
+func TestAWorktreeForABranchWithASlashSitsBesideTheRepository(t *testing.T) {
+	ctx := context.Background()
+	dir := testRepo(t)
+	_, err := run(ctx, dir, "branch", "feat/ADE-211")
+	require.NoError(t, err)
+
+	path, added, err := EnsureWorktreeForBranch(ctx, dir, "feat/ADE-211", nil)
+	require.NoError(t, err)
+	assert.True(t, added)
+	assert.Equal(t, filepath.Dir(dir), filepath.Dir(path))
+	assert.Equal(t, filepath.Base(dir)+"-feat-ADE-211", filepath.Base(path))
+	assert.Equal(t, "feat/ADE-211", Branch(ctx, path), "the branch keeps its name")
+}

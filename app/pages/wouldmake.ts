@@ -15,7 +15,10 @@ export function worktreeFor(root: string, branch: string): string {
   const at = root.replace(/\/+$/, "");
   const cut = at.lastIndexOf("/");
   const dir = cut <= 0 ? at.slice(0, cut + 1) : at.slice(0, cut);
-  return `${dir}/${at.slice(cut + 1)}-${branch}`;
+  // The branch keeps its name; the directory cannot. `feat/ADE-211` as a path
+  // segment would nest the worktree inside a `repo-feat` directory.
+  const leaf = branch.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+  return `${dir}/${at.slice(cut + 1)}-${leaf}`;
 }
 
 // home is passed in: the window has none of its own to read.

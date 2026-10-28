@@ -17,10 +17,11 @@ import {
 import { Omnibox, el } from "./omnibox";
 import { sheet, type Asked } from "./sheets";
 import { build, flatten, squashed, toggled, type Node, type Shown } from "./tree";
-import { owed, wired, type Ask, type Doing } from "./doing";
+import { fill, owed, wired, type Ask, type Doing } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
 import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
 import { Kept } from "./kept";
+import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
 import { frame, pushTo, stirred, tell } from "./panel";
 import {
   dismissable,
@@ -33,6 +34,7 @@ import {
   rebuilt,
   shut,
   shutMany,
+  startIn,
   sweeping,
   trimmed,
   type Layout,
@@ -67,6 +69,9 @@ const startingFor = 8_000;
 
 // What every list says while that server is on its way up.
 const coming = "Starting ade for this checkout…";
+
+// Where the files ticked off in a review are kept between reloads.
+const markKey = "ade.diff.viewed";
 
 // The dock asks a panel tab's question — is there a server to fetch from.
 const CHAT_TAB: Tab = { id: "chat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
@@ -154,6 +159,9 @@ class Ade {
   // What to show once it announces: the diff, or the conversation.
   private landingFor: "review" | "chat" = "review";
   private landingSince = 0;
+  // An Add to review in flight. Left live, a second press files the
+  // comments into the draft twice.
+  private adding = false;
   private where = new Map<string, string>();
   // What is open in the editor area. A pane is kept once built: moving
   // an iframe reloads it, so switching hides rather than rebuilds.
@@ -177,6 +185,9 @@ class Ade {
   // The sidebar folded away, by the arrows under the activity bar.
   private sideShut = localStorage.getItem("ade.side.shut") === "1";
   private split = localStorage.getItem("ade.diff.split") === "1";
+  // Files ticked off in the review. Switching session starts a fresh set.
+  private marks: Marks = {};
+  private marksFor = "";
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
   private watching = "";
@@ -319,6 +330,11 @@ class Ade {
       : await Promise.all([this.diff(), this.tree(), this.docs()]);
     this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
+    if (this.marksFor !== this.session) {
+      this.marksFor = this.session;
+      this.marks = readMarks(localStorage.getItem(markKey), this.session);
+    }
+    this.marks = pruned(this.marks, this.changes);
     this.world = {
       places: inBarOrder([
         real.waiting(dash, got.active ?? []),
@@ -593,6 +609,9 @@ class Ade {
     if (what.at === "panel") {
       this.omnibox.close();
       if (isChat(what.panel)) return this.chat();
+      // Run from a workspace, New session opens with that repository ticked.
+      const from = what.panel === "ade.newSession" ? startIn(held(this.tabs, this.active)) : "";
+      if (from) return this.show({ panel: `in:${from}` }, "New session", "session");
       const made = WHICH[what.panel];
       const title = made ? made(this.reach(), this.sessionAt()).title : what.panel;
       return this.show({ panel: what.panel }, title, "session");
@@ -668,12 +687,7 @@ class Ade {
     for (const need of what.needs ?? []) {
       const said = await this.askFor(need);
       if (said === undefined) return this.omnibox.close();
-      const slot = `{${need.as}}`;
-      // A row whose answer is an object names its own fields: the switcher
-      // offers worktrees, which take a path, and branches, which take a name.
-      if (said !== null && typeof said === "object") Object.assign(body, said);
-      else if (path.includes(slot)) path = path.replace(slot, encodeURIComponent(String(said)));
-      else body[need.as] = said;
+      path = fill(body, path, need.as, said);
     }
     this.omnibox.close();
     this.say("working…");
@@ -685,7 +699,12 @@ class Ade {
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got);
     this.say(back.error || said(command, back.body));
-    void this.read();
+    await this.read();
+    // Opening a space is asking to look at it. Without this the list gains
+    // a row and the workspace already showing stays put.
+    if (!back.error && command === "ade.openSpace" && typeof body.repo === "string") {
+      this.openSpace(body.repo);
+    }
   }
 
   private async report(
@@ -945,6 +964,12 @@ class Ade {
       this.split = !this.split;
       localStorage.setItem("ade.diff.split", this.split ? "1" : "0");
       return this.draw();
+    } else if (asked.what === "viewed") {
+      const file = this.changes.find((c) => c.path === asked.file);
+      if (!file) return;
+      this.marks = flip(this.marks, file);
+      localStorage.setItem(markKey, writeMarks(this.marks, this.session));
+      return this.draw();
     } else if (asked.what === "unfold") {
       this.openThreads = toggled(this.openThreads, asked.id ?? "");
       return this.draw();
@@ -1137,9 +1162,12 @@ class Ade {
     this.draw();
   }
 
-  private say(said: string): void {
+  // hold keeps the line up for a verb that runs for minutes. Cleared after
+  // six seconds, a clone in progress reads as a verb that did nothing.
+  private say(said: string, hold = false): void {
     this.said = said;
     this.draw();
+    if (hold) return;
     setTimeout(() => {
       if (this.said === said) {
         this.said = "";
@@ -1283,7 +1311,18 @@ class Ade {
     // not the one showing.
     if (this.spaceShown !== space) return;
     const seen = this.seenOf(space, got.error ? undefined : got, got.error);
-    this.show({ kind: "space", title: space.repo, seen }, space.repo, "space");
+    // Numbers landing must not take the tab back: New session opened while
+    // they were reading is the one you asked for.
+    this.restate({ kind: "space", title: space.repo, seen }, space.repo, "space");
+  }
+
+  // restate redraws a tab already open, leaving which one is showing alone.
+  private restate(what: Tab["what"], title: string, icon: string): void {
+    const id = idOf(what);
+    if (!this.tabs.some((tab) => tab.id === id)) return;
+    this.tabs = opened(this.tabs, { id, title, icon, what });
+    this.remember();
+    this.draw();
   }
 
   // spaceAct is a link or an Archive on that page.
@@ -1466,7 +1505,7 @@ class Ade {
     const link = await this.omnibox.type("Paste a pull request link", "");
     this.omnibox.close();
     if (!link?.trim()) return;
-    this.say("checking it out…");
+    this.say(`checking out ${link.trim()}; cloning first if you do not have it…`, true);
     const got = await window.ade!
       .act("launcher", "/api/reviews/open", { link: link.trim() })
       .catch((e: Error) => ({ error: e.message }));
@@ -1991,9 +2030,9 @@ class Ade {
       bar.append(up);
     }
     if (this.draft.ready > 0) {
-      const add = el("span", "btn quiet", `Add ${this.draft.ready} to the review`);
-      add.title = "Into the draft review, which only you can see.";
-      add.addEventListener("click", () => void this.addToReview());
+      const add = el("span", this.adding ? "btn quiet add off" : "btn quiet add", `Add ${this.draft.ready} to the review`);
+      add.title = this.adding ? "Adding them…" : "Into the draft review, which only you can see.";
+      if (!this.adding) add.addEventListener("click", () => void this.addToReview());
       bar.append(add);
     }
     if (this.draft.inDraft > 0) {
@@ -2132,6 +2171,7 @@ class Ade {
     const { node, depth, open } = shown;
     const row = el("div", `twig${node.status ? " " + node.status : ""}`);
     if (this.picked.get(this.place) === node.path) row.className += " on";
+    if (this.place === "review" && this.marks[node.path]) row.className += " viewed";
     for (let i = 0; i < depth; i++) row.append(el("span", "pad guide"));
 
     const chev = el("span", node.dir ? (open ? "chev open" : "chev") : "chev leaf");
@@ -2281,10 +2321,14 @@ class Ade {
   private async addToReview(): Promise<void> {
     const pr = this.world.status.pr;
     if (!window.ade || !pr) return this.say("this branch has no pull request");
+    if (this.adding) return;
+    this.adding = true;
+    this.draw();
     const got = await window.ade
       .act("session", "/api/review/draft", { confirm: pr }, this.session)
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
+    this.adding = false;
     if (back.error) return this.say(back.error);
     this.say(real.draftSaid(back.body as real.Drafted, pr));
     await this.read();
@@ -2792,7 +2836,12 @@ class Ade {
       (rule) => void this.forget(rule),
       (asked) => void this.onThread(asked),
       (id) => void this.prAct(id),
-      { hasPR: Boolean(this.world.status.pr), open: this.openThreads, split: this.split },
+      {
+        hasPR: Boolean(this.world.status.pr),
+        open: this.openThreads,
+        split: this.split,
+        viewed: new Set(Object.keys(this.marks)),
+      },
       (who, text) => void this.askPerson(who, text),
       (did) => void this.spaceAct(did),
     );

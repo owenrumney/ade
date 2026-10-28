@@ -2,7 +2,7 @@
 // summary of what Start would do. No vscode and no node, so it bundles.
 import type { Mount } from "../sandboxfile";
 
-export type Mode = "work" | "plan" | "design" | "direct" | "scratch";
+export type Mode = "work" | "ticket" | "plan" | "design" | "branch" | "direct" | "scratch";
 
 // Row is one of ade's existing ways in. The screen routes to them; it invents
 // no behaviour of its own.
@@ -10,9 +10,9 @@ export interface Row {
   mode: Mode;
   label: string;
   detail: string;
-  // names is where the branch comes from: the name box, the document picked
-  // from the list, or nothing, which is a conversation where you already are.
-  names: "box" | "design" | "none";
+  // names is where the branch comes from. "none" is a conversation where you
+  // already are.
+  names: "box" | "ticket" | "design" | "branch" | "none";
   // spans is whether more than one repository may be ticked.
   spans: boolean;
   // picks is whether a repository is ticked at all.
@@ -25,6 +25,14 @@ export const ROWS: Row[] = [
     label: "Work",
     detail: "a branch, a worktree and a design document",
     names: "box",
+    spans: true,
+    picks: true,
+  },
+  {
+    mode: "ticket",
+    label: "Ticket",
+    detail: "the same, from a Linear ticket or a GitHub issue",
+    names: "ticket",
     spans: true,
     picks: true,
   },
@@ -42,6 +50,14 @@ export const ROWS: Row[] = [
     detail: "carry on with a document already written",
     names: "design",
     spans: true,
+    picks: true,
+  },
+  {
+    mode: "branch",
+    label: "Open branch",
+    detail: "a branch or worktree you already have",
+    names: "branch",
+    spans: false,
     picks: true,
   },
   {
@@ -71,6 +87,8 @@ export function rowFor(mode: Mode): Row {
 export interface Chosen {
   mode: Mode;
   name: string;
+  // ticket is the Ticket row's box: FIX-623, or #12 for an issue of home.
+  ticket: string;
   // design is a document by the file name the list gave, and ship is whether
   // it is this machine's and has to be carried to the one the session runs on.
   design: string;
@@ -87,6 +105,10 @@ export interface Chosen {
   env: { [key: string]: string };
   // repos are ticked in the order they were ticked. The first is home.
   repos: string[];
+  // The Open branch row's pick. `at` is the checkout it already has, empty
+  // for a branch that has none, which is made when it is opened.
+  branch: string;
+  at: string;
 }
 
 // Doc is one document the Design row offers. ship marks one that is here and
@@ -124,6 +146,7 @@ export interface Plan {
 export const fresh: Chosen = {
   mode: "work",
   name: "",
+  ticket: "",
   design: "",
   ship: false,
   message: "",
@@ -135,6 +158,8 @@ export const fresh: Chosen = {
   mounts: [],
   env: {},
   repos: [],
+  branch: "",
+  at: "",
 };
 
 // home is where the agent runs, the session's root and where the document
@@ -143,12 +168,33 @@ export function home(chosen: Chosen): string | undefined {
   return chosen.repos[0];
 }
 
-// names is what the branch is made from: the name typed, or the document
-// picked, whose own name ade reuses rather than scaffolding a second one.
+export type Ref = { linear: string } | { issue: number };
+
+// The shapes the server accepts, so one it would refuse is refused here
+// rather than after the worktree is made.
+const linearRE = /^[A-Za-z][A-Za-z0-9]{0,15}-[0-9]{1,9}$/;
+const issueRE = /^#?([0-9]{1,9})$/;
+
+export function ref(text: string): Ref | undefined {
+  const want = text.trim();
+  if (linearRE.test(want)) return { linear: want.toUpperCase() };
+  const issue = issueRE.exec(want);
+  if (issue && issue[1] !== "0") return { issue: Number(issue[1]) };
+  return undefined;
+}
+
+// names is what the branch is made from: the name typed, the ticket, or the
+// document picked, whose own name ade reuses rather than scaffolding a second.
 export function names(chosen: Chosen): string {
   const row = rowFor(chosen.mode);
   if (row.names === "box") return chosen.name.trim();
+  // An issue is named after its title, which only the server can read.
+  if (row.names === "ticket") {
+    const one = ref(chosen.ticket);
+    return one && "linear" in one ? one.linear : "";
+  }
   if (row.names === "design") return chosen.design;
+  if (row.names === "branch") return chosen.branch;
   return "";
 }
 
@@ -173,10 +219,13 @@ export function onto(chosen: Chosen, mode: Mode): string[] {
 export function missing(chosen: Chosen): string | undefined {
   const row = rowFor(chosen.mode);
   if (row.names === "box" && !chosen.name.trim()) return "Name the work.";
+  if (row.names === "ticket" && !ref(chosen.ticket))
+    return "Give a ticket: FIX-623, or #12 for a GitHub issue.";
   // The repository first where a design is picked: the list is home's, so
   // asking for a document before there is one to list asks the impossible.
   if (row.picks && chosen.repos.length === 0) return "Tick a repository.";
   if (row.names === "design" && !chosen.design) return "Pick a design.";
+  if (row.names === "branch" && !chosen.branch) return "Pick a branch.";
   return undefined;
 }
 
@@ -188,6 +237,12 @@ export function summary(chosen: Chosen, plan: Plan): string {
     plan.makes.length === 1
       ? plan.makes[0].repo
       : `${plan.makes[0].repo} and ${plan.makes.length - 1} more`;
+  if (!plan.branch && row.names === "ticket") return `Issue #${issueOf(chosen)} in ${where}.`;
   if (!plan.branch) return `A conversation in ${where}.`;
   return `${plan.branch} in ${where}.`;
+}
+
+export function issueOf(chosen: Chosen): number | undefined {
+  const one = ref(chosen.ticket);
+  return one && "issue" in one ? one.issue : undefined;
 }

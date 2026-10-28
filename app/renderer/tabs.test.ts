@@ -10,6 +10,7 @@ import {
   rebuilt,
   shut,
   shutMany,
+  startIn,
   sweeping,
   trimmed,
   type Tab,
@@ -230,5 +231,29 @@ describe("which panels hold the New session screen", () => {
     for (const other of ["ade.openChat", "design:plan.md", "ade.worktrees", "spacedesign:/r|a.md"]) {
       expect(newSessionPanel(other), other).toBe(false);
     }
+  });
+});
+
+describe("the repository a New session starts in", () => {
+  const space = (path?: string): Tab => ({
+    id: "space:o/r",
+    title: "o/r",
+    icon: "space",
+    what: {
+      kind: "space",
+      title: "o/r",
+      seen: { space: { repo: "o/r", path, sessions: 0, here: true }, sessions: [], designs: [] },
+    },
+  });
+
+  it("is the workspace you ran it from", () => {
+    expect(startIn(space("/code/ade"))).toBe("/code/ade");
+  });
+
+  // A space not cloned here has no checkout to tick.
+  it("is nothing for another tab, or a workspace with no checkout", () => {
+    expect(startIn(space(undefined))).toBe("");
+    expect(startIn(tab("a"))).toBe("");
+    expect(startIn(undefined)).toBe("");
   });
 });

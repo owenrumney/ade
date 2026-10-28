@@ -30,9 +30,36 @@ const VIEWS = [
   { name: "app-spaces", place: "Spaces" },
   { name: "app-space", place: "Spaces", row: "owenrumney/ade" },
   { name: "app-issues", place: "Issues" },
+  {
+    name: "app-space-new-session",
+    place: "Spaces",
+    row: "owenrumney/ade",
+    keys: "k",
+    type: "New Session",
+    enter: true,
+    settle: 600,
+  },
   { name: "app-open-space", place: "Spaces", keys: "k", type: "open space" },
+  {
+    name: "app-open-space-again",
+    place: "Spaces",
+    row: "owenrumney/ade",
+    keys: "k",
+    type: "open a space",
+    enter: true,
+    pick: "squealer",
+    settle: 700,
+  },
   { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
+  {
+    name: "app-review-adding",
+    place: "Review",
+    session: "Rethink the workflow and the window",
+    tap: ".review-bar .btn.add",
+    settle: 500,
+  },
   { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
+  { name: "app-review-viewed", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .seen input", settle: 300 },
   { name: "app-chat-wide", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
   { name: "app-todo-start", place: "Todos", hover: ".sidebar .row", tap: ".sidebar .row .act", settle: 900 },
   { name: "app-todo-menu", place: "Todos", right: ".sidebar .row" },
@@ -167,7 +194,15 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     if (view.type) await page.type(".omnibox input", view.type);
     if (view.enter) {
       await page.keyboard.press("Enter");
-      await new Promise((done) => setTimeout(done, 400));
+      await new Promise((done) => setTimeout(done, view.settle ?? 400));
+    }
+    // A verb that asks something puts up a second box. `pick` answers it,
+    // which is the only way to shoot what the verb then does.
+    if (view.pick) {
+      await page.waitForSelector(".omnibox input");
+      if (view.pick !== true) await page.type(".omnibox input", view.pick);
+      await page.keyboard.press("Enter");
+      await new Promise((done) => setTimeout(done, view.settle ?? 400));
     }
   }
   await new Promise((done) => setTimeout(done, 250));

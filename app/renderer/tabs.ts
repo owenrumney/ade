@@ -17,6 +17,14 @@ export function newSessionPanel(panel: string): boolean {
   return panel === "ade.newSession" || panel.startsWith("todo:") || panel.startsWith("in:");
 }
 
+// startIn is the checkout a New session run from this tab should open with
+// ticked. Only a workspace names one; everything else leaves the pick empty.
+export function startIn(tab: Tab | undefined): string {
+  const what = tab?.what;
+  if (!what || "panel" in what || what.kind !== "space") return "";
+  return what.seen.space.path ?? "";
+}
+
 export function idOf(what: Tab["what"]): string {
   if ("panel" in what) return `panel:${what.panel}`;
   switch (what.kind) {

@@ -1362,19 +1362,9 @@ func unmake(ctx context.Context, made []worktreeMade) {
 // ensureAlso is EnsureWorktreeFrom for a branch another repository named, and
 // reports where it put it. The base ref is home's, so it is not used here.
 func ensureAlso(ctx context.Context, repo, branch string) (string, bool, error) {
-	// Git refuses a second checkout of a branch it already has out, so the one
-	// it has out is the one this session works in.
-	if at := gitdiff.WorktreeOn(ctx, repo, branch); at != "" {
-		return at, false, nil
-	}
-	path := gitdiff.WorktreePath(repo, branch)
-	if _, err := os.Stat(path); err == nil || !gitdiff.HasBranch(ctx, repo, branch) {
-		added, err := gitdiff.EnsureWorktreeFrom(ctx, repo, path, branch, func() string {
-			return freshBase(ctx, repo)
-		})
-		return path, added, err
-	}
-	return path, true, gitdiff.AddWorktreeOn(ctx, repo, path, branch)
+	return gitdiff.EnsureWorktreeForBranch(ctx, repo, branch, func() string {
+		return freshBase(ctx, repo)
+	})
 }
 
 // freshBase is gitdiff.FreshBase with the fallback said out loud, since the

@@ -76,16 +76,22 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		token = s.upstreamToken(dir)
 	}
 	target := &url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port))}
-	s.relay(w, r, target, rest, prefix, token)
+	s.relay(w, r, target, rest, prefix, token, func() {
+		// Recorded and running, but it did not answer. Drop the claim so the
+		// next request falls through to the 404 the window knows how to end.
+		s.forget([]Serving{{ID: id, Dir: dir, Port: port}})
+	})
 }
 
 // relay is the proxy itself, pointed at one address: the ade serving
-// this session, or the launcher of the machine it is on.
+// this session, or the launcher of the machine it is on. dead, when given,
+// is called once when the far end could not be reached.
 func (s *Server) relay(
 	w http.ResponseWriter,
 	r *http.Request,
 	target *url.URL,
 	path, prefix, token string,
+	dead ...func(),
 ) {
 	(&httputil.ReverseProxy{
 		// Without this an event stream is held until the buffer fills.
@@ -101,6 +107,17 @@ func (s *Server) relay(
 			}
 		},
 		ModifyResponse: func(res *http.Response) error { return reprefix(res, prefix) },
+		// The default writes a bare 502, so a person reading it is told a
+		// number and nothing about what to do with it.
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			for _, call := range dead {
+				call()
+			}
+			slog.Debug("proxy", "to", target.Host, "path", path, "err", err)
+			writeError(w, http.StatusBadGateway,
+				"no ade is answering for that session: it is recorded as running but did not reply. "+
+					"Stop ade here, or stop and put it away")
+		},
 	}).ServeHTTP(w, r)
 }
 

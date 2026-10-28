@@ -1,6 +1,6 @@
 import { WHICH } from "./panels";
 import { describe, expect, it } from "vitest";
-import { live, owed, WIRED, wired, type Ask } from "./doing";
+import { fill, live, owed, WIRED, wired, type Ask } from "./doing";
 import { UNLISTED, VOCABULARY } from "./verbs";
 import { BAR } from "./model";
 
@@ -99,6 +99,21 @@ describe("a verb that needs something first", () => {
     const ask = needs[0] as Ask;
     expect(ask.ask).toBe("many");
     expect(ask.ask === "many" && ask.ticks).toEqual(["security", "staff-reviewer"]);
+  });
+
+  // Spread instead, the ticked names arrived as {0: …, 1: …}, the server
+  // saw no agents, and a named review ran as the cold reviewer.
+  it("sends the ticked names under the name the verb asked for", () => {
+    const body: Record<string, unknown> = {};
+    expect(fill(body, "/api/review", "agents", ["security", "staff-reviewer"])).toBe("/api/review");
+    expect(body).toEqual({ agents: ["security", "staff-reviewer"] });
+  });
+
+  it("fills a path slot, and merges a row that names its own fields", () => {
+    const body: Record<string, unknown> = {};
+    expect(fill(body, "/api/threads/{id}/resolve", "id", "t 1")).toBe("/api/threads/t%201/resolve");
+    expect(fill(body, "/api/switch", "path", { path: "/w", branch: "main" })).toBe("/api/switch");
+    expect(body).toEqual({ path: "/w", branch: "main" });
   });
 
   it("has an answer for every slot in its path", () => {

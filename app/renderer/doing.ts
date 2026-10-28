@@ -417,6 +417,23 @@ export function wired(command: string): Doing | undefined {
   return WIRED[command];
 }
 
+// fill puts one answer into the request and returns the path it leaves.
+// An array is a `many` answer and goes under its own name; only a row that
+// names its own fields is merged.
+export function fill(
+  body: Record<string, unknown>,
+  path: string,
+  as: string,
+  said: unknown,
+): string {
+  const slot = `{${as}}`;
+  if (!Array.isArray(said) && said !== null && typeof said === "object") Object.assign(body, said);
+  else if (!Array.isArray(said) && path.includes(slot))
+    return path.replace(slot, encodeURIComponent(String(said)));
+  else body[as] = said;
+  return path;
+}
+
 // live is whether picking it does something now. A `soon` is listed and
 // dimmed rather than hidden: the vocabulary is ade's.
 export function live(command: string): boolean {

@@ -562,6 +562,35 @@ const REPO = {
 };
 
 const READS = {
+  // offered is what is not open yet, which is the whole of the Open a space pick.
+  "/api/spaces": {
+    spaces: WORLD.spaces,
+    offered: [
+      { repo: "infracost/cloud-pricing-api", owner: "infracost", name: "cloud-pricing-api", sessions: 4, branch: "main" },
+      { repo: "owenrumney/squealer", owner: "owenrumney", name: "squealer", sessions: 1, branch: "main" },
+    ],
+  },
+  // What the New session screen's Open branch row lists.
+  "/api/branches": {
+    worktrees: [
+      { path: "/Users/owen/code/owenrumney/ade", name: "ade", branch: "main", main: true },
+      {
+        path: "/Users/owen/code/owenrumney/ade-rethink-workflow-and-uk",
+        name: "ade-rethink-workflow-and-uk",
+        branch: "rethink-workflow-and-uk",
+      },
+      {
+        path: "/Users/owen/code/owenrumney/ade-webview-for-sandbox",
+        name: "ade-webview-for-sandbox",
+        branch: "webview-for-sandbox",
+      },
+    ],
+    branches: [
+      { name: "fix/comment-side-vocabulary", at: "4 days ago" },
+      { name: "add-push-with-lease-in", at: "6 days ago" },
+      { name: "feat/import-a-session", at: "last week" },
+    ],
+  },
   "/api/diff": DIFF,
   "/api/state": STATE,
   "/api/repo": REPO,
@@ -668,7 +697,22 @@ export function shell() {
           { name: "lint", bucket: "pass" },
         ],
       }),
-      act: async () => ({}),
+      // Opening a space moves it from offered to open, so the window can be
+      // driven through the whole verb rather than only up to the pick.
+      act: async (at, path, body) => {
+        // Real routes take a second or two, which is the whole of what a
+        // button disabled while it runs is for.
+        if (path.split("?")[0] === "/api/review/draft")
+          return new Promise((done) => setTimeout(() => done({ added: 1 }), 2000));
+        if (path.split("?")[0] !== "/api/spaces") return {};
+        const reads = READS["/api/spaces"];
+        const want = reads.offered.find((one) => one.repo === body.repo);
+        if (!want) return {};
+        reads.offered = reads.offered.filter((one) => one !== want);
+        reads.spaces.push({ ...want, path: "/Users/owen/code/" + want.repo, here: true, designs: [] });
+        WORLD.spaces = reads.spaces;
+        return {};
+      },
       // The raw one: the left side of a diff, as the editor reads it.
       call: async (at, path) =>
         path.startsWith("/api/blob")

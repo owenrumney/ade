@@ -18,10 +18,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/owenrumney/ade/internal/linear"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/transcripts"
 )
@@ -313,9 +315,12 @@ func startArgs(role string, sandbox *bool) []string {
 // Work is what `ade create` is asked for beyond the name: what the session
 // starts on, and the other checkouts it may edit.
 type Work struct {
-	Name  string
-	Agent string
-	Model string
+	Name string
+	// Ticket starts the work from a tracker reference instead of a name:
+	// FIX-623 for Linear, #12 for a GitHub issue of this repository.
+	Ticket string
+	Agent  string
+	Model  string
 	// Base branches the worktree from this ref rather than a fetched main.
 	Base string
 	// Role is the machine-wide prompt this session starts under.
@@ -341,6 +346,26 @@ func CreateNamedFrom(ctx context.Context, dir, name, agent, model, base string) 
 	return CreateWork(ctx, dir, Work{Name: name, Agent: agent, Model: model, Base: base})
 }
 
+// issueRefRE is a GitHub issue of this repository: #12, or the bare number.
+var issueRefRE = regexp.MustCompile(`^#?([0-9]{1,9})$`)
+
+// TicketArgs is the `ade create` flag a ticket reference means, or nothing for
+// an empty one. This reaches a command line, so the shape is the boundary.
+func TicketArgs(ticket string) ([]string, error) {
+	ticket = strings.TrimSpace(ticket)
+	switch {
+	case ticket == "":
+		return nil, nil
+	case linear.ValidRef(ticket):
+		return []string{"--linear", strings.ToUpper(ticket)}, nil
+	default:
+		if m := issueRefRE.FindStringSubmatch(ticket); m != nil && m[1] != "0" {
+			return []string{"--github", m[1]}, nil
+		}
+		return nil, fmt.Errorf("%q is not a ticket: give a Linear reference like FIX-623, or a GitHub issue like #12", ticket)
+	}
+}
+
 // CreateWork is CreateNamed with everything the new-session screen can ask
 // for. It returns the URL and the home worktree.
 func CreateWork(ctx context.Context, dir string, w Work) (string, string, error) {
@@ -349,6 +374,10 @@ func CreateWork(ctx context.Context, dir string, w Work) (string, string, error)
 		return "", "", fmt.Errorf("find the ade binary: %w", err)
 	}
 	name := w.Name
+	from, err := TicketArgs(w.Ticket)
+	if err != nil {
+		return "", "", err
+	}
 	args := append([]string{"create"}, openArgs(w.Agent, w.Model, "")...)
 	if w.Base != "" {
 		args = append(args, "--base", w.Base)
@@ -360,8 +389,14 @@ func CreateWork(ctx context.Context, dir string, w Work) (string, string, error)
 	if w.Docs != "" {
 		args = append(args, "--docs", w.Docs)
 	}
-	// After --, so a name cannot be read as a flag.
-	args = append(args, "--", name)
+	if len(from) > 0 {
+		// The flag names the document itself, so there is no positional name.
+		name = strings.TrimSpace(w.Ticket)
+		args = append(args, from...)
+	} else {
+		// After --, so a name cannot be read as a flag.
+		args = append(args, "--", name)
+	}
 	cmd := exec.CommandContext(ctx, self, args...) // #nosec G204 -- this binary, in a directory the scan found
 	cmd.Dir = dir
 	out, err := cmd.Output()

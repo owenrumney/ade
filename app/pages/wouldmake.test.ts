@@ -30,3 +30,8 @@ describe("the worktree it gets", () => {
     expect(tilde("/srv/code/ade-cart", "")).toBe("/srv/code/ade-cart");
   });
 });
+
+// A branch keeps its slashes; the directory beside the repository cannot.
+it("flattens a branch name into one directory name", () => {
+  expect(worktreeFor("/srv/code/ade", "feat/ADE-211")).toBe("/srv/code/ade-feat-ADE-211");
+});

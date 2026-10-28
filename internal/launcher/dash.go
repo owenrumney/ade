@@ -149,11 +149,14 @@ func (s *Server) openSpaceFor(repo string) {
 		slog.Debug("open the space for a review", "repo", repo, "err", err)
 		return
 	}
-	if len(spaces.Clean(cfg.Spaces)) == 0 {
+	open := spaces.Clean(cfg.Spaces)
+	if len(open) == 0 {
 		return
 	}
+	// Against the cleaned list, not the raw one: a settings file with a
+	// blank or a repeat in it counted as unchanged and the space never opened.
 	want := spaces.Open(cfg.Spaces, repo)
-	if len(want) == len(cfg.Spaces) {
+	if len(want) == len(open) {
 		return
 	}
 	cfg.Spaces = want

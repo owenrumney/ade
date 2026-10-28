@@ -7,6 +7,7 @@ import {
   fresh,
   held,
   home,
+  issueOf,
   missing,
   onto,
   rowFor,
@@ -29,6 +30,14 @@ interface Repo {
   branch?: string;
 }
 
+// Checkout is one the Open branch row offers. at is the path for a worktree
+// and empty for a branch with none, which is made when it is opened.
+interface Checkout {
+  name: string;
+  at: string;
+  note: string;
+}
+
 interface Offer {
   machines: { name: string; label: string }[];
   repos: Repo[];
@@ -37,6 +46,8 @@ interface Offer {
   roles: string[];
   designs: Doc[];
   designNote?: string;
+  checkouts?: Checkout[];
+  checkoutNote?: string;
   recent: string[];
 }
 
@@ -93,7 +104,7 @@ function modes(): HTMLElement {
     one.append(el("span", "mode-label", row.label));
     one.append(el("span", "mode-detail", row.detail));
     one.addEventListener("click", () =>
-      set({ mode: row.mode, repos: onto(state.chosen, row.mode) }),
+      set({ mode: row.mode, repos: onto(state.chosen, row.mode), branch: "", at: "" }),
     );
     box.append(one);
   }
@@ -237,7 +248,9 @@ function repos(): HTMLElement {
       one.append(el("span", "repo-name", repo.name));
       one.append(el("span", "repo-owner", repo.owner ?? ""));
       if (at === 0) one.append(el("span", "pill", "home"));
-      one.addEventListener("click", () => set({ repos: tick(state.chosen, repo.path) }));
+      one.addEventListener("click", () =>
+        set({ repos: tick(state.chosen, repo.path), branch: "", at: "" }),
+      );
       return one;
     });
   };
@@ -253,7 +266,12 @@ function repos(): HTMLElement {
 function willMake(): HTMLElement {
   const box = el("section", "will");
   const { plan, chosen } = state;
-  box.append(el("h2", "", plan.branch ? "What this will make" : "Where this runs"));
+  const row = rowFor(chosen.mode);
+  const opening = row.names === "branch";
+  const issue = issueOf(chosen);
+  box.append(
+    el("h2", "", (plan.branch || issue) && !opening ? "What this will make" : "Where this runs"),
+  );
   if (plan.makes.length === 0) {
     box.append(el("p", "sub", "Nothing yet."));
     return box;
@@ -267,10 +285,16 @@ function willMake(): HTMLElement {
     list.append(one);
   }
   box.append(list);
-  if (plan.branch) {
+  if (plan.branch && opening) {
+    box.append(el("p", "sub", chosen.at ? `On ${plan.branch}.` : `Checking ${plan.branch} out here.`));
+  } else if (plan.branch) {
     box.append(el("p", "sub", `Branch ${plan.branch} in each.`));
     const where = plan.makes[0]?.repo ?? "";
     box.append(el("p", "sub", designLine(plan, where)));
+  } else if (issue) {
+    box.append(
+      el("p", "sub", `Branch and document named after issue #${issue} once it is read.`),
+    );
   }
   if (!chosen.sandbox) box.append(el("p", "sub", "Not sandboxed: the agent runs on this host."));
   return box;
@@ -291,6 +315,37 @@ function asked(): HTMLElement {
       changed();
     });
     box.append(field("Name the work", name));
+  }
+
+  if (row.names === "ticket") {
+    const ticket = document.createElement("input");
+    ticket.className = "name";
+    ticket.placeholder = "FIX-623 or #12";
+    ticket.value = chosen.ticket;
+    // Not set(): a redraw takes the cursor out of the box.
+    ticket.addEventListener("input", () => {
+      state.chosen = { ...state.chosen, ticket: ticket.value };
+      state.plan = plan(state.chosen);
+      changed();
+      root.querySelector(".will")?.replaceWith(willMake());
+    });
+    box.append(field("Ticket", ticket));
+    box.append(el("p", "sub", "Read before anything is built, and drafted into the design."));
+  }
+
+  if (row.names === "branch") {
+    const held = offer.checkouts ?? [];
+    box.append(
+      field(
+        "Branch",
+        held.length === 0
+          ? el("p", offer.checkoutNote ? "note" : "sub", branchNone(offer, chosen))
+          : checkouts(held, chosen),
+      ),
+    );
+    const one = held.find((each) => each.name === chosen.branch);
+    if (one && !one.at)
+      box.append(el("p", "sub", "No checkout yet: one is made for it when you start."));
   }
 
   if (row.names === "design") {
@@ -382,6 +437,47 @@ function designNone(offer: Offer, chosen: Chosen): string {
   // Said only for another machine: documents live in the git dir and are
   // never pushed, so an empty list there is not an empty list here.
   return `${machineLabel(offer, chosen)} has no design documents in ${repo}. They live in the git dir, so they do not travel between machines.`;
+}
+
+// Why the list is empty, which for a branch is only ever "nothing ticked yet"
+// or a read that failed: every repository has at least one.
+function branchNone(offer: Offer, chosen: Chosen): string {
+  if (offer.checkoutNote) return offer.checkoutNote;
+  if (!home(chosen)) return "Tick a repository to list its branches.";
+  return "Reading the branches…";
+}
+
+// The repository's checkouts and the branches without one, as one list: the
+// difference is what starting does, not what you are picking.
+function checkouts(held: Checkout[], chosen: Chosen): HTMLElement {
+  const sel = document.createElement("select");
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "pick a branch";
+  blank.selected = !chosen.branch;
+  sel.append(blank);
+  const groups: [string, Checkout[]][] = [
+    ["Checked out", held.filter((one) => one.at)],
+    ["No checkout yet", held.filter((one) => !one.at)],
+  ];
+  for (const [label, rows] of groups) {
+    if (rows.length === 0) continue;
+    const into = document.createElement("optgroup");
+    into.label = label;
+    for (const one of rows) {
+      const node = document.createElement("option");
+      node.value = String(held.indexOf(one));
+      node.textContent = one.note ? `${one.name} — ${one.note}` : one.name;
+      node.selected = one.name === chosen.branch;
+      into.append(node);
+    }
+    sel.append(into);
+  }
+  sel.addEventListener("change", () => {
+    const one = held[Number(sel.value)];
+    set(one ? { branch: one.name, at: one.at } : { branch: "", at: "" });
+  });
+  return sel;
 }
 
 function designLine(plan: Plan, where: string): string {

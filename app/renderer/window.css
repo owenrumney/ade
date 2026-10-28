@@ -344,6 +344,7 @@ body.dragging { cursor: col-resize; user-select: none; }
   background: var(--accent); color: var(--accent-ink);
 }
 .sidebar .review-bar .btn.quiet { background: var(--bg-raised); color: var(--ink); }
+.sidebar .review-bar .btn.off { opacity: .45; cursor: default; }
 
 /* The review's open comments, under its files: how bad, then what. */
 .sidebar .comments { border-top: 1px solid var(--line); margin-top: 8px; padding: 8px 0; }
