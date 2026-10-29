@@ -10,10 +10,8 @@ export const REPORTS: Record<string, (got: unknown, also?: unknown) => string> =
   // The plan windows, and what spent the current one, which is a second read.
   usage: (got, also) => usagePage(got as Usage, (also ?? {}) as WindowSpend, Date.now()),
 
-  // These three are quick picks in the extension, so they have no page
-  // builder. A list until each earns a view of its own.
-  machines: (got) => list("Machines", (got as Has<"hosts">).hosts, (h) =>
-    `**${h.label || h.name}** — ${h.name}${h.local ? " · this one" : ""}`),
+  // A quick pick in the extension, so it has no page builder. A list until
+  // it earns a view of its own, as Machines did.
   drift: (got) => list("Drift", (got as Has<"items">).items, (d) =>
     `**${d.title ?? d.id}** — ${d.note ?? d.state ?? ""}`),
   // What ade keeps about this repository between sessions. The fork

@@ -340,7 +340,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.dismissOffer": S("/api/bus/dismiss", {}, pick("offer", "id", "Dismiss which offer?")),
 
   // ── Machines and ports ──
-  "ade.machines": { at: "report", from: "launcher", path: "/api/hosts", render: "machines" },
+  "ade.machines": { at: "panel", panel: "ade.machines" },
   "ade.addMachine": L("/api/hosts", {}, type("name", "Which host, as ssh dials it?")),
   "ade.removeMachine": {
     at: "launcher",

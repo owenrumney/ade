@@ -166,7 +166,7 @@ func designsIn(root, common string) ([]string, error) {
 func (s *Server) designsOnHost(w http.ResponseWriter, r *http.Request, machine string) {
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	asked := r.URL.Query()

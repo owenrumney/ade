@@ -7,6 +7,9 @@ export interface Noted {
   what: string;
   where?: string;
   session?: string;
+  // Who wrote the line. Absent is the window itself; the launcher names
+  // itself, because work ade did for you is not a press you made.
+  from?: string;
   ok?: boolean;
   why?: string;
   ms?: number;
@@ -37,6 +40,11 @@ export function outcomeOf(one: Noted): Shown["outcome"] {
   return "";
 }
 
+// The kinds that fold under the thing that caused them, rather than standing
+// as a line of their own. `step` is the launcher's: a connect is a dial, a
+// check and a worker, and the one that refused is the answer.
+const UNDER = new Set(["http", "step"]);
+
 // listed is the trail newest first, with what a command caused folded under
 // it. A line with no trace stands on its own, which is most of them.
 export function listed(all: Noted[], filter = ""): Shown[] {
@@ -54,7 +62,7 @@ export function listed(all: Noted[], filter = ""): Shown[] {
       under: [],
     };
     const held = one.trace ? byTrace.get(one.trace) : undefined;
-    if (held && one.kind === "http") {
+    if (held && UNDER.has(one.kind)) {
       held.under.push(one);
       if (row.outcome === "failed") held.outcome = "failed";
       else if (row.outcome === "slow" && held.outcome !== "failed") held.outcome = "slow";

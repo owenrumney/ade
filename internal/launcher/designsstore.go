@@ -318,7 +318,7 @@ func (s *Server) handleDesignStart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) startDesignOnHost(w http.ResponseWriter, r *http.Request, machine, name, agent, model string) {
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	if !s.designs.Shared() {

@@ -11,6 +11,19 @@ describe("a picker's list", () => {
     ]);
   });
 
+  it("offers only a machine that can be started on", () => {
+    const hosts = {
+      hosts: [
+        { name: "owen@here", local: true, connected: true },
+        { name: "pi@pi5.local", connected: false },
+        { name: "owen@bigboy.local", label: "bigboy", connected: true },
+      ],
+    };
+    expect(SOURCES.machine.rows(hosts)).toEqual([
+      { label: "bigboy", note: "owen@bigboy.local", value: "owen@bigboy.local" },
+    ]);
+  });
+
   it("leaves out what the verb cannot act on", () => {
     const trees = {
       here: "/a",

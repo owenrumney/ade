@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/owenrumney/ade/internal/audit"
 	"github.com/owenrumney/ade/internal/httpx"
 	"github.com/owenrumney/ade/internal/models"
 	"github.com/owenrumney/ade/internal/remote"
@@ -494,23 +495,46 @@ func (s *Server) Connect(ctx context.Context, name string) (string, error) {
 }
 
 func (s *Server) connect(ctx context.Context, name string) (string, error) {
+	// A connect is several steps and any of them can refuse. Each leaves a
+	// line under this one, so the trail says which part said no.
+	trace := audit.Trace()
+	audit.Note(audit.Entry{
+		Trace: trace, Kind: "connect", What: "connect " + name,
+		Where: name, From: "launcher",
+	})
+	step := func(what string, run func() error) error {
+		began := time.Now()
+		err := run()
+		audit.Step(trace, name, what, began, err)
+		return err
+	}
+
 	host, err := remote.New(name)
 	if err != nil {
+		audit.Step(trace, name, "name the machine", time.Now(), err)
 		return "", err
 	}
-	if err := host.Dial(ctx); err != nil {
+	if err := step("dial over ssh", func() error { return host.Dial(ctx) }); err != nil {
 		return "", err
 	}
-	roots, err := remote.DetectRoots(ctx, host)
-	if err != nil {
+	var roots remote.Roots
+	if err := step("find the checkout roots", func() error {
+		var err error
+		roots, err = remote.DetectRoots(ctx, host)
+		return err
+	}); err != nil {
 		_ = host.Close()
 		return "", err
 	}
-	if err := remote.Check(ctx, host, roots); err != nil {
+	if err := step("check what is there", func() error {
+		return remote.Check(ctx, host, roots)
+	}); err != nil {
 		_ = host.Close()
 		return "", err
 	}
-	if err := host.PrepareCredentials(ctx, roots, localCredentials(ctx)); err != nil {
+	if err := step("send the credentials", func() error {
+		return host.PrepareCredentials(ctx, roots, localCredentials(ctx))
+	}); err != nil {
 		_ = host.Close()
 		return "", err
 	}
@@ -528,8 +552,12 @@ func (s *Server) connect(ctx context.Context, name string) (string, error) {
 		slog.Warn("no GitHub token for the worker; it will not be able to clone", "host", name, "err", err)
 	}
 	login := remote.Login{User: readGitHubUser(ctx), Token: githubToken}
-	url, err := host.StartWorker(ctx, roots, port, login)
-	if err != nil {
+	var url string
+	if err := step("start the worker", func() error {
+		var err error
+		url, err = host.StartWorker(ctx, roots, port, login)
+		return err
+	}); err != nil {
 		_ = host.Close()
 		return "", err
 	}
@@ -941,6 +969,13 @@ func (s *Server) readPorts(ctx context.Context, live *conn, res *http.Response) 
 		}
 	}
 	return scanner.Err()
+}
+
+// notConnectedTo is the one refusal every route gives for a machine ade has
+// not dialled. It names the remedy: nothing here failed, nothing was tried,
+// and Machines is where that is changed.
+func notConnectedTo(machine string) string {
+	return "not connected to " + machine + " — open Machines and press Connect"
 }
 
 func (s *Server) connection(name string) *conn {

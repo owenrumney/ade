@@ -70,6 +70,63 @@ describe("a panel answers every button its page has", () => {
   }
 });
 
+describe("the machines panel", () => {
+  function hosting(hosts: unknown[]): { reach: Reach; seen: { path: string; body: unknown }[] } {
+    const made = spy();
+    return { ...made, reach: { ...made.reach, get: async () => ({ hosts }) } };
+  }
+
+  it("hands the page the machines when it is ready", async () => {
+    const { reach } = hosting([{ name: "pi@pi5.local" }]);
+    const back = (await WHICH["ade.machines"](reach).onMessage({ kind: "ready" })) as {
+      hosts?: unknown[];
+    };
+    expect(back.hosts).toEqual([{ name: "pi@pi5.local" }]);
+  });
+
+  it("dials and lets go through the launcher's own routes", async () => {
+    const { reach, seen } = hosting([]);
+    const panel = WHICH["ade.machines"](reach);
+    await panel.onMessage({ kind: "do", what: "connect", host: "pi@pi5.local" });
+    await panel.onMessage({ kind: "do", what: "disconnect", host: "pi@pi5.local" });
+    expect(seen).toEqual([
+      { path: "/api/connect", body: { host: "pi@pi5.local" } },
+      { path: "/api/disconnect", body: { host: "pi@pi5.local" } },
+    ]);
+  });
+
+  // The launcher records a refusal against the machine, so the row says it.
+  // Repeating it under the list printed the same sentence twice, the second
+  // time without naming which machine it was about.
+  it("leaves a refused dial to the row rather than saying it twice", async () => {
+    const { reach } = hosting([{ name: "pi@pi5.local", error: "No route to host" }]);
+    const panel = WHICH["ade.machines"]({
+      ...reach,
+      send: async () => {
+        throw new Error("No route to host");
+      },
+    });
+    const back = (await panel.onMessage({
+      kind: "do",
+      what: "connect",
+      host: "pi@pi5.local",
+    })) as { note?: string; hosts?: { error?: string }[] };
+    expect(back.note).toBe("");
+    expect(back.hosts?.[0].error).toBe("No route to host");
+  });
+
+  // An event is how a connect that took seconds reaches the row that began it.
+  it("takes a fresh list when the window is stirred", async () => {
+    const { reach } = hosting([{ name: "a" }]);
+    const panel = WHICH["ade.machines"](reach);
+    expect(panel.stirs).toBe(true);
+    const back = (await panel.onMessage({ kind: "do", what: "refresh" })) as {
+      hosts?: unknown[];
+    };
+    expect(back.hosts).toEqual([{ name: "a" }]);
+  });
+});
+
 describe("the verbs that are more than one call", () => {
   it("commits, and pushes when the form asked for both", async () => {
     const { reach, seen } = spy();

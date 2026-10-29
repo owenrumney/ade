@@ -32,6 +32,7 @@ const PANEL_IDS = [
   "ade.openChat",
   "ade.commitPanel",
   "ade.audit",
+  "ade.machines",
   "ade.openSettings",
   "ade.worktrees",
   "ade.newSession",
@@ -45,6 +46,7 @@ const PANEL_IDS = [
 const BUNDLES = [
   "chat", "settings", "commit", "worktrees", "repo", "purge",
   "designprune", "quiz", "designedit", "newsession", "sandbox", "audit",
+  "machines",
 ];
 
 async function panelsAreReachable() {

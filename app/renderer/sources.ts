@@ -89,13 +89,15 @@ export const SOURCES: Record<Choice, Source> = {
         value: run.id,
       })),
   },
-  // This machine is not somewhere else, so it is not offered.
+  // This machine is not somewhere else, so it is not offered. Neither is one
+  // ade has not connected: starting there fails on arrival, three questions
+  // after the machine was picked.
   machine: {
     at: "launcher",
     path: "/api/hosts",
     rows: (got) =>
       list(got.hosts)
-        .filter((h) => !h.local)
+        .filter((h) => !h.local && h.connected)
         .map((h) => ({ label: str(h.label) || str(h.name), note: str(h.name), value: h.name })),
   },
   // What the server will take as a reviewer: `reviews: true`, and user

@@ -66,3 +66,31 @@ describe("the trail as the panel draws it", () => {
     expect(clock("not a time")).toBe("not a time");
   });
 });
+
+// The launcher's own lines: a connect is several steps and the trail has to
+// say which one refused, or the panel repeats "not connected" and stops.
+describe("what the launcher did on your behalf", () => {
+  const attempt: Noted[] = [
+    { at: "2026-10-28T21:00:00Z", trace: "t1", kind: "connect", what: "connect pi@pi5.local", where: "pi@pi5.local", from: "launcher" },
+    { at: "2026-10-28T21:00:01Z", trace: "t1", kind: "step", what: "dial over ssh", ok: true, ms: 120, from: "launcher" },
+    { at: "2026-10-28T21:00:02Z", trace: "t1", kind: "step", what: "find the checkout roots", ok: false, why: "no route to host", ms: 30, from: "launcher" },
+  ];
+
+  it("folds the steps under the attempt that caused them", () => {
+    const rows = listed(attempt);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].what).toBe("connect pi@pi5.local");
+    expect(rows[0].under.map((u) => u.what)).toEqual([
+      "dial over ssh",
+      "find the checkout roots",
+    ]);
+  });
+
+  it("fails the attempt when a step did", () => {
+    expect(listed(attempt)[0].outcome).toBe("failed");
+  });
+
+  it("puts the step that refused in what you paste", () => {
+    expect(text(listed(attempt))).toContain("no route to host");
+  });
+});

@@ -1,0 +1,47 @@
+/* The machines ade can reach, one row each. */
+body { margin: 0; }
+#machines { padding: 10px 14px 18px; font-size: 13px; }
+
+.rows { display: flex; flex-direction: column; gap: 2px; }
+.row { padding: 8px 10px; border-radius: 4px; }
+.row:nth-child(odd) { background: var(--vscode-editor-background); }
+
+/* Fixed: the dot, the name, and the one verb. Nothing below can move it. */
+.top { display: flex; align-items: center; gap: 10px; }
+
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-descriptionForeground); }
+.row.connected .dot { background: var(--vscode-charts-green); }
+.row.quiet .dot { background: var(--vscode-charts-yellow); }
+.row.off .dot { opacity: .45; }
+.row.here .dot { background: var(--vscode-textLink-foreground); }
+
+.name { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.label { font-weight: 600; }
+.said { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+
+/* Indented to the name, so it reads as belonging to this machine. */
+.warning, .error {
+  margin: 4px 0 0 18px;
+  font-size: 0.9em;
+  line-height: 1.45;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.warning { color: var(--vscode-editorWarning-foreground); }
+.error { color: var(--vscode-errorForeground); }
+
+.act {
+  flex: none;
+  font: inherit;
+  padding: 3px 12px;
+  border: none;
+  border-radius: 3px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+}
+.act:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+.act:disabled { opacity: .55; cursor: default; }
+
+.none, .note { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+.note { user-select: text; overflow-wrap: anywhere; }

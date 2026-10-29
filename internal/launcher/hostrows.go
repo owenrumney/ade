@@ -126,7 +126,7 @@ func (s *Server) openOnHost(w http.ResponseWriter, r *http.Request, req openRequ
 	machine, dir, brief := req.Machine, req.Dir, req.Brief
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	branch := ""
@@ -219,7 +219,7 @@ func (s *Server) scratchOnHost(w http.ResponseWriter, r *http.Request, req scrat
 	machine := req.Machine
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	// The whole request, machine cleared so it cannot loop: every default the
@@ -410,7 +410,7 @@ func askRepos(ctx context.Context, launcherURL string) ([]sessions.Repo, error) 
 func (s *Server) tellHost(w http.ResponseWriter, r *http.Request, machine, dir, path, verb string) {
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	body, err := json.Marshal(map[string]string{"dir": dir})
@@ -430,7 +430,7 @@ func (s *Server) tellHost(w http.ResponseWriter, r *http.Request, machine, dir, 
 func (s *Server) graphOnHost(w http.ResponseWriter, r *http.Request, machine string) {
 	live := s.connection(machine)
 	if live == nil {
-		writeError(w, http.StatusBadRequest, "not connected to "+machine)
+		writeError(w, http.StatusBadRequest, notConnectedTo(machine))
 		return
 	}
 	answer, err := sessions.AskFor(r.Context(), live.url, http.MethodGet, "/api/graph", "", openWait)

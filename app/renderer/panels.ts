@@ -636,6 +636,44 @@ export function audit(reach: Reach): Panel {
   };
 }
 
+// machines is every machine ade is bookmarked onto, with the one verb each
+// row has. The launcher holds the connections, so this never asks a session.
+export function machines(reach: Reach): Panel {
+  let note = "";
+  const state = async () => {
+    const got = (await reach.get("launcher", "/api/hosts").catch((e: Error) => ({
+      error: e.message,
+    }))) as { hosts?: unknown[]; error?: string };
+    return { kind: "state", hosts: got.hosts ?? [], note: got.error ?? note };
+  };
+  return {
+    id: "machines",
+    title: "Machines",
+    root: "machines",
+    bundle: "machines.js",
+    styles: ["machines.css"],
+    launcher: true,
+    // The launcher broadcasts `hosts` whenever the list moves, and connecting
+    // takes seconds, so the row that started it is told by the event.
+    stirs: true,
+    async onMessage(said) {
+      if (said.kind === "ready") return state();
+      if (said.kind !== "do") return undefined;
+      const what = String(said.what ?? "");
+      if (what !== "connect" && what !== "disconnect") return state();
+      note = "";
+      const path = what === "connect" ? "/api/connect" : "/api/disconnect";
+      await reach
+        .send("launcher", path, { host: String(said.host ?? "") })
+        .catch(() => undefined);
+      // Nothing is kept from the refusal: the launcher records it against
+      // the machine, so the next read puts it on that row. Keeping it here
+      // too printed the same sentence twice, once without a machine's name.
+      return state();
+    },
+  };
+}
+
 // prune is the stale-design sweep. Its own panel: the list is two
 // reads, the repositories and then a sweep for each.
 export function prune(reach: Reach): Panel {
@@ -884,6 +922,7 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.worktreeGraph": from("worktrees"),
   "ade.showRepo": from("repo"),
   "ade.audit": audit,
+  "ade.machines": machines,
   "ade.commitPanel": commit,
   "ade.purgeWorktrees": from("purge"),
   "ade.disk": from("purge"),

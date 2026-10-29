@@ -69,7 +69,8 @@ app-doctor:
 # host asks for them in app/renderer/panels.ts.
 PAGES := chat:chat settings:settings commitpanel:commit worktreepanel:worktrees \
 	repo:repo purgepanel:purge designprunepanel:designprune quizpanel:quiz \
-	designedit:designedit newsession:newsession sandboxpanel:sandbox audit:audit
+	designedit:designedit newsession:newsession sandboxpanel:sandbox audit:audit \
+	machines:machines
 
 app-build:
 	cd app && mkdir -p dist \
