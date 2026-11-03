@@ -679,6 +679,14 @@ export function commit(reach: Reach): Panel {
     return last;
   };
 
+  // sent turns a refusal into a throw. act answers with {error} rather than
+  // throwing, so without this a server that said why arrives as a dead button.
+  const sent = async (p: Promise<unknown>): Promise<unknown> => {
+    const got = (await p) as { error?: string } | undefined;
+    if (got?.error) throw new Error(got.error);
+    return got;
+  };
+
   const doing = async (what: string, run: () => Promise<unknown>) => {
     busy = what;
     // Said before the work, not after it: the answer below lands when it is
@@ -690,7 +698,7 @@ export function commit(reach: Reach): Panel {
       return await hand();
     } catch (err) {
       busy = "";
-      return await hand(String(err));
+      return await hand(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -715,34 +723,34 @@ export function commit(reach: Reach): Panel {
         // Staging is how anything becomes committable: without these the
         // Commit button is disabled for ever and says nothing about why.
         case "stage":
-          return doing("stage", () => reach.send("session", "/api/stage", body));
+          return doing("stage", () => sent(reach.send("session", "/api/stage", body)));
         case "unstage":
-          return doing("unstage", () => reach.send("session", "/api/unstage", body));
+          return doing("unstage", () => sent(reach.send("session", "/api/unstage", body)));
         case "redraft":
-          return doing("redraft", () => reach.send("session", "/api/commit-message", body));
+          return doing("redraft", () => sent(reach.send("session", "/api/commit-message", body)));
         case "branch":
-          return doing("branch", () => reach.send("session", "/api/branch", body));
+          return doing("branch", () => sent(reach.send("session", "/api/branch", body)));
         case "rebase":
-          return doing("rebase", () => reach.send("session", "/api/base/rebase", body));
+          return doing("rebase", () => sent(reach.send("session", "/api/base/rebase", body)));
         case "push":
           return doing("push", () =>
-            reach.send("session", "/api/push", { force: Boolean(body.force) }),
+            sent(reach.send("session", "/api/push", { force: Boolean(body.force) })),
           );
         case "createPR":
-          return doing("createPR", () => reach.send("session", "/api/pr-create", body));
+          return doing("createPR", () => sent(reach.send("session", "/api/pr-create", body)));
         // The whole message of the commit an amend would fold into.
         case "headMessage":
           return doing("headMessage", async () => {
-            head = (await reach.get("session", "/api/commit/head")) as Head;
+            head = (await sent(reach.get("session", "/api/commit/head"))) as Head;
           });
         case "commit":
           return doing("commit", async () => {
             const message = split(String(body.message ?? ""));
             const amend = Boolean(body.amend);
-            await reach.send("session", "/api/commit", { ...message, amend });
+            await sent(reach.send("session", "/api/commit", { ...message, amend }));
             // An amend rewrites a commit the remote may already have, so the
             // only push that lands after one is a lease.
-            if (body.push) await reach.send("session", "/api/push", { force: amend });
+            if (body.push) await sent(reach.send("session", "/api/push", { force: amend }));
             head = undefined;
             committed = true;
           });

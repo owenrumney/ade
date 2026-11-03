@@ -482,15 +482,15 @@ const theme = EditorView.theme({
     fontFamily: "var(--mono)",
   },
   ".cm-note": {
-    borderBottom: "2px solid var(--vscode-editorWarning-foreground)",
+    borderBottom: "2px solid var(--warn)",
     cursor: "pointer",
   },
-  ".cm-note-done": { borderBottomColor: "var(--vscode-descriptionForeground)", opacity: "0.7" },
+  ".cm-note-done": { borderBottomColor: "var(--ink-dim)", opacity: "0.7" },
   ".cm-table th.cm-accepts, .cm-table td.cm-accepts": { textAlign: "center", width: "4rem" },
   ".cm-fold": { marginTop: "0.5rem" },
   ".cm-fold button": {
-    background: "var(--vscode-button-background)",
-    color: "var(--vscode-button-foreground)",
+    background: "var(--accent)",
+    color: "var(--accent-ink)",
     border: "0",
     borderRadius: "3px",
     padding: "0.25rem 0.7rem",
@@ -505,36 +505,36 @@ const padStyle = `
 .note-pad {
   position: fixed; z-index: 20; max-width: 24rem; min-width: 16rem;
   padding: 0.6rem; border-radius: 4px;
-  border: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-editorWidget-background);
-  color: var(--vscode-editor-foreground);
-  font-family: var(--ade-font-family, var(--vscode-font-family));
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--ink);
+  font-family: var(--ade-font-family, var(--ui));
   font-size: 0.9em;
   box-shadow: 0 2px 10px rgba(0,0,0,0.3);
 }
 .note-quote {
-  border-left: 2px solid var(--vscode-panel-border);
+  border-left: 2px solid var(--line);
   padding-left: 0.5rem; margin-bottom: 0.4rem;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
-.note-gone { color: var(--vscode-errorForeground); margin-bottom: 0.4rem; }
+.note-gone { color: var(--bad); margin-bottom: 0.4rem; }
 .note-comment { margin-bottom: 0.5rem; }
-.note-who { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
+.note-who { color: var(--ink-dim); font-size: 0.85em; }
 .note-said { white-space: pre-wrap; }
 .note-reply {
   width: 100%; box-sizing: border-box; min-height: 3.5rem; resize: vertical;
-  background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  background: var(--input-bg); color: var(--ink);
+  border: 1px solid var(--line);
   font-family: inherit; font-size: inherit; padding: 0.3rem;
 }
 .note-buttons { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
 .note-act, .note-new {
-  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  background: var(--accent); color: var(--accent-ink);
   border: 0; border-radius: 3px; padding: 0.25rem 0.7rem; cursor: pointer;
   font-family: inherit; font-size: inherit;
 }
 .note-drop {
-  background: transparent; color: var(--vscode-errorForeground);
+  background: transparent; color: var(--bad);
   margin-left: auto;
 }
 `;
