@@ -217,6 +217,7 @@ export const WIRED: Record<string, Doing> = {
 
   // ── Commit and pull request ──
   "ade.commitPanel": { at: "panel", panel: "ade.commitPanel" },
+  "ade.ship": { at: "panel", panel: "ade.ship" },
   "ade.audit": { at: "panel", panel: "ade.audit" },
   // No title keeps the last commit's message, which the server allows
   // only for an amend.

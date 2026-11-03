@@ -222,6 +222,9 @@ func Ensure(dir, name, title string) (string, bool, error) {
 	if _, err := os.Stat(full); err == nil {
 		return file, false, nil
 	}
+	if held, ok := storeDesign(dir); ok {
+		return held, false, nil
+	}
 
 	created, err := Create(dir, name, title)
 	if err != nil {
@@ -230,12 +233,29 @@ func Ensure(dir, name, title string) (string, bool, error) {
 	return created, true, nil
 }
 
+// StoreDoc is the one document a design in the shared store keeps, spelled as
+// designs.File does. TestTheStoreAndTheDocsAgreeOnTheName pins the two together.
+const StoreDoc = "design.md"
+
+// storeDesign reports that dir is a design in the shared store, which owns
+// StoreDoc and nothing else markdown. A second document there is never read.
+func storeDesign(dir string) (string, bool) {
+	if info, err := os.Stat(filepath.Join(dir, StoreDoc)); err == nil && !info.IsDir() {
+		return StoreDoc, true
+	}
+	return "", false
+}
+
 // Create writes a new document and returns its path relative to dir. It refuses
 // to overwrite, so an existing design is never silently replaced.
 func Create(dir, name, title string) (string, error) {
 	file := Filename(name)
 	if file == "" {
 		return "", fmt.Errorf("a document needs a name")
+	}
+	if _, ok := storeDesign(dir); ok && file != StoreDoc {
+		return "", fmt.Errorf("%s is a design in the store, which keeps one document, %s",
+			filepath.Base(dir), StoreDoc)
 	}
 	full, err := Resolve(dir, file)
 	if err != nil {

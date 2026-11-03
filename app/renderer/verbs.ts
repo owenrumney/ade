@@ -96,6 +96,7 @@ export const VOCABULARY: Group[] = [
   {
     group: "Commit and pull request",
     verbs: [
+      ["ade.ship", "Ship…"],
       ["ade.commitPanel", "Commit…"],
       ["ade.commitAmend", "Commit (amend)"],
       ["ade.writeCommitMessage", "Write a commit message"],

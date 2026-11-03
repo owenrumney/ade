@@ -93,20 +93,20 @@ describe("designs, from the store", () => {
     expect(row.meta).toContain("FIX-623");
   });
 
-  it("offers Start work on a document in a checkout too", () => {
-    const rows = designs(DESIGNS, ["cart-redesign.md"], "/code/ade").rows;
-    expect(rows[0].acts).toEqual([
-      { label: "Start work", what: "design-start", name: "here:cart-redesign.md" },
-    ]);
-    const spaced = designs(DESIGNS, [], "", [
-      { repo: "owenrumney/ade", path: "/code/ade", designs: ["cart-redesign.md"] },
-    ]).rows;
-    expect(spaced[0].acts?.[0].name).toBe("space:/code/ade|cart-redesign.md");
+  // A document in a checkout is that checkout's, not a design: listing both
+  // put the same design on screen twice under two different icons.
+  it("is the store and nothing in a checkout", () => {
+    const rows = designs(DESIGNS).rows;
+    expect(rows.map((r) => r.name)).toEqual(["one-window", "retry-429"]);
+    expect(rows.every((r) => r.icon !== "design")).toBe(true);
   });
 
+  // The play icon says it is running, so the meta does not say it again.
   it("marks the one being worked on", () => {
-    expect(designs(DESIGNS).rows[0].tone).toBe("good");
-    expect(designs(DESIGNS).rows[0].meta).toContain("running");
+    const row = designs(DESIGNS).rows[0];
+    expect([row.icon, row.tone]).toEqual(["play", "good"]);
+    expect(row.meta).not.toContain("running");
+    expect(row.meta).toContain("feat/one-window");
   });
 });
 
@@ -268,17 +268,9 @@ describe("the session the window lands on", () => {
 });
 
 describe("designs in the checkout itself", () => {
-  it("lists them before the store, under the checkout's name", () => {
-    const place = real.designs(DESIGNS, ["one-window.md", "retry.md"], "/code/ade");
-    expect(place.rows.slice(0, 2).map((r) => [r.id, r.name, r.group])).toEqual([
-      ["here:one-window.md", "one-window", "In ade"],
-      ["here:retry.md", "retry", "In ade"],
-    ]);
-    expect(place.rows).toHaveLength(4);
-  });
-
-  it("is the store alone when no session is picked", () => {
-    expect(real.designs(DESIGNS).rows).toHaveLength(2);
+  it("are not listed: the row id is always the store's name", () => {
+    const place = real.designs(DESIGNS);
+    expect(place.rows.map((r) => r.id)).toEqual(["one-window", "retry-429"]);
   });
 });
 

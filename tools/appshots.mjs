@@ -27,6 +27,12 @@ const wanted = process.argv.slice(2).flatMap((bit) => bit.split(/[\s,]+/)).filte
 const VIEWS = [
   { name: "app-prs", place: "Pull requests", row: "#412 Add usage tiles to the desk" },
   { name: "app-designs", place: "Designs", row: "rethink-workflow-and-uk" },
+  {
+    name: "app-design-notes",
+    place: "Designs",
+    row: "rethink-workflow-and-uk",
+    settle: 1200,
+  },
   { name: "app-spaces", place: "Spaces" },
   { name: "app-space", place: "Spaces", row: "owenrumney/ade" },
   { name: "app-issues", place: "Issues" },
@@ -74,6 +80,14 @@ const VIEWS = [
   { name: "app-side-folded", place: "Todos", tap: ".activity button.fold", settle: 300 },
   { name: "app-audit", place: "Todos", keys: "k", type: "audit", enter: true },
   { name: "app-machines", place: "Todos", keys: "k", type: "machines", enter: true },
+  {
+    name: "app-ship",
+    place: "Review",
+    session: "Rethink the workflow and the window",
+    keys: "k",
+    type: "ship",
+    enter: true,
+  },
   { name: "app-omnibox", place: "Pull requests", keys: "k" },
   { name: "app-new-session", place: "Sessions", keys: "n", after: ".tab.on", settle: 1200 },
   { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },

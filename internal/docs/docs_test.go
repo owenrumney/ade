@@ -377,6 +377,37 @@ func TestEnsure(t *testing.T) {
 	assert.Contains(t, body, "What I had decided.", "the existing document is untouched")
 }
 
+// A session started from the shared store has its docs dir pointed at the
+// design's own directory, and `ade create ship` scaffolded a blank ship.md
+// beside the design.md holding the design.
+func TestCreatingInsideAStoreDesignCarriesOnWithItsOwnDocument(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, StoreDoc), []byte("# Ship\n\nThe design.\n"), 0o600))
+
+	file, created, err := Ensure(dir, "ship", "Ship")
+	require.NoError(t, err)
+	assert.Equal(t, StoreDoc, file)
+	assert.False(t, created)
+	assert.NoFileExists(t, filepath.Join(dir, "ship.md"))
+
+	body, err := Read(dir, file)
+	require.NoError(t, err)
+	assert.Contains(t, body, "The design.")
+}
+
+func TestCreatingASecondDocumentInAStoreDesignIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, StoreDoc), []byte("# Ship\n"), 0o600))
+
+	_, err := Create(dir, "ship", "Ship")
+	require.ErrorContains(t, err, "keeps one document")
+	// The store's own document is still creatable by name, which is how the
+	// store writes it in the first place.
+	require.NoError(t, os.Remove(filepath.Join(dir, StoreDoc)))
+	_, err = Create(dir, StoreDoc, "Ship")
+	require.NoError(t, err)
+}
+
 func TestEnsureStillRejectsRubbish(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"", "   ", "../escape"} {

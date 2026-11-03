@@ -842,6 +842,104 @@ export function machines(reach: Reach): Panel {
   };
 }
 
+// SHIP_ACTS is the route behind each step's verb. Every one of them already
+// existed; Ship is the page that puts them in order.
+const SHIP_ACTS: Record<string, { path: string; body?: Record<string, unknown> }> = {
+  message: { path: "/api/commit-message" },
+  rebase: { path: "/api/base/rebase" },
+  push: { path: "/api/push" },
+  raise: { path: "/api/pr-create" },
+  fix: { path: "/api/checks/fix" },
+  merge: { path: "/api/pr/merge", body: { method: "rebase" } },
+  tests: { path: "/api/verify/run" },
+};
+
+// ship is where a change stands, from uncommitted work to a merged pull
+// request, one column per repository the session touches.
+export function ship(reach: Reach): Panel {
+  let refused: { do?: string; root?: string; reason?: string } = {};
+  let note = "";
+  const read = async () =>
+    (await reach.get("session", "/api/ship").catch((e: Error) => ({ error: e.message }))) as {
+      home?: string;
+      view?: string;
+      draft?: { title?: string; body?: string };
+      error?: string;
+    };
+  // quiet says nobody pressed, so a stir arriving mid-push does not re-enable
+  // the buttons the page has disabled.
+  const state = async (quiet = false) => {
+    const got = await read();
+    return { kind: "state", ...got, refused, note: got.error ?? note, quiet };
+  };
+  // The steps act on whatever the Diff tab is pointed at, so a card for
+  // another repository points it there first; "" is home.
+  const point = async (root: string, home: string, view: string): Promise<string> => {
+    const want = root === home ? "" : root;
+    if (want === view) return "";
+    const got = (await reach
+      .send("session", "/api/diff/root", { root: want })
+      .catch((e: Error) => ({ error: e.message }))) as { error?: string };
+    return got?.error ?? "";
+  };
+  return {
+    id: "ship",
+    title: "Ship",
+    root: "ship",
+    bundle: "ship.js",
+    styles: ["ship.css"],
+    stirs: true,
+    async onMessage(said) {
+      if (said.kind === "ready") return state();
+      if (said.kind !== "do") return undefined;
+      const what = String(said.what ?? "");
+      if (what === "refresh") return state(Boolean(said.quiet));
+
+      refused = {};
+      note = "";
+      if (what === "threads" || what === "design") {
+        reach.run(what === "threads" ? "ade.showComments" : "ade.design");
+        return state();
+      }
+
+      const root = String(said.root ?? "");
+      const anyway = Boolean(said.anyway);
+      const current = await read();
+      // A gate button carries no root, and the test run only answers for the
+      // home checkout, so it takes the diff back there first.
+      const to = root || (what === "tests" ? (current.home ?? "") : "");
+      if (to) {
+        const why = await point(to, current.home ?? "", current.view ?? "");
+        if (why) {
+          note = why;
+          return state();
+        }
+      }
+
+      if (what === "commit") {
+        const draft = current.draft;
+        if (!draft?.title) {
+          note = "no commit message has been written yet";
+          return state();
+        }
+        const got = (await reach
+          .send("session", "/api/commit", { title: draft.title, body: draft.body ?? "", anyway })
+          .catch((e: Error) => ({ error: e.message }))) as { error?: string };
+        if (got?.error) refused = { do: "commit", root, reason: got.error };
+        return state();
+      }
+
+      const act = SHIP_ACTS[what];
+      if (!act) return state();
+      const got = (await reach
+        .send("session", act.path, { ...(act.body ?? {}), anyway })
+        .catch((e: Error) => ({ error: e.message }))) as { error?: string };
+      if (got?.error) refused = { do: what, root, reason: got.error };
+      return state();
+    },
+  };
+}
+
 // prune is the stale-design sweep. Its own panel: the list is two
 // reads, the repositories and then a sweep for each.
 export function prune(reach: Reach): Panel {
@@ -1108,6 +1206,7 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.audit": audit,
   "ade.machines": machines,
   "ade.commitPanel": commit,
+  "ade.ship": ship,
   "ade.purgeWorktrees": from("purge"),
   "ade.disk": from("purge"),
   "ade.purgeDesigns": prune,

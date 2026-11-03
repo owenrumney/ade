@@ -13,6 +13,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
+	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
 // draftOnGitHub stands in for the pull request's pending review, recording
@@ -94,6 +95,15 @@ func converted(t *testing.T, s *Server, line int, words string) comments.Thread 
 	return thread
 }
 
+// headHere is the commit the test checkout is on, which a draft is refused
+// unless the pull request is at it too.
+func headHere(t *testing.T, s *Server) string {
+	t.Helper()
+	sha, err := gitdiff.HeadSHA(context.Background(), s.space().homeRoot)
+	require.NoError(t, err)
+	return sha
+}
+
 func draftState(t *testing.T, s *Server) DraftState {
 	t.Helper()
 	rec := do(t, s, http.MethodGet, "/api/review/draft", "")
@@ -122,6 +132,43 @@ func TestCommentsJoinOneDraftReview(t *testing.T) {
 		on.added[0].Body, "a thread with no severity set goes out as medium")
 	assert.Equal(t, 2, draftState(t, s).InDraft)
 	assert.Equal(t, 0, draftState(t, s).Ready, "both are waiting on GitHub now")
+}
+
+// Reading a review means jumping to the code it is about, and a reference
+// typed as plain text leaves the reader scrolling for it.
+func TestAFileAndLineInAFindingGoesOutAsALinkToTheCode(t *testing.T) {
+	s := newTestServer(t)
+	head := headHere(t, s)
+	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN", HeadSHA: head})
+	on := &draftOnGitHub{}
+	stubDraft(t, on)
+
+	converted(t, s, 3, "the same guard is in `a.go:12`, and lines 20-22 repeat it")
+
+	require.Equal(t, http.StatusOK,
+		do(t, s, http.MethodPost, "/api/review/draft", `{"confirm":7}`).Code)
+	require.Len(t, on.added, 1)
+
+	blob := "https://github.com/owenrumney/ade/blob/" + head + "/a.go"
+	assert.Contains(t, on.added[0].Body, "[`a.go:12`]("+blob+"#L12)")
+	// A bare line number is the file the comment is pinned to.
+	assert.Contains(t, on.added[0].Body, "[lines 20-22]("+blob+"#L20-L22)")
+}
+
+func TestTheVerdictsOwnWordsAreLinkedToo(t *testing.T) {
+	s := newTestServer(t)
+	head := headHere(t, s)
+	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN", HeadSHA: head})
+	on := &draftOnGitHub{}
+	stubDraft(t, on)
+	converted(t, s, 3, "this reads oddly")
+	require.Equal(t, http.StatusOK,
+		do(t, s, http.MethodPost, "/api/review/draft", `{"confirm":7}`).Code)
+
+	rec := do(t, s, http.MethodPost, "/api/review/finish",
+		`{"confirm":7,"event":"comment","body":"a.go:12 is the one to fix"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, on.body, "https://github.com/owenrumney/ade/blob/"+head+"/a.go#L12")
 }
 
 // A pending review is visible only to its author, so nothing in it counts as

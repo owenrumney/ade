@@ -16,6 +16,7 @@ import (
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/outgoing"
+	"github.com/owenrumney/ade/internal/prlink"
 )
 
 // readComments is a seam: the tests for stampSentExternalIDs have no GitHub to
@@ -198,6 +199,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	at, known := s.linkAt(owner, repo, pr.HeadSHA)
 	inline := make([]ghpr.InlineComment, 0, len(ready))
 	ids := make([]string, 0, len(ready))
 	for _, thread := range ready {
@@ -207,7 +209,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		inline = append(inline, ghpr.InlineComment{
 			Path: thread.File, Line: thread.Line, Side: side,
-			Body: comments.Badged(thread.Severity, thread.Outgoing),
+			Body: s.outgoingBody(thread, at, known),
 		})
 		ids = append(ids, thread.ID)
 	}
@@ -215,7 +217,8 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// Not the request's context: a closed tab would kill gh after GitHub had
 	// accepted the review, and the unmarked threads would go again on the next click.
 	post := context.WithoutCancel(r.Context())
-	if err := ghpr.PostReview(post, ws.homeRoot, owner, repo, pr.Number, req.Body, inline); err != nil {
+	summary := prlink.In(req.Body, at, "", known)
+	if err := ghpr.PostReview(post, ws.homeRoot, owner, repo, pr.Number, summary, inline); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
