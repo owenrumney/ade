@@ -27,6 +27,7 @@ import (
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/design"
+	"github.com/owenrumney/ade/internal/docnotes"
 	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/estimate"
 	"github.com/owenrumney/ade/internal/ghpr"
@@ -113,6 +114,12 @@ type Server struct {
 	// started divides a document already on disk from one written during the
 	// conversation, which is how a design is adopted on an unmatched branch.
 	started time.Time
+
+	// notes is the open document's note store, notesDoc the document it is for.
+	// Its own lock: opening it reads a file, which under s.mu blocks the poll.
+	notesMu  sync.Mutex
+	notes    *docnotes.Store
+	notesDoc string
 
 	// remembered is what ade knows about the repository, across every worktree
 	// of it. Resolved once: the identity is a git remote.
@@ -880,6 +887,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/design/condense", s.guard(s.handleDesignCondense))
 	mux.HandleFunc("POST /api/design/go", s.guardHome(s.handleDesignGo))
 	mux.HandleFunc("GET /api/design/estimate", s.guard(s.handleBuildEstimate))
+
+	mux.HandleFunc("GET /api/design/notes", s.guard(s.handleNotes))
+	mux.HandleFunc("POST /api/design/notes", s.guard(s.handleNoteCreate))
+	mux.HandleFunc("POST /api/design/notes/{id}/reply", s.guard(s.handleNoteReply))
+	mux.HandleFunc("POST /api/design/notes/{id}/resolve", s.guard(s.handleNoteResolve))
+	mux.HandleFunc("DELETE /api/design/notes/{id}", s.guard(s.handleNoteDelete))
+	mux.HandleFunc("POST /api/design/review", s.guard(s.handleDesignReview))
+	mux.HandleFunc("POST /api/design/accept", s.guard(s.handleDesignAccept))
 	mux.HandleFunc("GET /api/project", s.guard(s.handleProject))
 	mux.HandleFunc("PUT /api/project", s.guard(s.handleProjectSave))
 	mux.HandleFunc("POST /api/project/entry", s.guard(s.handleProjectEntry))

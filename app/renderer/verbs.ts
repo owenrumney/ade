@@ -123,6 +123,7 @@ export const VOCABULARY: Group[] = [
       ["ade.design", "Design documents…"],
       ["ade.grillDesign", "Grill me on this design"],
       ["ade.condenseDesign", "Condense this design"],
+      ["ade.reviewDesign", "Review this design"],
       ["ade.purgeDesigns", "Prune design documents…"],
       ["ade.build", "Build this design"],
       ["ade.newJob", "New Job"],

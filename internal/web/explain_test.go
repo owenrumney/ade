@@ -62,13 +62,13 @@ func TestTheFilerIsOffForAnAgentThatDoesNotReview(t *testing.T) {
 	list := s.userAgentsList()
 	quiet, ok := agents.Find(list, "eli5")
 	require.True(t, ok)
-	f := s.newFiler(quiet, "", "")
+	f := s.newFiler(quiet, "", "", false)
 	f.push(block)
 	assert.Empty(t, s.space().store.List())
 
 	loud, ok := agents.Find(list, "security")
 	require.True(t, ok)
-	f = s.newFiler(loud, "", "")
+	f = s.newFiler(loud, "", "", false)
 	f.push(block)
 	assert.NotEmpty(t, s.space().store.List())
 }

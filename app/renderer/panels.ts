@@ -395,6 +395,10 @@ export interface Written {
   title: string;
   read(reach: Reach): Promise<string>;
   write(reach: Reach, text: string): Promise<void>;
+
+  // notes turns on comments pinned to the text. Only the session's own design
+  // document has them: the store is keyed per document on that server.
+  notes?: boolean;
 }
 
 export function written(
@@ -403,6 +407,15 @@ export function written(
   doc: Written,
 ): Panel {
   let last = "";
+  // notes reads the store back after every change: one route answers with the
+  // list, so the page never has to merge anything itself.
+  const notes = async () => {
+    if (!doc.notes) return { kind: "notes", notes: [] };
+    const got = (await reach.get("session", "/api/design/notes").catch(() => ({}))) as {
+      notes?: unknown[];
+    };
+    return { kind: "notes", notes: got.notes ?? [] };
+  };
   return {
     id: doc.id,
     title: doc.title,
@@ -427,7 +440,40 @@ export function written(
             // beside the document against it.
             base: at ? `${at.base}/api/docs/` : "",
           },
+          await notes(),
         ];
+      }
+      if (said.kind === "note") {
+        await reach
+          .send("session", "/api/design/notes", {
+            quote: String(said.quote ?? ""),
+            nth: Number(said.nth ?? 0),
+            body: String(said.body ?? ""),
+          })
+          .catch(() => undefined);
+        return notes();
+      }
+      if (said.kind === "notereply") {
+        await reach
+          .send("session", `/api/design/notes/${said.id}/reply`, { body: String(said.body ?? "") })
+          .catch(() => undefined);
+        return notes();
+      }
+      if (said.kind === "noteresolve") {
+        await reach
+          .send("session", `/api/design/notes/${said.id}/resolve`, { resolved: !!said.resolved })
+          .catch(() => undefined);
+        return notes();
+      }
+      if (said.kind === "accept") {
+        await reach
+          .send("session", "/api/design/accept", { rows: said.rows })
+          .catch(() => undefined);
+        return undefined;
+      }
+      if (said.kind === "notedelete") {
+        await reach.call("session", `/api/design/notes/${said.id}`, "DELETE").catch(() => undefined);
+        return notes();
       }
       if (said.kind !== "edit" || typeof said.text !== "string") return undefined;
       if (said.text === last) return undefined;

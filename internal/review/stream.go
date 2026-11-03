@@ -57,9 +57,9 @@ func (s *Streamer) Push(text string) []Finding {
 // Has reports whether a finding has already been streamed.
 func (s *Streamer) Has(f Finding) bool { return s.seen[Key(f)] }
 
-// StripStream removes the finding blocks from a reply, so what is shown in
-// the conversation is the prose and the findings are the comments they
-// became.
+// StripStream removes both fences' blocks, so the conversation shows the prose
+// and the points are the comments they became.
 func StripStream(text string) string {
-	return strings.TrimSpace(streamRE.ReplaceAllString(text, ""))
+	text = streamRE.ReplaceAllString(text, "")
+	return strings.TrimSpace(noteRE.ReplaceAllString(text, ""))
 }

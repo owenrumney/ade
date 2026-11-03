@@ -173,7 +173,7 @@ func TestASendThatFindsNothingRunningKeepsWhatANamedAgentSaid(t *testing.T) {
 func TestAFindingOutsideTheDiffIsSaidRatherThanFiled(t *testing.T) {
 	// The test repo's only change is on new-side line 3 of a.go.
 	s := newTestServer(t)
-	f := s.newFiler(reviewingAgent("second-opinion"), "", "")
+	f := s.newFiler(reviewingAgent("second-opinion"), "", "", false)
 	f.push("```ade-finding\n" +
 		`{"file": ".git/ade/docs/main.md", "line": 12, "category": "design", "severity": "high", "summary": "the cache has no eviction"}` +
 		"\n```\n")
@@ -574,7 +574,7 @@ func TestANamedAgentsFindingBlocksAreFiledAsComments(t *testing.T) {
 	// The test repo's only change is "var x = 2" on new-side line 3.
 	s := newTestServer(t)
 	// The shipped definition: @commenter reviews nothing and still files.
-	f := s.newFiler(agents.Agent{Name: commenterAgent}, "security", "")
+	f := s.newFiler(agents.Agent{Name: commenterAgent}, "security", "", false)
 
 	// A block is a comment from the agent that asked, not the one that
 	// filed it; the prose around it stays prose.
@@ -599,7 +599,7 @@ func TestANamedAgentsFindingBlocksAreFiledAsComments(t *testing.T) {
 
 	// A second reviewer landing on the same line joins the thread that is
 	// there rather than opening another beside it.
-	own := s.newFiler(reviewingAgent("commenter"), "", "")
+	own := s.newFiler(reviewingAgent("commenter"), "", "", false)
 	own.push("```ade-finding\n{\"file\": \"a.go\", \"line\": 3, \"summary\": \"also\"}\n```")
 	threads = s.space().store.List()
 	require.Len(t, threads, 1)
@@ -609,7 +609,7 @@ func TestANamedAgentsFindingBlocksAreFiledAsComments(t *testing.T) {
 
 	// Nothing filed is nothing said.
 	before := len(s.conversation())
-	s.newFiler(reviewingAgent("poet"), "", "").done()
+	s.newFiler(reviewingAgent("poet"), "", "", false).done()
 	assert.Len(t, s.conversation(), before)
 }
 

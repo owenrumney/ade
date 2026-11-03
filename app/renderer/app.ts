@@ -3037,6 +3037,7 @@ class Ade {
         write: async (reach, text) => {
           await reach.send("session", "/api/design", { file, body: text }, "PUT");
         },
+        notes: true,
       };
     }
     // A design in a space other than the session's: read and written

@@ -261,6 +261,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.design": W("designs"),
   "ade.grillDesign": S("/api/design/go", { mode: "grill" }),
   "ade.condenseDesign": S("/api/design/condense"),
+  "ade.reviewDesign": S("/api/design/review"),
   "ade.purgeDesigns": { at: "panel", panel: "ade.purgeDesigns" },
   "ade.build": S("/api/design/go", { mode: "build" }),
   // The file is the definition, so the box writes one and the document
