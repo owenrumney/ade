@@ -32,6 +32,7 @@ import (
 	"github.com/owenrumney/ade/internal/settingsapi"
 	"github.com/owenrumney/ade/internal/transcripts"
 	"github.com/owenrumney/ade/internal/verify"
+	"github.com/owenrumney/ade/internal/walkthrough"
 	"github.com/owenrumney/ade/internal/worktrees"
 )
 
@@ -187,13 +188,24 @@ var responseShapes = map[string][]string{
 		"agent struct", "attachment ptr", "branchPr ptr", "bus ptr", "chat struct", "created ptr", "design ptr", "diffVersion string",
 		"draft ptr", "hub ptr", "limits ptr", "linear ptr", "meta struct", "notifications slice",
 		"openPrs slice", "pr ptr", "project ptr", "quiz ptr", "reviews slice", "threads slice",
-		"verify ptr", "worktree ptr",
+		"verify ptr", "walkthrough ptr", "worktree ptr",
 	},
 	"Quiz": {"base string", "files int", "questions slice", "scope string", "stale bool"},
 	"QuizQuestion": {
 		"about string", "answer string", "file string", "line int", "options slice",
 		"question string", "ref string", "why string",
 	},
+	"Walkthrough": {
+		"base string", "files int", "flow ptr", "scope string", "stale bool", "steps slice",
+	},
+	"WalkthroughStep": {
+		"body string", "endLine int", "excerpt slice", "file string", "line int",
+		"node string", "ref string", "title string",
+	},
+	"WalkthroughLine": {"in bool", "n int", "text string"},
+	"WalkthroughFlow": {"edges slice", "nodes slice"},
+	"WalkthroughNode": {"file string", "id string", "label string", "line int"},
+	"WalkthroughEdge": {"from string", "label string", "to string"},
 	"VerifyState": {
 		"at string", "failed string", "narrow bool", "offer slice", "passed bool", "ran int",
 		"running bool", "stopped bool", "total int",
@@ -382,6 +394,12 @@ func TestTheResponseShapesStillMatchTheGoStructs(t *testing.T) {
 		"VerifyCheck":       verify.Check{},
 		"Quiz":              Quiz{},
 		"QuizQuestion":      quiz.Question{},
+		"Walkthrough":       Walkthrough{},
+		"WalkthroughStep":   walkthrough.Step{},
+		"WalkthroughLine":   walkthrough.Line{},
+		"WalkthroughFlow":   walkthrough.Flow{},
+		"WalkthroughNode":   walkthrough.Node{},
+		"WalkthroughEdge":   walkthrough.Edge{},
 	}
 	require.Len(t, subjects, len(responseShapes), "a struct is in one table and not the other")
 

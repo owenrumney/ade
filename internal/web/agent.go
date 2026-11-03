@@ -48,6 +48,7 @@ const (
 	kindDraftReply    = "draft-reply"
 	kindPRCreate      = "pr-create"
 	kindQuiz          = "quiz"
+	kindWalkthrough   = "walkthrough"
 	kindSeed          = "design-seed"
 	kindFold          = "design-fold"
 )

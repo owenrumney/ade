@@ -107,7 +107,7 @@ function died(what: unknown): void {
   const el = document.getElementById("doc");
   if (!el) return;
   el.textContent = `ade: the rendered editor could not start — ${String(what)}`;
-  el.setAttribute("style", "padding:2rem;white-space:pre-wrap;color:var(--vscode-errorForeground)");
+  el.setAttribute("style", "padding:2rem;white-space:pre-wrap;color:var(--bad)");
 }
 window.addEventListener("error", (e) => died(e.message));
 window.addEventListener("unhandledrejection", (e) => died(e.reason));
@@ -148,17 +148,17 @@ function start(mermaid: Mermaid): void {
     startOnLoad: false,
     securityLevel: "strict",
     theme: "base",
-    fontFamily: to("--ade-font-family") || to("--vscode-font-family"),
+    fontFamily: to("--ade-font-family") || to("--ui"),
     flowchart: { useMaxWidth: false },
     themeVariables: {
-      background: to("--vscode-editor-background"),
-      primaryColor: to("--vscode-editorWidget-background"),
-      primaryTextColor: to("--vscode-editor-foreground"),
-      primaryBorderColor: to("--vscode-panel-border"),
-      secondaryColor: to("--vscode-editorWidget-background"),
-      tertiaryColor: to("--vscode-editor-background"),
-      lineColor: to("--vscode-descriptionForeground"),
-      textColor: to("--vscode-editor-foreground"),
+      background: to("--bg"),
+      primaryColor: to("--bg-raised"),
+      primaryTextColor: to("--ink"),
+      primaryBorderColor: to("--line"),
+      secondaryColor: to("--bg-raised"),
+      tertiaryColor: to("--bg"),
+      lineColor: to("--ink-dim"),
+      textColor: to("--ink"),
       fontSize: `${diagramFontSize}px`,
     },
   });
@@ -310,22 +310,22 @@ const wysiwyg = StateField.define<DecorationSet>({
 // The theme is the editor's own, so nothing here names a colour.
 const theme = EditorView.theme({
   "&": {
-    color: "var(--vscode-editor-foreground)",
-    backgroundColor: "var(--vscode-editor-background)",
-    fontSize: "var(--ade-font-size, var(--vscode-editor-font-size))",
+    color: "var(--ink)",
+    backgroundColor: "var(--bg)",
+    fontSize: "var(--ade-font-size, var(--mono-size))",
     height: "100%",
   },
   ".cm-content": {
-    fontFamily: "var(--ade-font-family, var(--vscode-font-family))",
-    caretColor: "var(--vscode-editorCursor-foreground)",
+    fontFamily: "var(--ade-font-family, var(--ui))",
+    caretColor: "var(--ink)",
     // No measure: a table or a diagram sized to the pane beside prose
     // stopping at 48rem read as two documents.
     maxWidth: "none",
     padding: "2rem 2.5rem 60vh",
   },
-  ".cm-cursor": { borderLeftColor: "var(--vscode-editorCursor-foreground)" },
+  ".cm-cursor": { borderLeftColor: "var(--ink)" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-    backgroundColor: "var(--vscode-editor-selectionBackground)",
+    backgroundColor: "var(--selection)",
   },
   ".cm-h1": { fontSize: "1.9em", fontWeight: "600", lineHeight: "1.3" },
   ".cm-h2": { fontSize: "1.5em", fontWeight: "600", lineHeight: "1.3" },
@@ -337,32 +337,32 @@ const theme = EditorView.theme({
     fontSize: "0.95em",
   },
   ".cm-table th, .cm-table td": {
-    border: "1px solid var(--vscode-panel-border)",
+    border: "1px solid var(--line)",
     padding: "4px 10px",
     textAlign: "left",
   },
   ".cm-table th": {
     fontWeight: "600",
-    background: "var(--vscode-editorWidget-background)",
+    background: "var(--bg-raised)",
   },
   ".cm-rule": {
-    borderTop: "1px solid var(--vscode-panel-border)",
+    borderTop: "1px solid var(--line)",
     margin: "0.8rem 0",
   },
   ".cm-codeblock": {
-    fontFamily: "var(--vscode-editor-font-family)",
+    fontFamily: "var(--mono)",
     fontSize: "0.9em",
-    backgroundColor: "var(--vscode-textCodeBlock-background)",
+    backgroundColor: "var(--bg-raised)",
     padding: "0 1rem",
   },
   ".cm-codefence": { fontSize: "0.5em" },
-  ".cm-bullet": { color: "var(--vscode-descriptionForeground)" },
+  ".cm-bullet": { color: "var(--ink-dim)" },
   ".cm-link": {
-    color: "var(--vscode-textLink-foreground)",
+    color: "var(--info)",
     textDecoration: "underline",
   },
   ".cm-image": { display: "block", maxWidth: "100%", margin: "0.5rem 0" },
-  ".cm-image.failed": { color: "var(--vscode-errorForeground)" },
+  ".cm-image.failed": { color: "var(--bad)" },
   ".cm-diagram": {
     display: "flex",
     justifyContent: "safe center",
@@ -370,9 +370,9 @@ const theme = EditorView.theme({
     padding: "0.5rem 0",
   },
   ".cm-diagram.failed": {
-    color: "var(--vscode-errorForeground)",
+    color: "var(--bad)",
     whiteSpace: "pre-wrap",
-    fontFamily: "var(--vscode-editor-font-family)",
+    fontFamily: "var(--mono)",
   },
 });
 

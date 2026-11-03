@@ -1,24 +1,18 @@
-/* The editor's own tokens throughout: this is a pane of VS Code, not a page
+/* The window's own palette throughout: this is a pane of ade, not a page
    embedded in one, so there is no palette of its own to reconcile. */
 html,
 body {
   height: 100%;
   margin: 0;
-  font: var(--vscode-font-size) var(--vscode-editor-font-family);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  font: var(--ui-size) var(--mono);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 #ade {
   display: flex;
   flex-direction: column;
   height: 100%;
-  /* What the person typed, in the theme's own terminal green. One property,
-     so a theme that wants another voice is one line. */
-  --said: var(--vscode-terminal-ansiGreen, var(--vscode-charts-green));
-  /* What the agent says, in the terminal's magenta: a second voice beside the
-     green, and apart from the grey a tool row wears. */
-  --heard: var(--vscode-terminal-ansiYellow, var(--vscode-terminal-ansiYellow));
 }
 
 #list {
@@ -52,7 +46,7 @@ body {
 
 /* Code is quoted, not spoken, so it keeps the editor's own foreground. */
 .msg.agent .body pre,
-.msg.agent .body code { color: var(--vscode-foreground); }
+.msg.agent .body code { color: var(--ink); }
 
 /* The avatar keeps its width while the prose takes the rest; min-width on the
    column is what stops a long unbroken token pushing the circle off. */
@@ -69,20 +63,20 @@ body {
   height: 16px;
   margin-top: 2px;
   border-radius: 50%;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
+  background: var(--tint-dim);
+  color: var(--ink);
 }
 
 .avatar svg { width: 12px; height: 12px; }
 
 .avatar.you {
   background: var(--said);
-  color: var(--vscode-editor-background);
+  color: var(--bg);
 }
 
 .avatar.named {
   background: transparent;
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   border: 1px solid currentColor;
   font-size: 0.75em;
   font-weight: 700;
@@ -90,7 +84,7 @@ body {
 
 .head {
   font-size: 0.85em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   margin-bottom: 2px;
 }
 
@@ -105,14 +99,14 @@ body {
 .body :last-child { margin-bottom: 0; }
 
 .body pre {
-  background: var(--vscode-textCodeBlock-background);
+  background: var(--bg-raised);
   padding: 6px 8px;
   border-radius: 2px;
   overflow-x: auto;
 }
 
 .body code {
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
   font-size: 0.95em;
 }
 
@@ -124,10 +118,10 @@ body {
   right: 6px;
   padding: 1px 8px;
   font-size: 11px;
-  border: 1px solid var(--vscode-widget-border, transparent);
+  border: 1px solid var(--line, transparent);
   border-radius: 4px;
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+  background: var(--selected-quiet);
+  color: var(--ink);
   cursor: pointer;
   opacity: 0;
   transition: opacity 80ms linear;
@@ -135,10 +129,10 @@ body {
 .body .block:hover .copycode,
 .body .block .copycode:focus-visible { opacity: 1; }
 .body .block .copycode:hover {
-  background: var(--vscode-button-secondaryHoverBackground);
+  background: var(--hover);
 }
 
-.body a { color: var(--vscode-textLink-foreground); }
+.body a { color: var(--info); }
 
 /* Prose reads badly across a wide pane, so paragraphs and lists keep a measure
    of their own. Tables, code and pictures are laid out, not read, and take the
@@ -168,18 +162,17 @@ body {
   padding: 5px 10px;
   text-align: left;
   vertical-align: top;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border: 1px solid var(--line);
 }
 
 .body thead th {
   font-weight: 600;
-  background: var(--vscode-keybindingTable-headerBackground,
-    var(--vscode-editorWidget-background));
+  background: var(--bg-raised);
 }
 
 .body tbody tr:nth-child(even) {
-  background: var(--vscode-keybindingTable-rowsBackground,
-    var(--vscode-textBlockQuote-background));
+  background: var(--input-bg,
+    var(--bg-raised));
 }
 
 /* A file:line or a command is one token to the reader; wrapping it mid-path is
@@ -192,15 +185,15 @@ body {
 .tool,
 .note-row,
 .spinner {
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
   font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   padding-left: 4px;
 }
 
-.tool.failed { color: var(--vscode-errorForeground); }
+.tool.failed { color: var(--bad); }
 .note-row.failed > summary,
-.note-row.failed { color: var(--vscode-errorForeground); }
+.note-row.failed { color: var(--bad); }
 
 /* A failing check's output, folded under the note that names it. */
 .note-row > summary { cursor: pointer; }
@@ -208,18 +201,18 @@ body {
 .note-row pre {
   margin: 4px 0 0 12px;
   white-space: pre-wrap;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .note-row a {
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   cursor: pointer;
 }
 
 .spinner { font-style: italic; }
 
 #composer {
-  border-top: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--line);
   padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -230,15 +223,15 @@ body {
   resize: vertical;
   min-height: 60px;
   font: inherit;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
+  color: var(--ink);
+  background: var(--input-bg);
+  border: 1px solid var(--line, transparent);
   border-radius: 4px;
   padding: 8px;
 }
 
 #box:focus {
-  outline: 1px solid var(--vscode-focusBorder);
+  outline: 1px solid var(--accent);
 }
 
 #tray {
@@ -256,16 +249,16 @@ body {
   border-radius: 4px;
   padding: 4px 10px;
   cursor: pointer;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .chip {
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
+  color: var(--ink);
+  background: var(--tint-dim);
 }
 
-#send:hover { background: var(--vscode-button-hoverBackground); }
+#send:hover { background: var(--accent-hover); }
 #send:disabled { opacity: 0.6; cursor: default; }
 
 #stop {
@@ -274,11 +267,11 @@ body {
   border-radius: 4px;
   padding: 4px 10px;
   cursor: pointer;
-  color: var(--vscode-button-secondaryForeground);
-  background: var(--vscode-button-secondaryBackground);
+  color: var(--ink);
+  background: var(--selected-quiet);
 }
 
-#stop:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#stop:hover { background: var(--hover); }
 #stop:disabled { opacity: 0.6; cursor: default; }
 #stop[hidden] { display: none; }
 
@@ -295,16 +288,16 @@ body {
   border-radius: 50%;
   cursor: pointer;
   touch-action: none;
-  color: var(--vscode-button-secondaryForeground);
-  background: var(--vscode-button-secondaryBackground);
+  color: var(--ink);
+  background: var(--selected-quiet);
 }
 
 #mic svg { width: 14px; height: 14px; }
 
-#mic:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#mic:hover { background: var(--hover); }
 #mic.live {
-  color: var(--vscode-editor-background);
-  background: var(--vscode-errorForeground);
+  color: var(--bg);
+  background: var(--bad);
 }
 
 #sharpen {
@@ -321,7 +314,7 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .pick {
@@ -330,11 +323,11 @@ body {
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;
-  color: var(--vscode-button-secondaryForeground);
-  background: var(--vscode-button-secondaryBackground);
+  color: var(--ink);
+  background: var(--selected-quiet);
 }
 
-.pick:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.pick:hover { background: var(--hover); }
 
 #row {
   display: flex;
@@ -345,20 +338,20 @@ body {
 #note {
   display: none;
   font-size: 0.9em;
-  color: var(--vscode-errorForeground);
+  color: var(--bad);
 }
 
 #note.on { display: block; }
 
 #hint {
   font-size: 0.85em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .tools {
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
   font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   padding-left: 4px;
 }
 
@@ -368,22 +361,22 @@ body {
   user-select: none;
 }
 
-.tools > summary.failed { color: var(--vscode-errorForeground); }
+.tools > summary.failed { color: var(--bad); }
 .tools > .tool { padding-left: 14px; }
 
 /* The turn stops here until one of these is clicked, so it is a panel rather
    than a line in a collapsed run. */
 .question {
-  border: 1px solid var(--vscode-widget-border);
-  border-left: 2px solid var(--vscode-widget-border);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line);
   border-radius: 4px;
   padding: 8px 10px;
   margin: 4px 0;
-  background: var(--vscode-editorWidget-background);
+  background: var(--bg-raised);
 }
 
 .question.open {
-  border-left-color: var(--vscode-focusBorder);
+  border-left-color: var(--accent);
 }
 
 .question-one + .question-one { margin-top: 10px; }
@@ -391,7 +384,7 @@ body {
 .question-header {
   font-size: 0.8em;
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .question-text { margin: 2px 0 6px; }
@@ -404,16 +397,16 @@ body {
 
 .question-option {
   background: transparent;
-  color: var(--vscode-foreground);
-  border: 1px solid var(--vscode-widget-border);
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;
 }
 
 .question-option.on {
-  border-color: var(--vscode-focusBorder);
-  color: var(--vscode-textLink-foreground);
+  border-color: var(--accent);
+  color: var(--info);
 }
 
 .question-option:disabled { cursor: default; opacity: 0.6; }
@@ -426,22 +419,22 @@ body {
   margin: 6px 0;
   padding: 3px 6px;
   font: inherit;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border);
+  background: var(--input-bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 4px;
 }
 
 .question-answer {
   margin-top: 6px;
   font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .question-answer-btn {
   margin-top: 8px;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+  background: var(--accent);
+  color: var(--accent-ink);
   border: none;
   border-radius: 4px;
   padding: 3px 10px;
@@ -457,8 +450,8 @@ body {
    on it: it reads rather than downloads, so it is outlined not filled. */
 .chip.context {
   background: transparent;
-  border: 1px solid var(--vscode-textLink-foreground);
-  color: var(--vscode-textLink-foreground);
+  border: 1px solid var(--info);
+  color: var(--info);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -476,7 +469,7 @@ body {
 
 .shotbtn {
   padding: 0;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--line);
   border-radius: 4px;
   background: none;
   cursor: pointer;
@@ -484,7 +477,7 @@ body {
   overflow: hidden;
 }
 
-.shotbtn:hover { border-color: var(--vscode-focusBorder); }
+.shotbtn:hover { border-color: var(--accent); }
 .shot { display: block; max-width: 320px; max-height: 240px; }
 
 /* The lightbox, as the app's own gallery is: one picture over the thread, the
@@ -507,7 +500,7 @@ body {
   align-items: center;
   gap: 10px;
   max-width: 100%;
-  color: var(--vscode-foreground);
+  color: var(--ink);
 }
 
 .lightbox-name {
@@ -516,7 +509,7 @@ body {
   white-space: nowrap;
 }
 
-.lightbox-count { color: var(--vscode-descriptionForeground); }
+.lightbox-count { color: var(--ink-dim); }
 .lightbox-shot {
   max-width: 100%;
   max-height: calc(100% - 50px);
@@ -534,13 +527,13 @@ body {
   font-size: 1.6em;
   line-height: 1;
   cursor: pointer;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .lightbox-step.prev { left: 12px; }
 .lightbox-step.next { right: 12px; }
-.lightbox-step:hover { background: var(--vscode-button-hoverBackground); }
+.lightbox-step:hover { background: var(--accent-hover); }
 
 /* The verbs on a message that carries something to act on: a named agent's
    reply, with a document open to fold it into. */
@@ -555,7 +548,7 @@ body {
 .undo {
   margin-top: 8px;
   padding: 8px;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--line);
   border-radius: 4px;
   font-size: 0.9em;
 }
@@ -563,14 +556,14 @@ body {
 .undo ul {
   margin: 6px 0 0;
   padding-left: 18px;
-  font-family: var(--vscode-editor-font-family);
-  color: var(--vscode-descriptionForeground);
+  font-family: var(--mono);
+  color: var(--ink-dim);
 }
 
 /* A url in a bubble. The editor opens it; this only makes it look like what it
    is, since a webview gives an anchor no styling of its own. */
 .body a {
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   text-decoration: none;
   cursor: pointer;
 }
@@ -586,11 +579,11 @@ body {
   padding: 0;
   background: none;
   cursor: pointer;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .linkact:hover {
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   text-decoration: underline;
 }
 
@@ -603,7 +596,7 @@ body {
 .folded {
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--line);
 }
 
 .folded-msg {
@@ -616,7 +609,7 @@ body {
 .fold-note {
   margin-top: 6px;
   font-size: 0.85em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .side-row {
@@ -625,5 +618,5 @@ body {
   align-items: baseline;
   font-size: 0.9em;
   font-style: italic;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }

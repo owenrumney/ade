@@ -6,7 +6,7 @@
 }
 
 .mounts h3 {
-  font-size: var(--vscode-font-size);
+  font-size: var(--ui-size);
   font-weight: 600;
   margin: 18px 0 6px;
 }
@@ -14,7 +14,7 @@
 .mounts-summary,
 .mount-value,
 .mount-why {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   margin: 0 0 8px;
 }
 
@@ -37,7 +37,7 @@
 .mount-mode {
   flex: none;
   margin: 0;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .mount-value {
@@ -48,19 +48,19 @@
   flex: 1;
   min-width: 0;
   padding: 3px 6px;
-  border: 1px solid var(--vscode-input-border, transparent);
+  border: 1px solid var(--line, transparent);
   border-radius: 4px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
+  background: var(--input-bg);
+  color: var(--ink);
   font: inherit;
 }
 
 .mount-how {
   padding: 3px 6px;
-  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border: 1px solid var(--line, transparent);
   border-radius: 4px;
-  background: var(--vscode-dropdown-background);
-  color: var(--vscode-dropdown-foreground);
+  background: var(--input-bg);
+  color: var(--ink);
   font: inherit;
 }
 
@@ -68,17 +68,17 @@
 .mount-browse,
 .mount-drop {
   padding: 3px 10px;
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--button-edge, transparent);
   border-radius: 4px;
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+  background: var(--selected-quiet);
+  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }
 
 .mount-do {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .mount-why:empty {

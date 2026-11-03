@@ -269,11 +269,19 @@ func (s *Server) handleFinishReview(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	event := strings.ToUpper(strings.TrimSpace(req.Event))
+	// The window spells it request-changes; GitHub's enum is REQUEST_CHANGES.
+	event := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(req.Event), "-", "_"))
 	switch event {
 	case ghpr.EventApprove, ghpr.EventRequestChanges, ghpr.EventComment:
 	default:
 		writeError(w, http.StatusBadRequest, "finish with approve, request-changes or comment")
+		return
+	}
+	// GitHub refuses a request for changes with no words; a comment review
+	// carrying inline threads it takes.
+	if event == ghpr.EventRequestChanges && strings.TrimSpace(req.Body) == "" {
+		writeError(w, http.StatusBadRequest,
+			"requesting changes needs a summary: GitHub refuses one without words")
 		return
 	}
 

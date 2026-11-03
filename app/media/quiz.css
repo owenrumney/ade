@@ -1,10 +1,10 @@
-/* The editor's own tokens throughout: this is a pane of VS Code. */
+/* The window's own palette throughout: paneltheme.ts puts it here. */
 body {
   margin: 0;
   padding: 16px 20px 32px;
-  font: var(--vscode-font-size) var(--vscode-font-family);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  font: var(--ui-size) var(--ui);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 main { max-width: 52em; }
@@ -13,13 +13,13 @@ h1 { font-size: 1.2em; margin: 0; }
 h2 {
   font-size: 1em;
   margin: 22px 0 8px;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .head { margin-bottom: 18px; }
-.sub { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
-.warn { margin: 6px 0 0; color: var(--vscode-editorWarning-foreground); }
-.note { color: var(--vscode-errorForeground); }
+.sub { margin: 4px 0 0; color: var(--ink-dim); }
+.warn { margin: 6px 0 0; color: var(--warn); }
+.note { color: var(--bad); }
 
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
 .verbs { margin-top: 14px; }
@@ -29,18 +29,18 @@ button {
   padding: 4px 12px;
   border: none;
   border-radius: 2px;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
-button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+button:hover:not(:disabled) { background: var(--accent-hover); }
 button:disabled { opacity: 0.5; }
 
 .linkish {
   padding: 0;
   background: none;
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   text-decoration: underline;
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
 }
 .linkish:hover:not(:disabled) { background: none; }
 
@@ -50,11 +50,11 @@ button:disabled { opacity: 0.5; }
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--vscode-badge-background);
+  background: var(--tint-dim);
 }
-.dot.right { background: var(--vscode-charts-green); }
-.dot.wrong { background: var(--vscode-errorForeground); }
-.dot.here { background: var(--vscode-focusBorder); }
+.dot.right { background: var(--good); }
+.dot.wrong { background: var(--bad); }
+.dot.here { background: var(--accent); }
 .dot.ahead { opacity: 0.4; }
 
 .ask { font-size: 1.05em; margin: 0 0 14px; }
@@ -68,40 +68,40 @@ button:disabled { opacity: 0.5; }
   gap: 10px;
   text-align: left;
   padding: 8px 10px;
-  color: var(--vscode-foreground);
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border, transparent);
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--line, transparent);
 }
-.option:hover:not(:disabled) { border-color: var(--vscode-focusBorder); background: var(--vscode-editorWidget-background); }
+.option:hover:not(:disabled) { border-color: var(--accent); background: var(--bg-raised); }
 .option:disabled { opacity: 1; }
-.option .letter { color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); }
-.option.right { border-color: var(--vscode-charts-green); }
-.option.wrong { border-color: var(--vscode-errorForeground); }
+.option .letter { color: var(--ink-dim); font-family: var(--mono); }
+.option.right { border-color: var(--good); }
+.option.wrong { border-color: var(--bad); }
 
 .verdict { margin: 14px 0 4px; font-weight: 600; }
-.verdict.right { color: var(--vscode-charts-green); }
-.verdict.wrong { color: var(--vscode-errorForeground); }
-.why { margin: 0; color: var(--vscode-descriptionForeground); }
+.verdict.right { color: var(--good); }
+.verdict.wrong { color: var(--bad); }
+.why { margin: 0; color: var(--ink-dim); }
 
 .tally { font-size: 1.1em; margin: 0 0 14px; }
 
 .card {
   padding: 10px 12px;
   margin: 8px 0;
-  background: var(--vscode-editorWidget-background);
-  border-left: 3px solid var(--vscode-charts-green);
+  background: var(--bg-raised);
+  border-left: 3px solid var(--good);
 }
-.card.wrong { border-left-color: var(--vscode-errorForeground); }
+.card.wrong { border-left-color: var(--bad); }
 .card .ask { font-size: 1em; margin-bottom: 8px; }
 .card .chose, .card .was { margin: 2px 0; }
-.card .was { color: var(--vscode-charts-green); }
+.card .was { color: var(--good); }
 
 .links { margin: 8px 0 0; gap: 14px; }
 
 /* Passing a quiz written from the change is not assurance the change is right. */
 .caveat {
   margin: 20px 0 0;
-  color: var(--vscode-descriptionForeground);
-  border-top: 1px solid var(--vscode-panel-border);
+  color: var(--ink-dim);
+  border-top: 1px solid var(--line);
   padding-top: 12px;
 }

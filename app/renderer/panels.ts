@@ -452,10 +452,14 @@ export function quiz(reach: Reach): Panel {
     if (got.quiz) return { kind: "state", quiz: got.quiz, busy: false, note: "" };
     // Queued: the host waits rather than the page, because the page has
     // no way to ask again and the window does not push to it.
-    const found = await waitForQuiz(reach);
-    return found
-      ? { kind: "state", quiz: found, busy: false, note: "" }
-      : { kind: "state", quiz: undefined, busy: false, note: "the questions are still being written" };
+    const waited = await waitFor(reach, "quiz", "quiz", QUIZ_WAIT);
+    if (waited.found) return { kind: "state", quiz: waited.found, busy: false, note: "" };
+    return {
+      kind: "state",
+      quiz: undefined,
+      busy: false,
+      note: waited.error || "the questions are still being written",
+    };
   };
   return {
     id: "quiz",
@@ -478,20 +482,98 @@ export function quiz(reach: Reach): Panel {
   };
 }
 
-// How long the host waits for a queued quiz, and how often it looks.
+// walkthrough is the change read back as ordered steps. Posts and waits like
+// the quiz, and wears mermaid for the flow the steps walk.
+export function explain(reach: Reach): Panel {
+  const ask = async (regenerate: boolean) => {
+    const got = (await reach
+      .send("session", "/api/walkthrough", { regenerate })
+      .catch((e: Error) => ({ error: e.message }))) as {
+      walkthrough?: unknown;
+      error?: string;
+    };
+    if (got.error) return { kind: "state", walkthrough: undefined, busy: false, note: got.error };
+    if (got.walkthrough)
+      return { kind: "state", walkthrough: got.walkthrough, busy: false, note: "" };
+    // The page draws only what it is told, so it is told it is waiting
+    // before the wait rather than after it.
+    reach.push("explain", { kind: "state", walkthrough: undefined, busy: true, note: "" });
+    const waited = await waitFor(reach, "walkthrough", "walkthrough", WALK_WAIT);
+    if (waited.found) return { kind: "state", walkthrough: waited.found, busy: false, note: "" };
+    return {
+      kind: "state",
+      walkthrough: undefined,
+      busy: false,
+      note: waited.error || "the steps are still being written",
+    };
+  };
+  return {
+    id: "explain",
+    title: "Explain this change",
+    root: "explain",
+    bundle: "explain.js",
+    styles: ["explain.css"],
+    // Mermaid before the page: it hands it the theme's own colours as it
+    // draws, so it has to be on the window already.
+    before: ["mermaid.min.js"],
+    async onMessage(said) {
+      if (said.kind === "ready") return ask(false);
+      if (said.kind !== "do") return undefined;
+      const what = String(said.what ?? "");
+      if (what === "regenerate") return ask(true);
+      if (what === "cancel") {
+        await stopWalkthrough(reach);
+        return { kind: "state", walkthrough: undefined, busy: false, note: "stopped" };
+      }
+      if (what === "open" && typeof said.file === "string") reach.open(said.file);
+      return undefined;
+    },
+  };
+}
+
+// How long the host waits for a queued run, and how often it looks. The
+// walkthrough gets longer: it runs on the session's model, not the fast one.
 const QUIZ_WAIT = 90_000;
+const WALK_WAIT = 300_000;
 const QUIZ_EVERY = 2_000;
 
-async function waitForQuiz(reach: Reach): Promise<unknown> {
-  const until = Date.now() + QUIZ_WAIT;
+// stopWalkthrough stops the run when the walkthrough is the one running, and
+// otherwise drops it from the queue: /api/cancel would kill the turn in flight.
+async function stopWalkthrough(reach: Reach): Promise<void> {
+  const state = (await reach.get("session", "/api/state").catch(() => ({}))) as {
+    agent?: { running?: boolean; kind?: string; waiting?: { id: string; kind: string }[] };
+  };
+  const agent = state.agent;
+  if (agent?.running && agent.kind === "walkthrough") {
+    await reach.send("session", "/api/cancel", {}).catch(() => undefined);
+    return;
+  }
+  for (const each of agent?.waiting ?? []) {
+    if (each.kind !== "Explain this change") continue;
+    await reach.call("session", `/api/queue/${each.id}`, "DELETE").catch(() => undefined);
+  }
+}
+
+// waitFor polls for the key until it lands. A run of this kind that ends in
+// an error ends the wait: nothing will set the key now.
+async function waitFor(
+  reach: Reach,
+  key: "quiz" | "walkthrough",
+  kind: string,
+  budget: number,
+): Promise<{ found?: unknown; error?: string }> {
+  const until = Date.now() + budget;
   while (Date.now() < until) {
     await new Promise((wake) => setTimeout(wake, QUIZ_EVERY));
-    const state = (await reach
-      .get("session", "/api/state")
-      .catch(() => ({}))) as { quiz?: unknown };
-    if (state.quiz) return state.quiz;
+    const state = (await reach.get("session", "/api/state").catch(() => ({}))) as Record<
+      string,
+      unknown
+    > & { agent?: { running?: boolean; kind?: string; error?: string } };
+    if (state[key]) return { found: state[key] };
+    const agent = state.agent;
+    if (agent && !agent.running && agent.kind === kind && agent.error) return { error: agent.error };
   }
-  return undefined;
+  return {};
 }
 
 // commit is the working tree, the draft and the verbs around them. Its
@@ -603,6 +685,9 @@ export function commit(reach: Reach): Panel {
           return undefined;
         case "quizMe":
           reach.run("ade.quizMe");
+          return undefined;
+        case "explainThis":
+          reach.run("ade.explainThis");
           return undefined;
         default:
           return { kind: "state", busy, note: `${what} is not wired yet` };
@@ -929,4 +1014,5 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.purgeDesigns": prune,
   "ade.newSession": (reach) => newSession(reach),
   "ade.quizMe": quiz,
+  "ade.explainThis": explain,
 };

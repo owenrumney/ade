@@ -241,6 +241,13 @@ func (s *Server) review(w http.ResponseWriter, r *http.Request, v verdict) {
 			fmt.Sprintf("reviewing #%d has to name it: send confirm=%d", pr.Number, pr.Number))
 		return
 	}
+	// GitHub refuses a request for changes without words, and leaves the draft
+	// review pending when it does.
+	if v.event == ghpr.EventRequestChanges && strings.TrimSpace(req.Body) == "" {
+		writeError(w, http.StatusBadRequest,
+			"requesting changes needs a summary: GitHub refuses one without words")
+		return
+	}
 	if why := v.cached(pr); why != "" {
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("#%d cannot be %s: %s", pr.Number, v.word, why))

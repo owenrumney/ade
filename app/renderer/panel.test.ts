@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { skeleton } from "./panel";
-import { named, THEME } from "./vstheme";
+import { declared, read, taken, THEME } from "./paneltheme";
 
 const PANEL = {
   id: "sandbox",
@@ -50,23 +50,40 @@ describe("the host half of a webview", () => {
 });
 
 describe("the theme a panel is given", () => {
-  // VS Code hands a webview its theme as --vscode-* variables. Nothing
-  // set them here, so every panel drew in the browser's own colours:
+  // A panel is an iframe and cannot reach theme.css, so nothing set the
+  // palette there: every panel drew in the browser's own colours, and
   // the chat's composer was dark text on a dark ground.
-  const sheets = readdirSync(join(__dirname, "..", "media"))
+  const media = join(__dirname, "..", "media");
+  const sheets = readdirSync(media)
     .filter((f) => f.endsWith(".css"))
-    .map((f) => readFileSync(join(__dirname, "..", "media", f), "utf8"))
-    .join("\n");
+    .map((f) => readFileSync(join(media, f), "utf8"));
+
+  // A page that styles itself in code reads the palette there, which no
+  // stylesheet shows: designedit and explainpanel both do.
+  const pages = join(__dirname, "..", "pages");
+  const code = readdirSync(pages, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => join(pages, e.name, "main.ts"))
+    .filter((f) => existsSync(f))
+    .map((f) => readFileSync(f, "utf8"));
+
+  // A sheet that declares a name itself is not asking the theme for it.
+  const wanted = new Set<string>();
+  for (const css of sheets) {
+    const own = new Set(declared(css));
+    for (const name of read(css)) if (!own.has(name)) wanted.add(name);
+  }
+  for (const ts of code) for (const name of taken(ts)) wanted.add(name);
 
   it("sets every variable the panels read", () => {
-    const set = new Set(named(THEME));
-    const missing = named(sheets).filter((v) => !set.has(v));
-    expect(missing, `add these to vstheme.ts: ${missing.join(", ")}`).toEqual([]);
+    const set = new Set(declared(THEME));
+    const missing = [...wanted].filter((v) => !set.has(v)).sort();
+    expect(missing, `add these to paneltheme.ts: ${missing.join(", ")}`).toEqual([]);
   });
 
   it("is in the page before its stylesheets", () => {
     const html = skeleton(PANEL);
-    expect(html.indexOf("--vscode-foreground")).toBeLessThan(html.indexOf("sandbox.css"));
+    expect(html.indexOf("--ink")).toBeLessThan(html.indexOf("sandbox.css"));
   });
 });
 
@@ -97,6 +114,6 @@ describe("the scrollbar in a panel", () => {
   it("is themed, like the window's own", () => {
     const html = skeleton(PANEL);
     expect(html).toContain("::-webkit-scrollbar-thumb");
-    expect(html).toContain("scrollbar-color: var(--vscode-widget-border)");
+    expect(html).toContain("scrollbar-color: var(--line)");
   });
 });

@@ -397,6 +397,94 @@ const DIFF = {
   },
 };
 
+// A walkthrough of the diff above, as the agent would have written it.
+const WALK = {
+  files: 2,
+  base: "main",
+  scope: "branch",
+  stale: false,
+  flow: {
+    nodes: [
+      { id: "verb", label: "A verb in the omnibox" },
+      { id: "ask", label: "What it asks for" },
+      { id: "sources", label: "Where the answers come from" },
+      { id: "server", label: "POST /api/review" },
+    ],
+    edges: [
+      { from: "verb", to: "ask", label: "needs an answer" },
+      { from: "ask", to: "sources", label: "which list" },
+      { from: "sources", to: "server", label: "the picked agents" },
+    ],
+  },
+  steps: [
+    {
+      ref: "S1",
+      title: "Reviewing with named agents stops being a promise",
+      file: "app/renderer/doing.ts",
+      line: 63,
+      endLine: 64,
+      node: "verb",
+      body:
+        "The verb used to resolve to soon(), which draws it in the omnibox and refuses when pressed. It now posts to the review route like every other wired verb. Everything after this step exists because the verb needs an answer before it can post.",
+      excerpt: [
+        { n: 61, text: "export const WIRED: Record<string, From> = {" },
+        { n: 62, text: "  // ── Review ──" },
+        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },', in: true },
+        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),', in: true },
+        { n: 65, text: '  "ade.resolveAll": S("/api/resolve", { all: true }),' },
+      ],
+    },
+    {
+      ref: "S2",
+      title: "A verb may now ask for more than one thing",
+      file: "app/renderer/doing.ts",
+      line: 64,
+      endLine: 64,
+      node: "ask",
+      body:
+        "many() is the multi-select form of the pick() the other verbs use. The omnibox already knew how to put one question; what it did not have was a question whose answer is a list, which is the whole reason this verb was never wired.",
+      excerpt: [
+        { n: 62, text: "  // ── Review ──" },
+        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },' },
+        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),', in: true },
+        { n: 65, text: '  "ade.resolveAll": S("/api/resolve", { all: true }),' },
+      ],
+    },
+    {
+      ref: "S3",
+      title: "The rows a question offers are listed in one place",
+      file: "app/renderer/sources.ts",
+      line: 3,
+      endLine: 5,
+      node: "sources",
+      body:
+        "Every question names a source rather than carrying its own fetch. The window reads it at the moment the question goes up, so the agent list is whatever the machine has installed and not what was true when the page loaded.",
+      excerpt: [
+        { n: 1, text: 'import type { From } from "./doing";' },
+        { n: 2, text: "" },
+        { n: 3, text: "export const SOURCES: Record<Choice, Source> = {", in: true },
+        { n: 4, text: '  model: { at: "launcher", path: "/api/models", rows: (got) => [] },', in: true },
+        { n: 5, text: "};", in: true },
+      ],
+    },
+    {
+      ref: "S4",
+      title: "What the server gets is the same shape as before",
+      file: "app/renderer/doing.ts",
+      line: 63,
+      endLine: 63,
+      node: "server",
+      body:
+        "The picked agents go in the body the review route already took, so nothing on the server changed for this. A review asked for from the omnibox and one asked for from the panel arrive the same way.",
+      excerpt: [
+        { n: 62, text: "  // ── Review ──" },
+        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },', in: true },
+        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),' },
+      ],
+    },
+  ],
+};
+
 function cell(line, kind, content) {
   return { line, kind, content };
 }
@@ -638,6 +726,7 @@ export function shell() {
   return `
     const WORLD = ${JSON.stringify(WORLD)};
     const READS = ${JSON.stringify(READS)};
+    const WALK = ${JSON.stringify(WALK)};
     // The real shell takes the keystroke before the page sees it. Chromium
     // cannot, so the stub listens instead: the command names are the same.
     window.ade = {
@@ -704,6 +793,7 @@ export function shell() {
         // button disabled while it runs is for.
         if (path.split("?")[0] === "/api/review/draft")
           return new Promise((done) => setTimeout(() => done({ added: 1 }), 2000));
+        if (path.split("?")[0] === "/api/walkthrough") return { walkthrough: WALK };
         if (path.split("?")[0] !== "/api/spaces") return {};
         const reads = READS["/api/spaces"];
         const want = reads.offered.find((one) => one.repo === body.repo);
@@ -746,7 +836,15 @@ export function shell() {
           return { pr: 412, review: "REVIEW1", inDraft: 1, ready: 1, notGoing: 1 };
         return READS[path.split("?")[0]] ?? {};
       },
-      panel: async () => "about:blank",
+      // A panel here is the real skeleton with its scheme pointed at the
+      // built files and its policy dropped: file:// is not ade-webview:.
+      panel: async (id, html) => {
+        const base = location.href.replace(/\\/renderer\\/index\\.html.*$/, "");
+        const page = html
+          .replace(/<meta http-equiv="Content-Security-Policy"[\\s\\S]*?\\/>/, "")
+          .split("ade-webview://asset").join(base);
+        return URL.createObjectURL(new Blob([page], { type: "text/html" }));
+      },
       where: async () => ({ base: "http://127.0.0.1:7777", token: "picture" }),
     };
   `;

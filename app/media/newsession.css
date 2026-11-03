@@ -3,10 +3,10 @@
 body {
   margin: 0;
   padding: 16px 20px 24px;
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  font-family: var(--ui);
+  font-size: var(--ui-size);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 h1 {
@@ -21,7 +21,7 @@ h2 {
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .sub,
@@ -29,16 +29,16 @@ h2 {
 .repo-owner,
 .make-path,
 .summary {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .note {
   margin: 0 0 12px;
   padding: 6px 10px;
   border-radius: 4px;
-  color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
-  background: var(--vscode-inputValidation-errorBackground);
-  border: 1px solid var(--vscode-inputValidation-errorBorder);
+  color: var(--ink, var(--ink));
+  background: var(--tint-bad);
+  border: 1px solid var(--bad);
 }
 
 .modes {
@@ -57,19 +57,19 @@ h2 {
   font: inherit;
   color: inherit;
   cursor: pointer;
-  border: 1px solid var(--vscode-widget-border, transparent);
+  border: 1px solid var(--line, transparent);
   border-radius: 5px;
-  background: var(--vscode-editorWidget-background);
+  background: var(--bg-raised);
 }
 
 .mode:hover {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--hover);
 }
 
 .mode.on {
-  border-color: var(--vscode-focusBorder);
-  background: var(--vscode-list-activeSelectionBackground);
-  color: var(--vscode-list-activeSelectionForeground);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink-bright);
 }
 
 .mode.on .mode-detail {
@@ -110,7 +110,7 @@ h2 {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 input,
@@ -119,9 +119,9 @@ select {
   font: inherit;
   padding: 5px 7px;
   border-radius: 4px;
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
+  color: var(--ink);
+  background: var(--input-bg);
+  border: 1px solid var(--line, transparent);
 }
 
 textarea {
@@ -130,7 +130,7 @@ textarea {
 
 input[type="checkbox"] {
   width: auto;
-  accent-color: var(--vscode-focusBorder);
+  accent-color: var(--accent);
 }
 
 .toggle {
@@ -159,14 +159,14 @@ input[type="checkbox"] {
   padding: 3px 8px;
   cursor: pointer;
   border-radius: 10px;
-  color: var(--vscode-descriptionForeground);
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border, transparent);
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--line, transparent);
 }
 
 .chip:hover {
-  color: var(--vscode-foreground);
-  background: var(--vscode-list-hoverBackground);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 .repos-head {
@@ -205,11 +205,11 @@ input[type="checkbox"] {
 }
 
 .repo:hover {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--hover);
 }
 
 .repo.on {
-  background: var(--vscode-list-inactiveSelectionBackground);
+  background: var(--selected-quiet);
 }
 
 .box {
@@ -220,12 +220,12 @@ input[type="checkbox"] {
   height: 14px;
   font-size: 10px;
   border-radius: 3px;
-  border: 1px solid var(--vscode-checkbox-border, var(--vscode-widget-border));
-  background: var(--vscode-checkbox-background);
+  border: 1px solid var(--line-strong, var(--line));
+  background: var(--input-bg);
 }
 
 .repo.on .box {
-  border-color: var(--vscode-focusBorder);
+  border-color: var(--accent);
 }
 
 .repo-owner {
@@ -237,8 +237,8 @@ input[type="checkbox"] {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 8px;
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
+  color: var(--ink);
+  background: var(--tint-dim);
 }
 
 .make-list {
@@ -260,7 +260,7 @@ input[type="checkbox"] {
 }
 
 .make-path {
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -278,7 +278,7 @@ input[type="checkbox"] {
   gap: 14px;
   margin-top: 20px;
   padding-top: 14px;
-  border-top: 1px solid var(--vscode-widget-border, var(--vscode-editorWidget-border));
+  border-top: 1px solid var(--line, var(--line));
 }
 
 .start {
@@ -288,12 +288,12 @@ input[type="checkbox"] {
   cursor: pointer;
   border: 0;
   border-radius: 4px;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .start:hover:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
+  background: var(--accent-hover);
 }
 
 .start:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.9); }

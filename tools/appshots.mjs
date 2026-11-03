@@ -97,6 +97,15 @@ const VIEWS = [
     enter: true,
   },
   {
+    name: "app-explain",
+    place: "Pull requests",
+    session: "Rethink the workflow and the window",
+    keys: "k",
+    type: "Explain this change",
+    enter: true,
+    settle: 1500,
+  },
+  {
     name: "app-permissions",
     place: "Pull requests",
     session: "Rethink the workflow and the window",
@@ -124,6 +133,10 @@ const browser = await puppeteer.launch({
 });
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+// The window's policy names the webview scheme, which only the shell
+// serves. A panel here is a blob of the same skeleton, so the policy has
+// to be off for one to draw at all.
+await page.setBypassCSP(true);
 await page.evaluateOnNewDocument(shell());
 // Each view starts from the same window: the real one remembers where
 // it was, and a picture of where the last shot left it is not a view.
@@ -188,6 +201,9 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
   }
 
   if (view.keys) {
+    // A panel that is up holds the focus inside its iframe, and the shell's
+    // keys are the window's: a click on the titlebar's label puts it back.
+    await page.click(".titlebar .where").catch(() => undefined);
     await page.keyboard.down("Control");
     await page.keyboard.press(view.keys);
     await page.keyboard.up("Control");

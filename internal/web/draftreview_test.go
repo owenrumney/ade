@@ -166,6 +166,54 @@ func TestOnlyAVerdictFinishesTheReview(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "has to name it")
 }
 
+// The review bar spells the verdict request-changes, as its own verb does.
+// Uppercased alone that is REQUEST-CHANGES, which is not GitHub's enum, and
+// every request for changes from the Diff tab was turned away.
+func TestRequestingChangesIsSpeltTheWindowsWay(t *testing.T) {
+	s := newTestServer(t)
+	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN"})
+	on := &draftOnGitHub{review: "REVIEW1"}
+	stubDraft(t, on)
+
+	rec := do(t, s, http.MethodPost, "/api/review/finish",
+		`{"confirm":7,"event":"request-changes","body":"the parser needs a test"}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, ghpr.EventRequestChanges, on.event)
+	assert.Equal(t, "the parser needs a test", on.body)
+}
+
+// GitHub refuses REQUEST_CHANGES with a blank body, and the draft is left
+// behind when it does. Refuse it here, in words.
+func TestRequestingChangesNeedsWords(t *testing.T) {
+	s := newTestServer(t)
+	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN"})
+	on := &draftOnGitHub{review: "REVIEW1"}
+	stubDraft(t, on)
+
+	rec := do(t, s, http.MethodPost, "/api/review/finish",
+		`{"confirm":7,"event":"request-changes","body":"   "}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "accepted a request for changes with no words")
+	assert.Contains(t, rec.Body.String(), "needs a summary")
+	assert.Empty(t, on.event, "nothing should have been sent to GitHub")
+
+	rec = do(t, s, http.MethodPost, "/api/review/finish", `{"confirm":7,"event":"approve"}`)
+	assert.Equal(t, http.StatusOK, rec.Code, "an approval still needs no words")
+}
+
+// A comment review is the inline threads: GitHub takes it with no summary.
+func TestACommentReviewCanBeTheThreadsAlone(t *testing.T) {
+	s := newTestServer(t)
+	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN"})
+	on := &draftOnGitHub{review: "REVIEW1"}
+	stubDraft(t, on)
+
+	rec := do(t, s, http.MethodPost, "/api/review/finish", `{"confirm":7,"event":"comment","body":""}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, ghpr.EventComment, on.event)
+}
+
 func TestFinishingNeedsADraftToFinish(t *testing.T) {
 	s := newTestServer(t)
 	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN"})

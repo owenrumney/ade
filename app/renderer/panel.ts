@@ -1,5 +1,5 @@
 import { el } from "./omnibox";
-import { THEME } from "./vstheme";
+import { THEME } from "./paneltheme";
 import "./bridge";
 
 // Hosting the pages under app/pages: one iframe each, as VS Code does.
@@ -57,29 +57,28 @@ export function skeleton(panel: Panel): string {
          place of a webview's own cspSource. -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'none'; style-src ade-webview: 'unsafe-inline'; script-src 'nonce-${nonce}' ade-webview:; img-src ade-webview: data: http://127.0.0.1:* http://localhost:*; font-src ade-webview:; connect-src http://127.0.0.1:* http://localhost:*;" />
-    <!-- The theme first: a panel is a VS Code webview and reads the
-         theme off the document as --vscode-* variables. Before the
-         stylesheets, so a panel may override one. -->
+    <!-- The palette first, before the stylesheets, so a panel may
+         override one. -->
     <style>
       :root {${THEME}}
-      html, body { height: 100%; margin: 0; background: var(--vscode-editor-background); }
+      html, body { height: 100%; margin: 0; background: var(--bg); }
       body {
-        color: var(--vscode-foreground);
-        font: var(--vscode-font-size)/1.45 var(--vscode-font-family);
+        color: var(--ink);
+        font: var(--ui-size)/1.45 var(--ui);
       }
       /* Chromium's default scrollbar is a white stripe on this
-         background. VS Code themes its own; a page of ours has to. */
-      * { scrollbar-color: var(--vscode-widget-border) transparent; scrollbar-width: thin; }
+         background, so a panel themes its own as the window does. */
+      * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
       ::-webkit-scrollbar { width: 10px; height: 10px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb {
-        background: var(--vscode-widget-border);
+        background: var(--line);
         border: 2px solid transparent;
         background-clip: content-box;
         border-radius: 6px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: var(--vscode-descriptionForeground);
+        background: var(--ink-dim);
         background-clip: content-box;
       }
     </style>
