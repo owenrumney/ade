@@ -9,7 +9,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, joins, level, picture, reveals, type Span } from "./marks";
+import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, joins, level, nesting, picture, reveals, type Span } from "./marks";
 import { marksFor, spanOf, type Note } from "./notes";
 import { Notepad } from "./notepad";
 import { questionsIn, type Question } from "./questions";
@@ -352,6 +352,15 @@ function marks(state: EditorState): DecorationSet {
         if (node.name === "ListMark") {
           const mark = bullet(text);
           if (!mark) return;
+          const line = state.doc.lineAt(node.from);
+          const depth = nesting(line.text);
+          if (depth > 0) {
+            builder.push({
+              from: line.from,
+              to: line.from,
+              value: Decoration.line({ class: `cm-sub cm-sub${Math.min(depth, 3)}` }),
+            });
+          }
           builder.push({
             from: node.from,
             to: node.to,
@@ -464,6 +473,12 @@ const theme = EditorView.theme({
   },
   ".cm-codefence": { fontSize: "0.5em" },
   ".cm-bullet": { color: "var(--ink-dim)" },
+  // An expansion reads as subordinate to the bullet above it, or the two
+  // levels differ by two spaces and the list stops being scannable.
+  ".cm-sub": { color: "var(--ink-dim)" },
+  ".cm-sub1": { paddingLeft: "1.4rem" },
+  ".cm-sub2": { paddingLeft: "2.8rem" },
+  ".cm-sub3": { paddingLeft: "4.2rem" },
   ".cm-link": {
     color: "var(--info)",
     textDecoration: "underline",

@@ -85,6 +85,13 @@ export function joins(line: string): boolean {
   return !/(?: {2}|\\)$/.test(line);
 }
 
+// nesting is how deep a list line sits, from its leading whitespace. Two
+// spaces or one tab is a level; the editor draws deeper levels set back.
+export function nesting(lineText: string): number {
+  const run = /^[ \t]*/.exec(lineText)?.[0] ?? "";
+  return Math.floor(run.replace(/\t/g, "  ").length / 2);
+}
+
 // bullet is what a list marker is drawn as. An ordered list keeps its number,
 // which is what it reads as either way; a bullet's "-" is syntax.
 export function bullet(markerText: string): string | undefined {

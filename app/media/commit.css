@@ -62,7 +62,7 @@ button:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.
   gap: 5px;
 }
 .amend .where {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

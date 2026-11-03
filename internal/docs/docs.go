@@ -451,11 +451,11 @@ func scaffold(title, file string) string {
 
 ## Problem
 
-<!-- What is wrong today, and who it bites. A few bullets: the case that breaks, not the quality that is missing. -->
+<!-- What is wrong today, and who it bites. Short bullets: the case that breaks, not the quality that is missing. -->
 
 ## Approach
 
-<!-- What you want to build, in enough detail that someone could disagree with it. A table of where and what changes reads faster than the paragraph saying the same. -->
+<!-- What you want to build, in enough detail that someone could disagree with it. Short bullets, and an indented one under any that needs its reason. A table of where and what changes reads faster than the paragraph saying the same. -->
 
 ## Open questions
 

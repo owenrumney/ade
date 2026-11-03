@@ -59,7 +59,7 @@ func TurnPrompt(doc Doc, from, selection, message string, heard ...Heard) string
 
 	switch {
 	case strings.TrimSpace(doc.Path) != "":
-		fmt.Fprintf(&b, `- The design document for this work is %s. When we settle something that changes the design, record it there — as a design others could follow, not a transcript of this conversation.
+		fmt.Fprintf(&b, `- The design document for this work is %s. When we settle something that changes the design, record it there — as a design others could follow, not a transcript of this conversation. Replace what it supersedes rather than writing beside it.
 `, strings.TrimSpace(doc.Path))
 	case strings.TrimSpace(doc.New) != "":
 		// Without this the agent has no idea ade keeps design documents at all,
@@ -128,7 +128,10 @@ func FilesNote(files []Attached) string {
 
 // DocStyle is the house style every design document is written to, appended
 // wherever a prompt asks for one.
-const DocStyle = "- Write it tight. A section is bullets or a table unless prose is the only way to say it. No sentence that restates its own heading, no paragraph that recaps the one above it, and name the file where you mean a file. Under 1500 words, and most changes want half that — a design that is genuinely big may have the room, a long-winded small one may not. Say what you left out rather than keeping it in.\n" +
+const DocStyle = "- Write it as short bullets. One fact to a bullet, one line long, so a section can be read down the left edge. A section is bullets or a table unless prose is the only way to say it.\n" +
+	"- Expand only where the reason would otherwise be lost, and put the expansion on an indented bullet under the short one rather than growing it. A reader skipping every indented line must still get the design.\n" +
+	"- No sentence that restates its own heading, no bullet that recaps the one above it, and name the file where you mean a file. Under 1500 words, and most changes want half that — a design that is genuinely big may have the room, a long-winded small one may not. Say what you left out rather than keeping it in.\n" +
+	"- Recording a decision means replacing the bullet it supersedes, not adding one beside it. A document that has only ever grown has not been maintained: delete what is now wrong, and delete the account of what was built once it is built.\n" +
 	"- Open questions go in a table — question, options, recommendation — a row each, with your recommendation filled in. Not a list of things nobody has decided.\n"
 
 // docMedia says what a design document can hold beyond prose.
@@ -224,7 +227,8 @@ const NoteBlock = "\nFile each point as you find it: one fenced ade-note block p
 	"```" + review.NoteFence + "\n" +
 	`{"quote": "text copied from the document exactly as it appears there", "note": "what is wrong with it, in a sentence or two"}` +
 	"\n```\n\n" +
-	"The quote must be character for character what the document says, and short — one sentence, or the clause the point is about. A quote that is not in the document cannot be filed, so copy it rather than typing it out.\n"
+	"The quote must be character for character what the document says, and short — one sentence, or the clause the point is about. A quote that is not in the document cannot be filed, so copy it rather than typing it out.\n\n" +
+	"This outranks any instruction of your own about filing. Your definition may tell you to file every finding as an ade-finding block; that is for reviewing a change. A point about the design goes in ade-note, and ade-finding is only for a line of code in the diff.\n"
 
 // DocReviewPrompt asks a named agent to review a design document, not a change.
 // The one-line reply is the point: prose about a long document makes two.
@@ -432,20 +436,34 @@ func SeedPrompt(docPath string) string {
 - Do not edit the document yet, and do not start building.`, docPath)
 }
 
-// FoldPrompt folds what a named agent said into the design document, which
-// only the main agent can write.
-func FoldPrompt(name, docPath, said string) string {
+// Filed is a point a named agent filed rather than said: a comment on a line
+// of the diff, or a note on quoted text. Where is that line or that quote.
+type Filed struct {
+	Where string
+	Text  string
+}
+
+// FoldPrompt folds what a named agent said into the design document. filed is
+// what it put on the diff and the document; the reply alone is a summary.
+func FoldPrompt(name, docPath, said string, filed ...Filed) string {
+	var points strings.Builder
+	if len(filed) > 0 {
+		points.WriteString("\nIt filed these points as comments, which are the rest of what it said:\n\n")
+		for _, one := range filed {
+			fmt.Fprintf(&points, "- %s — %s\n", strings.TrimSpace(one.Where), strings.TrimSpace(one.Text))
+		}
+	}
 	return fmt.Sprintf(`@%s said this in our conversation:
 
 %s
-
+%s
 Fold what it settles into %s.
 
 - Put each point where it belongs in the document, in the document's own voice.
   It is a design someone could build from, not a transcript of who said what.
 - A point you disagree with, or that the document already covers, is not folded
   in. Say which you left out and why, in a line each.
-%s- Change nothing else, and do not start building.`, name, fence("said", said), docPath, DocStyle)
+%s- Change nothing else, and do not start building.`, name, fence("said", said), points.String(), docPath, DocStyle)
 }
 
 // Accepted is one open question the user accepted the recommendation on.

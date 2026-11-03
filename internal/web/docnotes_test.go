@@ -7,6 +7,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/agents"
 	"github.com/owenrumney/ade/internal/chat"
+	"github.com/owenrumney/ade/internal/design"
 	"github.com/owenrumney/ade/internal/docnotes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,4 +253,41 @@ func TestANonReviewingAgentStillFilesItsNotes(t *testing.T) {
 	notes := listNotes(t, s)
 	require.Len(t, notes, 1)
 	assert.Equal(t, "architect", notes[0].Comments[0].Author)
+}
+
+func TestAFoldCarriesWhatTheAgentFiledNotJustWhatItSaid(t *testing.T) {
+	// A reviewer's reply is one line and its points are comments. Folding the
+	// reply alone is how ten of eleven points went missing.
+	s := openNotesDoc(t)
+	f := s.newFiler(reviewingAgent("architect"), "", "", true)
+	f.push("```ade-note\n" +
+		`{"quote": "Debounce it.", "note": "how long, and debounced where?"}` +
+		"\n```\n")
+	f.done()
+
+	filed := s.filedBy("architect")
+	require.Len(t, filed, 1)
+	assert.Contains(t, filed[0].Where, "Debounce it.")
+	assert.Equal(t, "how long, and debounced where?", filed[0].Text)
+
+	prompt := design.FoldPrompt("architect", "plan.md", "One point, worst first.", filed...)
+	assert.Contains(t, prompt, "One point, worst first.")
+	assert.Contains(t, prompt, "how long, and debounced where?")
+}
+
+func TestAResolvedPointIsNotFoldedAgain(t *testing.T) {
+	s := openNotesDoc(t)
+	note := fileNote(t, s, `{"quote":"Debounce it.","body":"how long?"}`)
+	require.Len(t, s.filedBy("you"), 1)
+
+	rec := do(t, s, "POST", "/api/design/notes/"+note.ID+"/resolve", `{"resolved":true}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, s.filedBy("you"), "a point already dealt with is not folded in")
+}
+
+func TestNobodyElsesPointsAreFolded(t *testing.T) {
+	s := openNotesDoc(t)
+	fileNote(t, s, `{"quote":"Debounce it.","body":"how long?"}`)
+	assert.Empty(t, s.filedBy("architect"))
+	assert.Empty(t, s.filedBy(""))
 }

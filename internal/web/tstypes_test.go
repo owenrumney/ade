@@ -52,8 +52,8 @@ var responseShapes = map[string][]string{
 	"Cell":  {"content string", "kind string", "line int", "noNewline bool", "tokens slice"},
 	"Token": {"c string", "e bool", "t string"},
 	"Status": {
-		"ahead int", "behind int", "lines map", "signing struct", "staged slice", "unstaged slice",
-		"upstream string",
+		"ahead int", "behind int", "head struct", "lines map", "signing struct", "staged slice",
+		"unstaged slice", "upstream string",
 	},
 	"Change": {"path string", "status string"},
 	"Count":  {"added int", "removed int"},

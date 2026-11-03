@@ -378,3 +378,29 @@ func TestNobodyElseIsToldAboutNotes(t *testing.T) {
 	// And with no document open there is nothing to file a note on.
 	assert.NotContains(t, SubagentPrompt("architect", "", true, "", "", "look at this", ""), "ade-note")
 }
+
+func TestTheNoteBlockOutranksAnAgentsOwnFilingRule(t *testing.T) {
+	// The shipped reviewers carry "file every finding as ade-finding" in their
+	// definition, which is the system prompt. Eleven design points went to the
+	// diff because nothing said which fence wins when a document is open.
+	prompt := SubagentPrompt("second-opinion", "docs/plan.md", true, "", "", "pick holes in this", "")
+	assert.Contains(t, prompt, "This outranks any instruction of your own about filing")
+	assert.Contains(t, prompt, "ade-finding is only for a line of code in the diff")
+}
+
+func TestTheStyleAsksForShortBulletsAndMarkedExpansion(t *testing.T) {
+	prompt := TurnPrompt(Doc{Path: "docs/plan.md"}, "", "", "how should we cache this?")
+	assert.Contains(t, prompt, "One fact to a bullet, one line long")
+	// The point of indenting: the design survives skipping every expansion.
+	assert.Contains(t, prompt, "indented bullet under the short one")
+	assert.Contains(t, prompt, "skipping every indented line must still get the design")
+}
+
+func TestRecordingADecisionReplacesRatherThanAppends(t *testing.T) {
+	// Append-only is what grew a design document past its own budget: every
+	// decision earned a paragraph and nothing ever left.
+	prompt := TurnPrompt(Doc{Path: "docs/plan.md"}, "", "", "we settled on the sidecar")
+	assert.Contains(t, prompt, "Replace what it supersedes rather than writing beside it")
+	assert.Contains(t, prompt, "A document that has only ever grown has not been maintained")
+	assert.Contains(t, prompt, "delete the account of what was built once it is built")
+}
