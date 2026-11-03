@@ -47,3 +47,22 @@ describe("a machine row", () => {
     expect(listed(undefined)).toEqual([]);
   });
 });
+
+describe("a machine with work in flight", () => {
+  // The press is over in milliseconds; the dial takes seconds. Only the
+  // launcher knows it is still going, so the row says what it says.
+  it("says what the launcher is doing rather than that it is off", () => {
+    const row = shown({ name: "pi", connected: false, working: "connecting" });
+    expect(row.working).toBe("connecting");
+    expect(said(row)).toBe("connecting…");
+  });
+
+  it("keeps the verb on a connected machine too", () => {
+    const row = shown({ name: "pi", connected: true, state: "connected", working: "syncing", sessions: 2 });
+    expect(said(row)).toBe("syncing… · 2 sessions");
+  });
+
+  it("is nothing to say when the launcher is doing nothing", () => {
+    expect(shown({ name: "pi", connected: false }).working).toBe("");
+  });
+});

@@ -468,13 +468,14 @@ func TestResetClearsWhatThisStoreOwns(t *testing.T) {
 	posted := addThread(t, s, 4, "already gone to GitHub")
 	require.NoError(t, s.MarkSent([]string{posted.ID}, time.Now()))
 
-	resettable := s.Resettable()
+	resettable := s.Resettable(SweepAll)
 	require.Len(t, resettable, 2)
 	assert.Equal(t, mine.ID, resettable[0].ID)
 
-	gone, err := s.Reset()
+	gone, kept, err := s.Reset(SweepAll)
 	require.NoError(t, err)
 	assert.Equal(t, 2, gone)
+	assert.Equal(t, 2, kept, "the two it had to leave are counted, not silently dropped")
 
 	left := s.List()
 	require.Len(t, left, 2, "an imported or sent thread is not this store's to throw away")
@@ -484,10 +485,65 @@ func TestResetClearsWhatThisStoreOwns(t *testing.T) {
 
 func TestResetOnNothingWritesNothing(t *testing.T) {
 	s, _ := newStore(t)
-	gone, err := s.Reset()
+	gone, kept, err := s.Reset(SweepAll)
 	require.NoError(t, err)
 	assert.Zero(t, gone)
+	assert.Zero(t, kept)
 	assert.NoFileExists(t, s.Path())
+}
+
+// Every sweep used to clear the whole store, Prune orphans included.
+func TestASweepTakesOnlyWhatItNames(t *testing.T) {
+	setUp := func(t *testing.T) (*Store, map[string]string) {
+		s, _ := newStore(t)
+		open := addThread(t, s, 1, "still open")
+
+		orphan, err := s.Add(Thread{
+			File: "a.go", Side: SideRight, Line: 2, Orphaned: true,
+			Comments: []Comment{{Body: "the line went"}},
+		})
+		require.NoError(t, err)
+
+		done := addThread(t, s, 3, "fixed")
+		_, err = s.SetResolved(done.ID, true)
+		require.NoError(t, err)
+
+		no := addThread(t, s, 4, "restore this")
+		_, err = s.ReplyOutcome(no.ID, AuthorAgent, "the removal was deliberate", resolvedDeclined)
+		require.NoError(t, err)
+
+		return s, map[string]string{"open": open.ID, "orphan": orphan.ID, "done": done.ID, "no": no.ID}
+	}
+
+	for _, tt := range []struct {
+		which Sweep
+		takes string
+	}{
+		{SweepOrphaned, "orphan"},
+		{SweepResolved, "done"},
+		{SweepDeclined, "no"},
+	} {
+		t.Run(string(tt.which), func(t *testing.T) {
+			s, ids := setUp(t)
+			gone, _, err := s.Reset(tt.which)
+			require.NoError(t, err)
+			assert.Equal(t, 1, gone)
+
+			left := s.List()
+			require.Len(t, left, 3)
+			for _, one := range left {
+				assert.NotEqual(t, ids[tt.takes], one.ID)
+			}
+		})
+	}
+
+	t.Run("all", func(t *testing.T) {
+		s, _ := setUp(t)
+		gone, _, err := s.Reset(SweepAll)
+		require.NoError(t, err)
+		assert.Equal(t, 4, gone)
+		assert.Empty(t, s.List())
+	})
 }
 
 func TestSetVerdictMarksAThreadWithoutRemovingIt(t *testing.T) {

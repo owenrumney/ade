@@ -22,6 +22,9 @@ export interface Shape {
   unstaged: { path: string; status: string }[] | null;
   lines?: Record<string, Count> | null;
   signing?: { on: boolean; format?: string; key?: string };
+  head?: { sha: string; subject: string };
+  upstream?: string;
+  ahead?: number;
 }
 
 // rows is every file the commit could carry. A path staged and changed again
@@ -127,13 +130,35 @@ export function verbs(
   checked: string[],
   hasPR: boolean,
   ahead: number,
+  amend = false,
 ): Verbs {
-  const can = title.trim() !== "" && checked.length > 0;
+  const words = title.trim() !== "";
+  // An amend has a commit to fold into already, so either a new message or
+  // a staged file is enough on its own.
+  const can = amend ? words || checked.length > 0 : words && checked.length > 0;
   return {
     commit: can,
     push: can || ahead > 0,
     createPR: !hasPR,
     showPR: hasPR,
+  };
+}
+
+// What the amend tick may offer, and what it would fold into.
+export interface Amending {
+  can: boolean;
+  subject: string;
+  pushed: boolean;
+}
+
+export function amending(tree: Shape | undefined): Amending {
+  const head = tree?.head;
+  if (!head?.sha) return { can: false, subject: "", pushed: false };
+  return {
+    can: true,
+    subject: head.subject,
+    // Nothing ahead of an upstream means the remote holds this very commit.
+    pushed: Boolean(tree?.upstream) && (tree?.ahead ?? 0) === 0,
   };
 }
 
@@ -147,9 +172,10 @@ export function signing(of: Shape["signing"]): { text: string; on: boolean } {
 }
 
 // said is the sentence under the buttons: what a commit would carry.
-export function said(checked: string[], all: Row[]): string {
+export function said(checked: string[], all: Row[], amend = false): string {
   const left = all.length - checked.length;
-  if (checked.length === 0) return "Nothing is checked.";
+  if (checked.length === 0)
+    return amend ? "Nothing is checked: only the message changes." : "Nothing is checked.";
   const files = `${checked.length} file${checked.length === 1 ? "" : "s"}`;
   return left === 0
     ? `${files}, everything you have changed.`

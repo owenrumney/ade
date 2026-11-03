@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { commit, newSession, WHICH, type Reach } from "./panels";
+import { commit, elsewhere, newSession, WHICH, type Reach } from "./panels";
 
 // What a panel's page actually sends. Read off its own `send(...)`
 // calls rather than guessed: six panels answered "not wired yet"
@@ -138,7 +138,25 @@ describe("the verbs that are more than one call", () => {
       push: true,
     });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit", "/api/push"]);
-    expect(seen[0].body).toEqual({ title: "a change", body: "The body." });
+    expect(seen[0].body).toEqual({ title: "a change", body: "The body.", amend: false });
+    expect(seen[1].body).toEqual({ force: false });
+  });
+
+  // An amend rewrites the commit the remote may already hold, so the push
+  // after one has to be a lease or it is refused.
+  it("leases the push that follows an amend", async () => {
+    const { reach, seen } = spy();
+    const commit = WHICH["ade.commitPanel"](reach);
+    await commit.onMessage({
+      kind: "do",
+      what: "commit",
+      message: "second thoughts",
+      push: true,
+      amend: true,
+    });
+    expect(seen.map((s) => s.path)).toEqual(["/api/commit", "/api/push"]);
+    expect(seen[0].body).toMatchObject({ title: "second thoughts", amend: true });
+    expect(seen[1].body).toEqual({ force: true });
   });
 
   // The server clears its draft when the commit lands, but the page keeps
@@ -164,6 +182,74 @@ describe("the verbs that are more than one call", () => {
     const commit = WHICH["ade.commitPanel"](reach);
     await commit.onMessage({ kind: "do", what: "commit", message: "a change" });
     expect(seen.map((s) => s.path)).toEqual(["/api/commit"]);
+  });
+});
+
+// The POST only starts a run. The button is drawn from hasPR, so what the
+// host says about the run is the whole of whether it can be pressed again.
+describe("creating a pull request, once", () => {
+  function after(state: Record<string, unknown>): Reach {
+    const made = spy();
+    return { ...made.reach, get: async () => state };
+  }
+
+  it("keeps the button down while the agent is still writing it", async () => {
+    const panel = WHICH["ade.commitPanel"](after({ agent: { running: true } }));
+    const back = (await panel.onMessage({ kind: "do", what: "createPR" })) as {
+      busy?: string;
+      hasPR?: boolean;
+    };
+    expect(back.busy).toBe("createPR");
+    expect(back.hasPR).toBe(false);
+  });
+
+  // The forge poll finds branchPr seconds later. In that gap the button used
+  // to come back, and a second press opened a second pull request.
+  it("keeps it down on a run that opened one, before the poll catches up", async () => {
+    const panel = WHICH["ade.commitPanel"](
+      after({ agent: { running: false }, created: { number: "416", url: "u" } }),
+    );
+    const back = (await panel.onMessage({ kind: "do", what: "createPR" })) as {
+      busy?: string;
+      hasPR?: boolean;
+      note?: string;
+    };
+    expect(back.busy).toBe("");
+    expect(back.hasPR).toBe(true);
+    expect(back.note).toBe("");
+  });
+
+  it("gives it back, and says why, when the run opened nothing", async () => {
+    const panel = WHICH["ade.commitPanel"](
+      after({ agent: { running: false, error: "gh: no commits on this branch" } }),
+    );
+    const back = (await panel.onMessage({ kind: "do", what: "createPR" })) as {
+      busy?: string;
+      hasPR?: boolean;
+      note?: string;
+    };
+    expect(back.busy).toBe("");
+    expect(back.hasPR).toBe(false);
+    expect(back.note).toBe("gh: no commits on this branch");
+  });
+
+  // The route itself refusing is the other failure: it never reached an agent.
+  it("gives it back when the route refuses", async () => {
+    const made = spy();
+    const panel = WHICH["ade.commitPanel"]({
+      ...made.reach,
+      send: async () => {
+        throw new Error("this diff is already PR #412");
+      },
+    });
+    const back = (await panel.onMessage({ kind: "do", what: "createPR" })) as {
+      busy?: string;
+      hasPR?: boolean;
+      note?: string;
+    };
+    expect(back.busy).toBe("");
+    expect(back.hasPR).toBe(false);
+    expect(back.note).toContain("already PR #412");
   });
 
   it("clears each worktree's blocker before pruning the lot", async () => {
@@ -1057,5 +1143,41 @@ describe("the New session panel's Open branch row", () => {
     expect(sent.map((one) => one.path)).toEqual(["/api/branches/worktree", "/api/open"]);
     expect(sent[0]).toMatchObject({ repo: "/r/coast", branch: "feat/ADE-211" });
     expect(sent[1].dir).toBe("/r/coast-feat-ade-211");
+  });
+});
+
+describe("the machines a new session can be started on", () => {
+  // The dropdown was built from a list the window always sent empty, so a
+  // machine you had just connected was not among the choices.
+  it("is the connected ones, which the page adds to this machine", () => {
+    expect(
+      elsewhere([
+        { name: "local", label: "This Mac", connected: true, local: true },
+        { name: "pi@pi5.local", label: "the pi", connected: true },
+        { name: "gpu", connected: false },
+      ]),
+    ).toEqual([{ name: "pi@pi5.local", label: "the pi" }]);
+  });
+
+  it("falls back to the ssh name when a machine has no label", () => {
+    expect(elsewhere([{ name: "gpu", connected: true }])).toEqual([
+      { name: "gpu", label: "gpu" },
+    ]);
+  });
+
+  it("is empty when the launcher says nothing", () => {
+    expect(elsewhere(undefined)).toEqual([]);
+  });
+
+  it("reaches the page as the machines it offers", async () => {
+    const reach: Reach = {
+      ...spy().reach,
+      get: async (_at, path) =>
+        path === "/api/hosts" ? { hosts: [{ name: "gpu", connected: true }] } : {},
+    };
+    const back = (await newSession(reach).onMessage({ kind: "ready" })) as {
+      offer?: { machines?: unknown[] };
+    };
+    expect(back.offer?.machines).toEqual([{ name: "gpu", label: "gpu" }]);
   });
 });

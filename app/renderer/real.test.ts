@@ -644,6 +644,41 @@ describe("the team, as agentbus has it", () => {
     expect(real.team(bus, now).count).toBe(2);
   });
 
+  // agentbus reports an instance. Two ades signed in as the same person put
+  // that person in the list twice, both rows opening the same conversation.
+  it("is one row per person, however many ades they are signed in on", () => {
+    const twice: real.Bus = {
+      online: true,
+      team: [
+        { user: "owen@x", presence: "idle", harness: "claude", node: "mac", you: true, agents: 1 },
+        { user: "owen@x", presence: "active", harness: "claude", node: "pi", you: true, agents: 2, status: "an agent is working" },
+      ],
+    };
+    const rows = real.team(twice, now).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("who:owen@x");
+    expect(rows[0].name).toBe("owen@x · you");
+  });
+
+  it("takes the busiest instance's line, and counts the rest", () => {
+    const twice: real.Bus = {
+      online: true,
+      team: [
+        { user: "owen@x", presence: "idle", node: "mac", agents: 1 },
+        { user: "owen@x", presence: "active", node: "pi", agents: 2, status: "an agent is working" },
+      ],
+    };
+    const row = real.team(twice, now).rows[0];
+    expect(row.tone).toBe("good");
+    expect(row.meta).toContain("an agent is working");
+    expect(row.meta).toContain("3 running");
+    expect(row.meta).toContain("2 machines");
+  });
+
+  it("says nothing about machines for a person on one", () => {
+    expect(real.team(bus, now).rows[3].meta).not.toContain("machines");
+  });
+
   it("says so when ade is not on the bus", () => {
     const place = real.team({ online: false });
     expect(place.rows).toEqual([]);
@@ -1369,5 +1404,71 @@ describe("what this window has archived but not yet read back", () => {
 
   it("does nothing when nothing is waiting", () => {
     expect(real.stillListed(repos, new Set()).size).toBe(0);
+  });
+});
+
+// "removeAllComments done" was the whole of the feedback.
+describe("what a comment sweep reports", () => {
+  it("counts what went", () => {
+    expect(real.sweptSaid({ removed: 6, kept: 0 }, "comments")).toBe("removed 6 comments");
+    expect(real.sweptSaid({ removed: 1, kept: 0 }, "comments")).toBe("removed 1 comment");
+  });
+
+  it("says what it had to leave, and why", () => {
+    expect(real.sweptSaid({ removed: 6, kept: 4 }, "comments")).toBe(
+      "removed 6 comments; 4 on the pull request stay",
+    );
+  });
+
+  // Nothing removed and four left is not the same as nothing to remove.
+  it("tells an empty sweep from one that could take none of them", () => {
+    expect(real.sweptSaid({ removed: 0, kept: 0 }, "orphaned comments")).toBe(
+      "no orphaned comments to remove",
+    );
+    expect(real.sweptSaid({ removed: 0, kept: 4 }, "comments")).toBe(
+      "nothing to remove: 4 on the pull request stay",
+    );
+  });
+});
+
+describe("My Day, behind the calendar icon", () => {
+  const now = Date.parse("2026-11-02T12:00:00Z");
+  const job = (outcomes: unknown[]): real.Job =>
+    ({ name: "my-day", schedule: "0 8 * * 1-5", outcomes }) as real.Job;
+
+  it("is found by the name the built-in job has", () => {
+    expect(real.myDay([job([]), { name: "other", schedule: "@daily" }])?.name).toBe("my-day");
+    expect(real.myDay([{ name: "other", schedule: "@daily" }])).toBeUndefined();
+  });
+
+  // The Jobs place keeps the run of them; the icon is this morning only.
+  it("draws the newest fire and not the ones before it", () => {
+    const body = real.myDayReport(
+      job([
+        { firedAt: "2026-11-01T08:00:00Z", millis: 900, report: "# My Day · Sun 1 Nov" },
+        { firedAt: "2026-11-02T08:00:00Z", millis: 900, report: "# My Day · Mon 2 Nov" },
+      ]),
+    );
+    expect(body).toBe("# My Day · Mon 2 Nov");
+    expect(body).not.toContain("Sun 1 Nov");
+  });
+
+  it("says which of the quiet cases it is", () => {
+    expect(real.myDayReport(undefined)).toContain("no my-day job");
+    expect(real.myDayReport(job([]))).toContain("has not run yet");
+    expect(
+      real.myDayReport(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, error: "gh timed out" }])),
+    ).toContain("gh timed out");
+    // Render answers an empty morning with an empty string, not a report.
+    expect(real.myDayReport(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, report: "" }])))
+      .toContain("Nothing waiting");
+  });
+
+  // The tab title is fixed so the tab is reused; the age goes on the tooltip.
+  it("carries how old the fire is on the button, not in the tab", () => {
+    expect(real.myDayTitle(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, report: "x" }]), now))
+      .toBe("My Day · 4h");
+    expect(real.myDayTitle(job([]), now)).toBe("My Day");
+    expect(real.myDayTitle(undefined, now)).toBe("My Day");
   });
 });

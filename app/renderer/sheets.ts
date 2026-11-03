@@ -6,6 +6,7 @@ import {
   foldable,
   folded,
   nextVerb,
+  pressed,
   shownComments,
   whyNotSendable,
 } from "../pages/commentrow";
@@ -393,10 +394,19 @@ function heading(it: Thread, on: OnThread, open: boolean): HTMLElement {
 // verbs is the one thing a thread is waiting for, and why when it is none.
 function verbs(it: Thread, on: OnThread, hasPR: boolean): HTMLElement {
   const acts = el("div", "acts");
-  const act = (label: string, what: Asked["what"], quiet = true, why = "") => {
+  // `busy` is what a verb says once pressed. The answer is a round trip
+  // away, and a second press files the same comment twice.
+  const act = (label: string, what: Asked["what"], quiet = true, why = "", busy = "") => {
     const button = el("span", quiet ? "btn quiet" : "btn", label);
     if (why) button.title = why;
-    button.addEventListener("click", () => on({ what, id: it.id }));
+    button.addEventListener("click", () => {
+      if (busy) {
+        if (button.classList.contains("off")) return;
+        button.classList.add("off");
+        button.textContent = busy;
+      }
+      on({ what, id: it.id });
+    });
     acts.append(button);
   };
   const next = nextVerb(it, hasPR);
@@ -405,15 +415,18 @@ function verbs(it: Thread, on: OnThread, hasPR: boolean): HTMLElement {
     // them sends it and the first one read as if it did.
     case "convert":
       act("Write it up", "convert", false,
-        "Rewrites your note in words for the author, on this thread. Nothing is sent.");
+        "Rewrites your note in words for the author, on this thread. Nothing is sent.",
+        pressed(next));
       break;
     case "draft":
       act("Add to the review", "draft", false,
-        "Puts the written-up comment in the pull request's draft review, which only you can see.");
+        "Puts the written-up comment in the pull request's draft review, which only you can see.",
+        pressed(next));
       break;
     case "take-out":
       act("Take out of the review", "take-out",
-        true, "Takes it back out of the draft review. It stays written up here.");
+        true, "Takes it back out of the draft review. It stays written up here.",
+        pressed(next));
       break;
     case "reply":
     case "answer":

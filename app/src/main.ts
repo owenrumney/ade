@@ -9,6 +9,7 @@ import { Keymap, merge, shared, type Binding } from "./keymap";
 import { askForLocalNetwork } from "./localnetwork";
 import { keeper } from "./held";
 import { wire } from "./contextmenu";
+import { away } from "./away";
 import { named, note, prune, read as auditRead, days as auditDays } from "./audit";
 import { shellPath } from "./shellpath";
 import { ask, found, tell, type At } from "./launcher";
@@ -83,6 +84,7 @@ function make(map: Keymap): BrowserWindow {
     },
   });
   wire(win, panelOf);
+  away(win);
   void win.loadFile(join(__dirname, "..", "renderer", "index.html"));
   win.once("ready-to-show", () => win.show());
   // A page error used to go nowhere at all: `make app` prints them now.
@@ -402,6 +404,7 @@ void app.whenReady().then(async () => {
       },
     });
     wire(win, panelOf);
+    away(win);
     void win.loadFile(join(__dirname, "..", "renderer", "index.html"), {
       query: { only: panel, session },
     });

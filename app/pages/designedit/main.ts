@@ -9,7 +9,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, level, picture, reveals, type Span } from "./marks";
+import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, joins, level, picture, reveals, type Span } from "./marks";
 
 // A GFM table, drawn. Replaced wholesale and revealed as source when the
 // cursor enters, which is the same bargain the diagrams make.
@@ -56,6 +56,18 @@ class Rule extends WidgetType {
 
 // A list marker, drawn as the bullet it reads as. Replaced rather than
 // hidden: taking the characters out moves the line left.
+class Space extends WidgetType {
+  eq(): boolean {
+    return true;
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement("span");
+    el.className = "cm-join";
+    el.textContent = " ";
+    return el;
+  }
+}
+
 class Bullet extends WidgetType {
   constructor(readonly mark: string) {
     super();
@@ -206,6 +218,22 @@ function block(name: string, text: string): WidgetType | undefined {
 
 type Placed = { from: number; to: number; value: Decoration };
 
+// reflow draws a paragraph's line breaks as spaces, so it fills the pane.
+function reflow(state: EditorState, node: Span, out: Placed[]): void {
+  const first = state.doc.lineAt(node.from);
+  const last = state.doc.lineAt(node.to);
+  for (let n = first.number; n < last.number; n++) {
+    const line = state.doc.line(n);
+    if (!joins(line.text)) continue;
+    const next = state.doc.line(n + 1);
+    out.push({
+      from: line.to,
+      to: next.from + gap(next.text),
+      value: Decoration.replace({ widget: new Space() }),
+    });
+  }
+}
+
 // fence boxes a code block; its fence lines empty out until the cursor enters.
 function fence(state: EditorState, node: Span, head: number | undefined, out: Placed[]): void {
   const first = state.doc.lineAt(node.from);
@@ -249,6 +277,10 @@ function marks(state: EditorState): DecorationSet {
             value: Decoration.replace({ widget: drawn, block: true }),
           });
           return false;
+        }
+        if (node.name === "Paragraph") {
+          if (!reveals(node.name, node, node, head)) reflow(state, node, builder);
+          return;
         }
         if (node.name === "Image") {
           if (reveals(node.name, node, node, head)) return;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { body, bullet, cells, hides, isMermaid, lang, level, picture, reveals, touched, gap } from "./marks";
+import { body, bullet, cells, hides, isMermaid, joins, lang, level, picture, reveals, touched, gap } from "./marks";
 
 describe("what the frame hides", () => {
   it("takes out the markers and leaves the words", () => {
@@ -14,6 +14,25 @@ describe("what the frame hides", () => {
     expect(hides("ListMark")).toBe(true);
     expect(reveals("ListMark", { from: 0, to: 1 }, { from: 0, to: 9 }, 400)).toBe(false);
     expect(reveals("ListMark", { from: 0, to: 1 }, { from: 0, to: 9 }, 5)).toBe(true);
+  });
+});
+
+describe("a paragraph written at 80 columns", () => {
+  it("joins the lines the writer wrapped", () => {
+    expect(joins("A submission's Slack notification is dropped, when none of")).toBe(true);
+    expect(joins("")).toBe(true);
+  });
+
+  // Two trailing spaces or a backslash is markdown asking for a break, which
+  // is the document's own line and not the writer's wrapping.
+  it("keeps a hard break", () => {
+    expect(joins("the first line  ")).toBe(false);
+    expect(joins("the first line\\")).toBe(false);
+  });
+
+  // One trailing space is a typo, not a request for a line break.
+  it("is not fooled by a single trailing space", () => {
+    expect(joins("the first line ")).toBe(true);
   });
 });
 

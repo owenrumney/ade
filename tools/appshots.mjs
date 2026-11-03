@@ -3,7 +3,7 @@
 // the shell is stood in for by tools/appfixture.mjs, and every path the
 // window takes to draw is its own.
 import puppeteer from "./shots/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { shell } from "./appfixture.mjs";
 
@@ -58,6 +58,14 @@ const VIEWS = [
     tap: ".review-bar .btn.add",
     settle: 500,
   },
+  {
+    name: "app-review-pressed",
+    place: "Review",
+    session: "Rethink the workflow and the window",
+    twigs: ["app/renderer", "doing.ts"],
+    tapText: "Add to the review",
+    settle: 400,
+  },
   { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
   { name: "app-review-viewed", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .seen input", settle: 300 },
   { name: "app-chat-wide", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
@@ -76,6 +84,13 @@ const VIEWS = [
   { name: "app-agents", place: "Agents" },
   { name: "app-terminal", place: "Terminal" },
   { name: "app-todos", place: "Todos" },
+  // The title carries the age of the fire, so the tap matches on its start.
+  {
+    name: "app-myday",
+    place: "Waiting on you",
+    tap: ".activity button[title^='My Day']",
+    settle: 400,
+  },
   { name: "app-team", place: "Team" },
   { name: "app-person", place: "Team", row: "kim" },
   { name: "app-jobs", place: "Jobs" },
@@ -87,6 +102,22 @@ const VIEWS = [
   },
   { name: "app-review-edit", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".tab.on .swap", settle: 1200 },
   { name: "app-tab-menu", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], right: ".tab.on" },
+  {
+    name: "app-split",
+    place: "Review",
+    session: "Rethink the workflow and the window",
+    twigs: ["app/renderer", "doing.ts"],
+    also: "Terminal",
+    drag: { what: '.tab[data-tab^="hunks:"]', to: 0.78 },
+  },
+  {
+    name: "app-split-drop",
+    place: "Review",
+    session: "Rethink the workflow and the window",
+    twigs: ["app/renderer", "doing.ts"],
+    also: "Terminal",
+    drag: { what: '.tab[data-tab^="hunks:"]', to: 0.78, hold: true },
+  },
   { name: "app-code", place: "Code", session: "Rethink the workflow and the window", twigs: ["internal/web", "web.go"] },
   {
     name: "app-commit",
@@ -127,8 +158,19 @@ if (unknown.length) {
 const shots = resolve("app/dist/shots");
 mkdirSync(shots, { recursive: true });
 
+// Said before the launch, because puppeteer's own version of this is a stack
+// trace, and the fix is one command the trace does not name.
+const chrome = process.env.ADE_CHROME || "/usr/bin/chromium";
+if (!existsSync(chrome)) {
+  console.error(`no chromium at ${chrome}`);
+  console.error("Install one, or point ADE_CHROME at it:");
+  console.error("  macOS  brew install --cask chromium");
+  console.error("  Debian apt-get install -y chromium");
+  process.exit(3);
+}
+
 const browser = await puppeteer.launch({
-  executablePath: process.env.ADE_CHROME || "/usr/bin/chromium",
+  executablePath: chrome,
   args: ["--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files"],
 });
 const page = await browser.newPage();
@@ -198,6 +240,48 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     await page.waitForSelector(view.right);
     await page.click(view.right, { button: "right" });
     await page.waitForSelector(".menu");
+  }
+
+  // A thread's verb is a span with its label, which `tap` cannot name.
+  if (view.tapText) {
+    const found = await page.evaluateHandle(
+      (want) =>
+        [...document.querySelectorAll(".thread .acts .btn")].find(
+          (n) => (n.textContent ?? "").trim() === want,
+        ),
+      view.tapText,
+    );
+    const node = found.asElement();
+    if (!node) throw new Error(`no button called ${view.tapText}`);
+    await node.click();
+    await new Promise((done) => setTimeout(done, view.settle ?? 400));
+  }
+
+  // A second tab, opened from the activity bar rather than a row.
+  if (view.also) {
+    await page.$$eval(
+      ".activity button",
+      (bs, want) => bs.find((b) => b.title === want)?.click(),
+      view.also,
+    );
+    await new Promise((done) => setTimeout(done, 400));
+  }
+
+  // No verb opens a split: the shot drags a tab, as a hand does.
+  if (view.drag) {
+    const box = (sel) =>
+      page.$eval(sel, (n) => {
+        const b = n.getBoundingClientRect();
+        return [b.left, b.top, b.width, b.height];
+      });
+    const [tl, tt, tw, th] = await box(view.drag.what);
+    const [sl, st, sw, sh] = await box(".main .sheet");
+    await page.mouse.move(tl + tw / 2, tt + th / 2);
+    await page.mouse.down();
+    await page.mouse.move(sl + sw * view.drag.to, st + sh / 2, { steps: 12 });
+    // `hold` shoots the drag itself: the shaded half saying where it lands.
+    if (!view.drag.hold) await page.mouse.up();
+    await new Promise((done) => setTimeout(done, 400));
   }
 
   if (view.keys) {

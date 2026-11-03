@@ -242,6 +242,7 @@ func (s *Server) refreshWorktree(ctx context.Context) bool {
 		return false
 	}
 	status.Signing = gitdiff.SigningOf(ctx, s.space().diffRoot())
+	status.Head = gitdiff.HeadCommit(ctx, s.space().diffRoot())
 	// Resolved, not only the one set at start: an empty base left Behind at 0,
 	// so Rebase read "up to date" however far behind you were.
 	base := s.space().opts.Base
@@ -251,8 +252,8 @@ func (s *Server) refreshWorktree(ctx context.Context) bool {
 	if base != "" {
 		status.Behind, _ = gitdiff.CommitsBehind(ctx, s.space().diffRoot(), base)
 	}
-	fingerprint := fmt.Sprintf("%v|%v|%s|%d|%d|%v", status.Staged, status.Unstaged,
-		status.Upstream, status.Ahead, status.Behind, status.Signing)
+	fingerprint := fmt.Sprintf("%v|%v|%s|%d|%d|%v|%v", status.Staged, status.Unstaged,
+		status.Upstream, status.Ahead, status.Behind, status.Signing, status.Head)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -22,6 +22,8 @@ const (
 	workSyncing  = "syncing"
 	workUpdating = "updating"
 	workStopping = "stopping"
+	// Dialling takes the same slot, so a second press cannot start a second dial.
+	workConnecting = "connecting"
 )
 
 // workingOn is the action in flight on a machine, or empty.

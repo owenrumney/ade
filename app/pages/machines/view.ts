@@ -25,6 +25,7 @@ export interface Shown {
   sessions: number;
   warning: string;
   error: string;
+  working: string;
   act: "connect" | "disconnect" | "";
 }
 
@@ -50,6 +51,7 @@ export function shown(host: Host): Shown {
     // The failure that mattered, in full: the first thing anyone does with
     // one is paste it to someone else.
     error: host.error || host.failed || "",
+    working: host.working ?? "",
     act: state === "here" ? "" : state === "off" ? "connect" : "disconnect",
   };
 }
@@ -61,7 +63,8 @@ export function listed(hosts: Host[] | undefined): Shown[] {
 // said is what a row says about itself under the name, left to right.
 export function said(row: Shown): string {
   const parts: string[] = [];
-  if (row.state === "here") parts.push("this machine");
+  if (row.working) parts.push(`${row.working}…`);
+  else if (row.state === "here") parts.push("this machine");
   else if (row.state === "off") parts.push("not connected");
   else if (row.state === "quiet") parts.push("connected, but its last answer failed");
   else parts.push("connected");

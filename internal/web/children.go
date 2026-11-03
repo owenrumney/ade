@@ -198,6 +198,10 @@ func backgroundTask(content string) string {
 
 var taskFileRE = regexp.MustCompile(`Output is being written to: (\S+)`)
 
+// The last line of a background command's output, whether it passed, failed
+// or was killed.
+var taskExitRE = regexp.MustCompile(`^\[exited with code -?\d+\]$`)
+
 func launchedAgent(content string) string {
 	if !strings.HasPrefix(content, "Async agent launched") {
 		return ""
@@ -367,7 +371,14 @@ func (c *children) read(ch *child, now time.Time) bool {
 		}
 		ch.offset += int64(len(line))
 		if ch.Kind == childTask {
-			if text := strings.TrimSpace(string(line)); text != "" {
+			text := strings.TrimSpace(string(line))
+			// The harness writes this when the command exits. Without it the row
+			// stood until the next turn carried the notice that says the same.
+			if taskExitRE.MatchString(text) {
+				ch.done = true
+				return true
+			}
+			if text != "" {
 				ch.Doing = truncate(text, 72)
 				moved = true
 			}

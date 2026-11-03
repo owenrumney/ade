@@ -126,7 +126,8 @@ func FilesNote(files []Attached) string {
 }
 
 // docMedia says what a design document can hold beyond prose.
-const docMedia = "- The document renders mermaid: a ```mermaid fenced block draws. Use one where a shape is the point — a flow between components, a sequence across boundaries, a state machine — and prose alone would make the reader hold four things at once. Do not diagram what one sentence says, and do not open every document with one.\n" +
+const docMedia = "- Write each paragraph as one line, with no line breaks inside it, and the same for each list item. The Design tab wraps text to the width of the pane, so a paragraph you break at 80 columns leaves most of the pane empty. Headings, tables and fenced blocks keep their own lines as usual.\n" +
+	"- The document renders mermaid: a ```mermaid fenced block draws. Use one where a shape is the point — a flow between components, a sequence across boundaries, a state machine — and prose alone would make the reader hold four things at once. Do not diagram what one sentence says, and do not open every document with one.\n" +
 	"- Pictures beside the document work too: write the file into the same directory as the document and reference it by plain name, `![what it shows](thing.png)`. A screenshot of what is wrong today, or of the thing being copied, is often worth more than the paragraph describing it.\n"
 
 // SubagentPrompt is one call on a named agent. The agent starts cold — its

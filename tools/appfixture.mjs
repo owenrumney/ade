@@ -577,9 +577,12 @@ const STATE = {
     offers: [{ id: "o1", kind: "review", from: "kim", pr: "owenrumney/ade#412" }],
     replies: [{ id: "r1", from: "kim", text: "the proxy hop looks right", at: "2026-10-22T11:40:00Z" }],
     sent: [{ id: "s1", to: "anyone", question: "anyone seen the sandbox image size?" }],
+    // Two instances of one person, which is the ordinary case: an ade on the
+    // laptop and one on the pi. The list folds them into a row each.
     team: [
-      { user: "owen", presence: "active", you: true, agents: 2 },
-      { user: "kim", presence: "idle", harness: "claude" },
+      { user: "owen", presence: "idle", node: "mac", you: true, agents: 0 },
+      { user: "owen", presence: "active", node: "pi5", you: true, agents: 2, status: "an agent is working" },
+      { user: "kim", presence: "idle", harness: "claude", node: "kim-mbp" },
     ],
   },
 };

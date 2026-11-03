@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   dismissable,
   newSessionPanel,
   held,
   idOf,
+  inGroup,
   keepable,
   live,
+  moved,
   opened,
   rebuilt,
+  settled,
   shut,
   shutMany,
   startIn,
@@ -255,5 +260,54 @@ describe("the repository a New session starts in", () => {
     expect(startIn(space(undefined))).toBe("");
     expect(startIn(tab("a"))).toBe("");
     expect(startIn(undefined)).toBe("");
+  });
+});
+
+describe("the two halves of the editor area", () => {
+  it("has every tab on the left until one is dragged right", () => {
+    const tabs = [tab("a"), tab("b")];
+    expect(inGroup(tabs, 0).map((t) => t.id)).toEqual(["a", "b"]);
+    expect(inGroup(tabs, 1)).toEqual([]);
+  });
+
+  it("moves a tab to the end of the half it is dropped in", () => {
+    const tabs = moved([tab("a"), tab("b"), tab("c")], "a", 1);
+    expect(inGroup(tabs, 0).map((t) => t.id)).toEqual(["b", "c"]);
+    expect(inGroup(tabs, 1).map((t) => t.id)).toEqual(["a"]);
+  });
+
+  it("leaves a tab dropped back where it already is", () => {
+    const tabs = [tab("a"), tab("b")];
+    expect(moved(tabs, "a", 0)).toBe(tabs);
+    expect(moved(tabs, "nope", 1)).toBe(tabs);
+  });
+
+  it("is a split only while both halves hold something", () => {
+    expect(settled([tab("a"), tab("b")]).split).toBe(false);
+    expect(settled(moved([tab("a"), tab("b")], "b", 1)).split).toBe(true);
+  });
+
+  // The last tab out of the left half: the right takes the whole area
+  // back rather than leaving an empty column.
+  it("closes the split when the left half empties, keeping the tabs", () => {
+    const done = settled(moved([tab("a")], "a", 1));
+    expect(done.split).toBe(false);
+    expect(inGroup(done.tabs, 0).map((t) => t.id)).toEqual(["a"]);
+  });
+});
+
+// The strip is rebuilt on every poll. A drag that captured the pointer
+// on the tab lost it to the next redraw: the hint drew and the drop
+// never landed, which only showed up on a drag slower than the poll.
+describe("a tab drag outlives a redraw", () => {
+  const src = readFileSync(join(__dirname, "app.ts"), "utf8");
+
+  it("captures the pointer on the strip, which is built once", () => {
+    expect(src).toContain("head.setPointerCapture(down.pointerId)");
+    expect(src).not.toMatch(/now\.setPointerCapture/);
+  });
+
+  it("holds the strip still while a tab is being carried", () => {
+    expect(src).toContain("if (!this.dragging) head.replaceChildren(...this.head())");
   });
 });

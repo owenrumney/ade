@@ -51,6 +51,7 @@ export const PATHS: Record<string, string> = {
   answer: "M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7",
   // A prompt and a caret: a shell, not the chevrons that mean source.
   terminal: "M3 5h18v14H3zM7 10l3 2.5-3 2.5M12.5 15H17",
+  calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
 };
 
 // icon is one glyph at the size asked for, or nothing drawn at all when the

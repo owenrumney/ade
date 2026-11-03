@@ -1,5 +1,10 @@
 import type { Place, Row, Status, World } from "./model";
-import { page as jobPage, unread as unreadOutcomes, type Outcome } from "../pages/jobpage";
+import {
+  newest as newestOutcomes,
+  page as jobPage,
+  unread as unreadOutcomes,
+  type Outcome,
+} from "../pages/jobpage";
 
 // ade's own answers, as the window draws them: one function per
 // endpoint. Nothing is invented that the launcher does not send.
@@ -620,14 +625,47 @@ export interface Bus {
   offers?: { id: string; kind: string; from: string; question?: string; pr?: string; claimed?: boolean }[];
   replies?: { id: string; from: string; question?: string; text?: string; verdict?: string; at?: string }[];
   sent?: { id: string; to?: string; question?: string; pr?: string; at?: string }[];
-  team?: {
-    user: string;
-    presence: string;
-    status?: string;
-    harness?: string;
-    agents?: number;
-    you?: boolean;
-  }[];
+  team?: Member[];
+}
+
+export interface Member {
+  user: string;
+  presence: string;
+  status?: string;
+  harness?: string;
+  node?: string;
+  agents?: number;
+  you?: boolean;
+}
+
+// folded is one row per person. agentbus reports an instance, so a second
+// ade on another machine was a second row naming the same person to ask.
+export function folded(team: Member[]): (Member & { nodes: number })[] {
+  const out = new Map<string, Member & { nodes: number }>();
+  const machines = new Map<string, Set<string>>();
+  for (const member of team) {
+    const seen = machines.get(member.user) ?? new Set<string>();
+    seen.add(member.node || member.harness || "");
+    machines.set(member.user, seen);
+    const held = out.get(member.user);
+    if (!held) {
+      out.set(member.user, { ...member, nodes: 0 });
+      continue;
+    }
+    held.agents = (held.agents ?? 0) + (member.agents ?? 0);
+    held.you = held.you || member.you;
+    // The instance with something to say wins the line: one ade idle on a
+    // laptop says nothing about the one running an agent beside it.
+    if (member.presence === "active" && held.presence !== "active") {
+      held.presence = member.presence;
+      held.status = member.status;
+      held.harness = member.harness;
+    } else if (!held.status && member.status) {
+      held.status = member.status;
+    }
+  }
+  for (const [user, row] of out) row.nodes = machines.get(user)?.size ?? 1;
+  return [...out.values()];
 }
 
 // team is the bus as a list: what is waiting on you, then what you
@@ -672,14 +710,20 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
       meta: [sent.to, ago(sent.at, now)].filter(Boolean).join(" · "),
     });
   }
-  for (const member of bus?.team ?? []) {
+  for (const member of folded(bus?.team ?? [])) {
     rows.push({
       id: `who:${member.user}`,
       group: "Who is about",
       icon: "people",
       tone: member.presence === "active" ? "good" : undefined,
       name: member.user + (member.you ? " · you" : ""),
-      meta: [member.presence, member.harness, member.status, member.agents ? `${member.agents} running` : ""]
+      meta: [
+        member.presence,
+        member.harness,
+        member.status,
+        member.agents ? `${member.agents} running` : "",
+        member.nodes > 1 ? `${member.nodes} machines` : "",
+      ]
         .filter(Boolean)
         .join(" · "),
     });
@@ -783,6 +827,31 @@ export function jobReport(job: Job): string {
 // jobUnread is how many of a job's reports have not been read.
 export function jobUnread(job: Job): number {
   return unreadOutcomes(job.outcomes ?? []).length;
+}
+
+// The built-in job behind the calendar icon. Named in internal/jobs/myday.go.
+export const MY_DAY = "my-day";
+
+export function myDay(jobs: Job[]): Job | undefined {
+  return jobs.find((job) => job.name === MY_DAY);
+}
+
+// myDayReport is the newest fire on its own. The Jobs place keeps the run of
+// them; the calendar is today, which is the whole point of the shortcut.
+export function myDayReport(job: Job | undefined): string {
+  if (!job) return "# My Day\n\nThis machine has no my-day job.";
+  const latest = newestOutcomes(job.outcomes ?? [])[0];
+  if (!latest) return "# My Day\n\nIt has not run yet.";
+  if (latest.error) return `# My Day\n\n**It failed:** ${latest.error}`;
+  // The report writes its own dated heading, so nothing is added here.
+  return latest.report?.trim() || "# My Day\n\nNothing waiting, and nothing of yours open.";
+}
+
+// myDayTitle carries how old the fire is, so yesterday's report is not read
+// as this morning's.
+export function myDayTitle(job: Job | undefined, now = Date.now()): string {
+  const when = ago(newestOutcomes(job?.outcomes ?? [])[0]?.firedAt, now);
+  return when ? `My Day · ${when}` : "My Day";
 }
 
 // jobs is what ade does on a timer. A list, not a report: you want to
@@ -1186,6 +1255,16 @@ export function draftSaid(body: Drafted, pr: number): string {
   if (refused.length === 0) return went;
   if (n === 0) return refused.length === 1 ? refused[0] : `${refused.length} refused: ${refused[0]}`;
   return `${refused.length} refused: ${refused[0]} · ${went}`;
+}
+
+// sweptSaid is what a reset did. What it left is said as well as what went.
+export function sweptSaid(body: unknown, what: string): string {
+  const n = (body ?? {}) as { removed?: number; kept?: number };
+  const gone = n.removed ?? 0;
+  const kept = n.kept ?? 0;
+  const left = kept === 0 ? "" : `; ${kept} on the pull request stay`;
+  if (gone === 0) return kept === 0 ? `no ${what} to remove` : `nothing to remove: ${kept} on the pull request stay`;
+  return `removed ${gone} ${gone === 1 ? "comment" : "comments"}${left}`;
 }
 
 // unserved is the launcher's answer for a session with no ade behind

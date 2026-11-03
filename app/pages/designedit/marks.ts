@@ -79,6 +79,12 @@ export function isMermaid(fenceLine: string): boolean {
   return lang(fenceLine) === "mermaid";
 }
 
+// joins is whether a line break inside a paragraph is the writer's wrapping,
+// drawn as a space. Markdown's hard break, two trailing spaces or \, stays.
+export function joins(line: string): boolean {
+  return !/(?: {2}|\\)$/.test(line);
+}
+
 // bullet is what a list marker is drawn as. An ordered list keeps its number,
 // which is what it reads as either way; a bullet's "-" is syntax.
 export function bullet(markerText: string): string | undefined {

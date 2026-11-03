@@ -5,6 +5,7 @@ import {
   foldAbove,
   foldable,
   folded,
+  pressed,
   shownComments,
   unsent,
   whyNotSendable,
@@ -204,5 +205,23 @@ describe("whether a comment is a draft", () => {
 
   it("is not before Convert has run", () => {
     expect(unsent(thread())).toBe(false);
+  });
+});
+
+// Without it the button looked unpressed for the whole round trip, and
+// a second press filed the same comment twice.
+describe("what a verb says once it is pressed", () => {
+  it("names what it is doing for every verb that sends straight away", () => {
+    expect(pressed("draft")).toBe("Adding it…");
+    expect(pressed("convert")).toBe("Writing it up…");
+    expect(pressed("take-out")).toBe("Taking it out…");
+  });
+
+  // Reply asks for the words first, so a press that is then cancelled
+  // must leave the button alive.
+  it("is nothing for a verb that asks something first", () => {
+    expect(pressed("reply")).toBe("");
+    expect(pressed("answer")).toBe("");
+    expect(pressed("none")).toBe("");
   });
 });

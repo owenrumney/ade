@@ -330,6 +330,21 @@ func TestHasCommits(t *testing.T) {
 	assert.False(t, HasCommits(ctx, empty))
 }
 
+func TestHeadCommitNamesWhatAnAmendWouldFoldInto(t *testing.T) {
+	ctx := context.Background()
+	got := HeadCommit(ctx, commitRepo(t))
+	assert.Equal(t, "first", got.Subject)
+	assert.Len(t, got.SHA, 40)
+
+	empty := t.TempDir()
+	init := exec.Command("git", "init", "-b", "main", "-q")
+	init.Dir = empty
+	require.NoError(t, init.Run())
+
+	// Nothing to fold into, so the panel draws the tick and disables it.
+	assert.Equal(t, Head{}, HeadCommit(ctx, empty))
+}
+
 func TestSameBaseComparesResolvedCommits(t *testing.T) {
 	dir := t.TempDir()
 	git := func(args ...string) {

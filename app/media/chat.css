@@ -134,6 +134,14 @@ body {
 
 .body a { color: var(--info); }
 
+/* A design document named in a reply. It carries no href, so it needs the
+   colour and the hand a real link gets for free. */
+.docref {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+.docref:hover { text-decoration: underline; }
+
 /* Prose reads badly across a wide pane, so paragraphs and lists keep a measure
    of their own. Tables, code and pictures are laid out, not read, and take the
    rest — which is what the bubble's old 46rem cap was denying them. */

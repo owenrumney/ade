@@ -32,7 +32,8 @@ function row(one: Shown): HTMLElement {
   if (one.error) node.append(el("div", "error", one.error));
 
   if (one.act) {
-    const working = busy === one.name;
+    // From the launcher, so a refresh cannot put it back to Connect mid-dial.
+    const working = Boolean(one.working) || busy === one.name;
     const button = document.createElement("button");
     button.className = working ? "act off" : "act";
     button.textContent = working
@@ -42,8 +43,8 @@ function row(one: Shown): HTMLElement {
       : one.act === "connect"
         ? "Connect"
         : "Disconnect";
-    button.disabled = Boolean(busy);
-    if (!busy) {
+    button.disabled = Boolean(busy) || working;
+    if (!button.disabled) {
       button.addEventListener("click", () => {
         busy = one.name;
         note = "";

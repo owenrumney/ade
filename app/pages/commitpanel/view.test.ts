@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amending,
   bar,
   branchable,
   drifted,
@@ -125,6 +126,14 @@ describe("what the panel offers", () => {
     expect(verbs("", ["a.go"], false, 0).commit).toBe(false);
     expect(verbs("a title", [], false, 0).commit).toBe(false);
     expect(verbs("a title", ["a.go"], false, 0).commit).toBe(true);
+  });
+
+  // An amend already has a commit, so either half is enough on its own: a new
+  // message over the same files, or the same message over new files.
+  it("lets an amend go with only a message, or only files", () => {
+    expect(verbs("a title", [], false, 0, true).commit).toBe(true);
+    expect(verbs("", ["a.go"], false, 0, true).commit).toBe(true);
+    expect(verbs("", [], false, 0, true).commit).toBe(false);
   });
 
   // Nothing to commit but commits to push is the ordinary state after one.
@@ -258,5 +267,37 @@ describe("the rebase button", () => {
   it("is drawn and inert when there is nothing to replay", () => {
     expect(rebase(0, 0, "origin/main")).toMatchObject({ can: false, why: "up to date" });
     expect(rebase(undefined, 0, "origin/main")).toMatchObject({ can: false, why: "up to date" });
+  });
+});
+
+describe("amending the last commit", () => {
+  const head = { sha: "abc1234", subject: "feat: the first go" };
+
+  it("is not offered on a branch with no commit", () => {
+    expect(amending({ staged: [], unstaged: [] })).toMatchObject({ can: false });
+    expect(
+      amending({ staged: [], unstaged: [], head: { sha: "", subject: "" } }),
+    ).toMatchObject({ can: false });
+  });
+
+  it("names the commit it would fold into", () => {
+    expect(amending({ staged: [], unstaged: [], head })).toMatchObject({
+      can: true,
+      subject: "feat: the first go",
+    });
+  });
+
+  // The warning is the whole point of reading `ahead`: amending a commit the
+  // remote already has rewrites history somebody else may have pulled.
+  it("says when the commit is already on the remote", () => {
+    const on = { staged: [], unstaged: [], head, upstream: "origin/x", ahead: 0 };
+    expect(amending(on).pushed).toBe(true);
+    expect(amending({ ...on, ahead: 2 }).pushed).toBe(false);
+    expect(amending({ ...on, upstream: "" }).pushed).toBe(false);
+  });
+
+  it("says only the message changes when nothing is checked", () => {
+    expect(said([], [], true)).toContain("only the message changes");
+    expect(said([], [], false)).toBe("Nothing is checked.");
   });
 });

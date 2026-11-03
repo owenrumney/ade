@@ -234,6 +234,7 @@
 .thread .who .author { color: var(--accent); }
 .thread .btn { cursor: pointer; }
 .thread .btn:hover { filter: brightness(1.15); }
+.thread .btn.off, .thread .btn.off:hover { opacity: .45; cursor: default; filter: none; }
 /* The line number is how a comment starts, so it has to look like it
    can be clicked. */
 .diff .no { cursor: pointer; }

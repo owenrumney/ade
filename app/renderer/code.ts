@@ -11,9 +11,19 @@ export interface Asking {
   definition(path: string, line: number, col: number): Promise<Where | undefined>;
 }
 
+// Which half of the editor area: one instance cannot be in two panes.
+export type Half = 0 | 1;
+
 interface Editor {
-  mount(source: string, path: string, line: number, onLine: (n: number) => void): HTMLElement;
+  mount(
+    half: Half,
+    source: string,
+    path: string,
+    line: number,
+    onLine: (n: number) => void,
+  ): HTMLElement;
   mountDiff(
+    half: Half,
     base: string,
     source: string,
     path: string,
@@ -23,6 +33,7 @@ interface Editor {
   selected(): { from: string; text: string } | undefined;
   edits(): { path: string; source: string } | undefined;
   saved(path: string, source: string): void;
+  focus(half: Half): void;
   ask(how: Asking): void;
   onJump(then: (to: Where) => void): void;
 }
@@ -50,9 +61,11 @@ export function reaching(ask: Asking, onJump: (to: Where) => void): void {
   }
 }
 
-// host is what the window puts in a pane, made once: a new wrapper per
-// draw would take the editor out of the document.
-let host: HTMLElement | undefined;
+// What the window puts in a pane, one per half and made once: a new
+// wrapper per draw would take the editor out of the document.
+const hosts: [HTMLElement | undefined, HTMLElement | undefined] = [undefined, undefined];
+// The half a verb about "the file" means. Held until the bundle is here.
+let half: Half = 0;
 
 function fetchEditor(): Promise<Editor | undefined> {
   loading ??= new Promise<Editor | undefined>((done) => {
@@ -71,27 +84,37 @@ function fetchEditor(): Promise<Editor | undefined> {
 }
 
 export function mount(
+  side: Half,
   source: string,
   path: string,
   line: number,
   onLine: (n: number) => void,
 ): HTMLElement {
-  return once((editor) => editor.mount(source, path, line, onLine));
+  return once(side, (editor) => editor.mount(side, source, path, line, onLine));
 }
 
 // mountDiff is the file over the diff's left side, edited inline.
 export function mountDiff(
+  side: Half,
   base: string,
   source: string,
   path: string,
   line: number,
   onLine: (n: number) => void,
 ): HTMLElement {
-  return once((editor) => editor.mountDiff(base, source, path, line, onLine));
+  return once(side, (editor) => editor.mountDiff(side, base, source, path, line, onLine));
 }
 
-function once(draw: (editor: Editor) => HTMLElement): HTMLElement {
-  host ??= Object.assign(document.createElement("div"), { className: "monaco-host" });
+// focus says which half a selection or a save is about.
+export function focusEditor(side: Half): void {
+  half = side;
+  window.adeEditor?.focus(side);
+}
+
+function once(side: Half, draw: (editor: Editor) => HTMLElement): HTMLElement {
+  const host = (hosts[side] ??= Object.assign(document.createElement("div"), {
+    className: "monaco-host",
+  }));
   const ready = window.adeEditor;
   if (ready) {
     host.replaceChildren(draw(ready));
@@ -107,9 +130,10 @@ function once(draw: (editor: Editor) => HTMLElement): HTMLElement {
     if (editor && how && jump) {
       editor.ask(how);
       editor.onJump(jump);
+      editor.focus(half);
     }
     if (!editor) {
-      host?.replaceChildren(
+      host.replaceChildren(
         Object.assign(document.createElement("div"), {
           className: "nothing",
           textContent: "The editor did not load.",
@@ -117,7 +141,7 @@ function once(draw: (editor: Editor) => HTMLElement): HTMLElement {
       );
       return;
     }
-    host?.replaceChildren(draw(editor));
+    host.replaceChildren(draw(editor));
   });
   return host;
 }

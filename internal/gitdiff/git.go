@@ -190,6 +190,14 @@ type Status struct {
 
 	// Signing is how a commit here would be signed, or empty for not at all.
 	Signing Signing `json:"signing,omitzero"`
+
+	// Head is the commit an amend would fold into, empty on a branch with none.
+	Head Head `json:"head,omitzero"`
+}
+
+type Head struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
 }
 
 // Signing is git's answer on whether it will sign, and with what, read from
@@ -738,6 +746,16 @@ func HeadMessage(ctx context.Context, dir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(out, "\n"), nil
+}
+
+// HeadCommit is the last commit. An empty SHA means a branch with none.
+func HeadCommit(ctx context.Context, dir string) Head {
+	out, err := run(ctx, dir, "log", "-1", "--pretty=%H%n%s")
+	if err != nil {
+		return Head{}
+	}
+	sha, subject, _ := strings.Cut(strings.TrimRight(out, "\n"), "\n")
+	return Head{SHA: strings.TrimSpace(sha), Subject: strings.TrimSpace(subject)}
 }
 
 // HasCommits reports whether there is a commit to amend. A branch with none is

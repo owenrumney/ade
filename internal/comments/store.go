@@ -632,16 +632,39 @@ func (s *Store) Delete(id string) error {
 	return ErrNotFound
 }
 
-// Resettable is every thread a reset would clear: your own and the reviewer's,
+// Sweep names which threads a reset takes. The zero value is all of them.
+type Sweep string
+
+const (
+	SweepAll      Sweep = ""
+	SweepOrphaned Sweep = "orphaned"
+	SweepResolved Sweep = "resolved"
+	SweepDeclined Sweep = "declined"
+)
+
+func (w Sweep) names(t *Thread) bool {
+	switch w {
+	case SweepOrphaned:
+		return t.Orphaned
+	case SweepResolved:
+		return t.Resolved
+	case SweepDeclined:
+		return t.Fate() == FateDeclined
+	default:
+		return true
+	}
+}
+
+// Resettable is every thread a sweep would clear: your own and the reviewer's,
 // but not one imported from a pull request or already posted to one. Those two
 // exist upstream, where this store cannot put them back.
-func (s *Store) Resettable() []Thread {
+func (s *Store) Resettable(which Sweep) []Thread {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var out []Thread
 	for _, t := range s.threads {
-		if keepOnReset(t) {
+		if !which.names(t) || keepOnReset(t) {
 			continue
 		}
 		out = append(out, t.clone())
@@ -649,26 +672,32 @@ func (s *Store) Resettable() []Thread {
 	return out
 }
 
-// Reset clears the threads Resettable lists and reports how many went.
-func (s *Store) Reset() (int, error) {
+// Reset clears what Resettable lists, and counts what it had to leave upstream.
+func (s *Store) Reset(which Sweep) (gone, kept int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	kept := make([]*Thread, 0, len(s.threads))
+	left := make([]*Thread, 0, len(s.threads))
 	for _, t := range s.threads {
-		if keepOnReset(t) {
-			kept = append(kept, t)
+		if !which.names(t) {
+			left = append(left, t)
+			continue
 		}
+		if keepOnReset(t) {
+			kept++
+			left = append(left, t)
+			continue
+		}
+		gone++
 	}
-	gone := len(s.threads) - len(kept)
 	if gone == 0 {
-		return 0, nil
+		return 0, kept, nil
 	}
-	s.threads = kept
+	s.threads = left
 	if err := s.save(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return gone, nil
+	return gone, kept, nil
 }
 
 func keepOnReset(t *Thread) bool { return t.ExternalID != "" || t.Sent() }

@@ -54,6 +54,21 @@ button:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.
   color: var(--ink-dim);
 }
 
+/* The amend tick sits under the message it would replace. */
+.amend { margin: 0 0 10px; }
+.amending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.amend .where {
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
 /* Stage all and Unstage all change what is on screen; they are not the verbs
    this panel is for, and a button each would say they were. */
 .linkish {

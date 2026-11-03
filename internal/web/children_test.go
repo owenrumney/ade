@@ -250,3 +250,46 @@ func TestNothingSurvivesTheAgentItRanIn(t *testing.T) {
 	assert.False(t, c.poll())
 	assert.Empty(t, c.snapshot())
 }
+
+// The notice that a command finished only arrives in the next turn's stream.
+// An idle session has no stream, so the row stood for ever on the agents list.
+func TestACommandEndsOnTheExitLineItsOutputCarries(t *testing.T) {
+	dir := t.TempDir()
+	c, amended := childrenIn(dir)
+	out := filepath.Join(dir, "bkj9.output")
+	require.NoError(t, os.WriteFile(out, []byte("running the suite\n"), 0o600))
+	c.answered("tool-1", "msg-1", "go test ./...", fmt.Sprintf(taskStarted, out))
+
+	require.True(t, c.poll())
+	require.Len(t, c.snapshot(), 1)
+
+	require.NoError(t, os.WriteFile(out, []byte("running the suite\nok\n\n[exited with code 0]\n"), 0o600))
+	assert.False(t, c.poll(), "nothing left to follow")
+	assert.Empty(t, c.snapshot())
+	assert.Equal(t, "msg-1 0 ", (*amended)[len(*amended)-1], "the row loses what it was doing")
+}
+
+func TestACommandThatFailedOrWasKilledEndsTheSameWay(t *testing.T) {
+	for _, line := range []string{"[exited with code 3]", "[exited with code 1]"} {
+		dir := t.TempDir()
+		c, _ := childrenIn(dir)
+		out := filepath.Join(dir, "bkj9.output")
+		require.NoError(t, os.WriteFile(out, []byte("going\n"+line+"\n"), 0o600))
+		c.answered("tool-1", "msg-1", "make it", fmt.Sprintf(taskStarted, out))
+		assert.False(t, c.poll(), line)
+		assert.Empty(t, c.snapshot(), line)
+	}
+}
+
+// A command that prints the words itself keeps running: the whole line is the
+// harness's, and a quoted one is not.
+func TestALineThatOnlyMentionsAnExitIsNotTheEnd(t *testing.T) {
+	dir := t.TempDir()
+	c, _ := childrenIn(dir)
+	out := filepath.Join(dir, "bkj9.output")
+	require.NoError(t, os.WriteFile(out, []byte("saw [exited with code 0] in the log\n"), 0o600))
+	c.answered("tool-1", "msg-1", "grep logs", fmt.Sprintf(taskStarted, out))
+	assert.True(t, c.poll())
+	require.Len(t, c.snapshot(), 1)
+	assert.Equal(t, "saw [exited with code 0] in the log", c.snapshot()[0].Doing)
+}

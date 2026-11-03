@@ -84,6 +84,21 @@ export function nextVerb(t: Thread, hasPR: boolean): Verb {
   return t.outgoing ? "draft" : "convert";
 }
 
+// pressed is what a verb's button says once it is clicked, and empty
+// for a verb that asks something before it sends anything.
+export function pressed(v: Verb): string {
+  switch (v) {
+    case "convert":
+      return "Writing it up…";
+    case "draft":
+      return "Adding it…";
+    case "take-out":
+      return "Taking it out…";
+    default:
+      return "";
+  }
+}
+
 // claimState is the contextValue the thread's first comment carries, which is
 // where Convert and Send sit. Only the first: the verbs act on the thread.
 export function claimState(t: Thread, hasPR: boolean): string {

@@ -1,5 +1,6 @@
 import { on as menuOn, type Row as MenuRow } from "../menu";
 import {
+  amending,
   bar,
   branchable,
   drifted,
@@ -36,11 +37,13 @@ interface Carried {
   busy?: string;
   // The commit landed: the message went with it.
   committed?: boolean;
+  head?: { title: string; body: string };
   note?: string;
 }
 
 let all: Row[] = [];
 let scale = 0;
+let tree: Shape | undefined;
 let sign: Shape["signing"];
 let draft: Draft | undefined;
 let hasPR = false;
@@ -57,6 +60,10 @@ let lease = false;
 let alsoPush = false;
 // What you typed, once you have. The agent's draft never overwrites it.
 let typed: string | undefined;
+let amend = false;
+// What was in the box before Amend filled it with the last message, so
+// unticking gives it back rather than leaving somebody else's words.
+let beforeAmend: string | undefined;
 // The branch name box: undefined until the form is open, so a suggestion can
 // be drawn from the message without overwriting what you typed into it.
 let wanted: string | undefined;
@@ -123,6 +130,7 @@ function draw(): void {
     ),
   );
   root.append(under);
+  root.append(amendRow());
 
   // The heading carries the re-read: the list is a snapshot, and the one
   // moment you doubt it is when a file you just wrote is not in it.
@@ -148,16 +156,17 @@ function draw(): void {
   for (const row of all) root.append(file(row));
   if (all.length === 0) root.append(el("p", "none", "Nothing has changed."));
 
-  const can = verbs(titleOf(message()), checked, hasPR, ahead);
+  const can = verbs(titleOf(message()), checked, hasPR, ahead, amend);
   const doing = el("div", "row verbs");
+  const verb = amend ? "Amend" : "Commit";
   doing.append(
     button(
-      busy === "commit" && !alsoPush ? "Committing…" : "Commit",
+      busy === "commit" && !alsoPush ? `${verb}ing…` : verb,
       () => commit(false),
       !can.commit || !idle(busy),
     ),
     button(
-      busy === "commit" && alsoPush ? "Committing and pushing…" : "Commit and push",
+      busy === "commit" && alsoPush ? `${verb}ing and pushing…` : `${verb} and push`,
       () => commit(true),
       !can.commit || !idle(busy),
     ),
@@ -182,10 +191,44 @@ function draw(): void {
   root.append(doing);
   const how = signing(sign);
   const under2 = el("p", "said");
-  under2.append(el("span", undefined, said(checked, all)));
+  under2.append(el("span", undefined, said(checked, all, amend)));
   under2.append(el("span", how.on ? "signed" : "unsigned", ` ${how.text}.`));
   root.append(under2);
   if (note) root.append(el("p", "note", note));
+}
+
+// The tick is drawn even with nothing to amend: disabled, and saying why.
+function amendRow(): HTMLElement {
+  const of = amending(tree);
+  const line = el("div", "row amend");
+  const tick = el("input") as HTMLInputElement;
+  tick.type = "checkbox";
+  tick.checked = amend;
+  tick.disabled = !of.can || !idle(busy);
+  tick.addEventListener("change", () => toggleAmend(tick.checked));
+  const label = el("label", "amending");
+  label.append(tick, el("span", "", "Amend the last commit"));
+  label.title = of.can
+    ? "Folds what is checked into the last commit, and takes the message from the box."
+    : "There is no commit on this branch to amend.";
+  line.append(label);
+  if (of.can) line.append(el("span", "where", of.subject));
+  if (amend && of.pushed)
+    line.append(el("span", "warn", "this commit is already on the remote"));
+  return line;
+}
+
+// The box swaps between what you were writing and the message being amended.
+function toggleAmend(on: boolean): void {
+  amend = on;
+  if (on) {
+    beforeAmend = typed;
+    act("headMessage");
+    return;
+  }
+  typed = beforeAmend;
+  beforeAmend = undefined;
+  paint();
 }
 
 // drawBranch is where the commit would land. A base branch opens the form
@@ -260,7 +303,7 @@ function stageAll(on: boolean): void {
 
 function commit(push: boolean): void {
   alsoPush = push;
-  act("commit", { message: message(), push });
+  act("commit", { message: message(), push, amend });
 }
 
 function button(label: string, go: () => void, off: boolean): HTMLElement {
@@ -380,9 +423,20 @@ window.addEventListener("message", (event: MessageEvent<Carried>) => {
   const said = event.data;
   if (said.kind !== "state") return;
   all = rows(said.tree);
+  tree = said.tree;
   // The commit went in and took the message with it. Only here: a state
   // with no draft is the ordinary case for a message you typed yourself.
-  if (said.committed) typed = draft = undefined;
+  if (said.committed) {
+    typed = draft = beforeAmend = undefined;
+    amend = false;
+  }
+  // The message of the commit being amended, which lands after the tick. What
+  // you had already typed over it wins: the fetch must not take back an edit.
+  if (said.head && amend && typed === beforeAmend) {
+    typed = said.head.body ? `${said.head.title}\n\n${said.head.body}` : said.head.title;
+  }
+  // A branch with nothing to fold into cannot be amending, whatever was ticked.
+  if (!amending(tree).can) amend = false;
   sign = said.tree?.signing;
   // A redraft replaces what the agent wrote, not what you typed over it.
   if (said.draft && (!draft || said.draft.title !== draft.title)) {

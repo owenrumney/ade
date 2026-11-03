@@ -96,3 +96,36 @@ func TestUpdatingAWorkerNeedsItConnected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "not connected")
 }
+
+// Five presses made five dials, because the only guard was a connection that
+// did not exist yet. The work slot is the same one the worker actions take.
+func TestASecondConnectWhileOneIsDiallingIsRefused(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, settings.Save(settings.Settings{Hosts: []settings.Host{{Name: "linux"}}}))
+	s, err := New(0, "test")
+	require.NoError(t, err)
+
+	require.True(t, s.claimWork("linux", workConnecting))
+	rec := do(t, s, http.MethodPost, "/api/connect", `{"host":"linux"}`)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "already connecting")
+}
+
+// The press used to hold the request open for as long as the dial took, so the
+// row had nothing to draw and the button looked idle.
+func TestConnectingSaysSoOnTheRowWhileItRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, settings.Save(settings.Settings{Hosts: []settings.Host{{Name: "linux"}}}))
+	s, err := New(0, "test")
+	require.NoError(t, err)
+
+	require.True(t, s.claimWork("linux", workConnecting))
+	rec := do(t, s, http.MethodGet, "/api/hosts", "")
+	var got struct {
+		Hosts []hostView `json:"hosts"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Hosts, 2)
+	assert.Equal(t, "connecting", got.Hosts[1].Working)
+	assert.False(t, got.Hosts[1].Connected)
+}

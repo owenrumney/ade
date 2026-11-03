@@ -1428,13 +1428,19 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleResetThreads clears the comments on this branch so a re-review starts
-// from nothing. What came from a pull request, or has already been posted to
-// one, stays: this store is not where either of those lives.
+// handleResetThreads clears the comments the body names. What came from a pull
+// request or already went to one stays, and `kept` says how many did.
 //
 // Refused while anything is running, so a review part way through filing
 // cannot half survive its own deletion.
-func (s *Server) handleResetThreads(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleResetThreads(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		// Empty is all of them. DELETE sends no body at all.
+		Which comments.Sweep `json:"which"`
+	}
+	if r.ContentLength > 0 && !decode(w, r, &req) {
+		return
+	}
 	if s.agent.State().Running {
 		writeError(w, http.StatusConflict, "the agent is running; wait for it or stop it first")
 		return
@@ -1444,14 +1450,14 @@ func (s *Server) handleResetThreads(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	removed, err := s.space().store.Reset()
+	removed, kept, err := s.space().store.Reset(req.Which)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.hub.Broadcast("threads", nil)
 	s.hub.Broadcast("state", nil)
-	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": kept})
 }
 
 // handleExit shuts this server down, and can take the session out of the

@@ -29,7 +29,7 @@ import (
 )
 
 // connectTimeout bounds dialling, the capability check and starting the launcher
-// over there. The page is waiting on all three.
+// over there. It runs behind the request, so nothing is waiting on all three.
 const connectTimeout = 90 * time.Second
 
 // streamWait bounds getting the port stream's headers. The body then stays
@@ -180,15 +180,22 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), connectTimeout)
-	defer cancel()
-	url, err := s.connect(ctx, host.Name)
-	s.noteHost(host.Name, err)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+	if !s.claimWork(host.Name, workConnecting) {
+		writeError(w, http.StatusConflict, host.Name+" is already "+s.workingOn(host.Name))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": url})
+	// Not the request's context, and answered at once: a dial outlives the
+	// press, and the row learns how it went from the hosts list.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), connectTimeout)
+	go func() {
+		defer cancel()
+		_, err := s.connect(ctx, host.Name)
+		s.noteHost(host.Name, err)
+		s.releaseWork(host.Name)
+		s.hub.Broadcast("hosts", nil)
+	}()
+	s.hub.Broadcast("hosts", nil)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // handleHostRepos is what the connected machines have checked out. Nothing is

@@ -601,6 +601,15 @@ function attachments(items: Shown[]): HTMLElement {
 // anchor in a webview navigates nowhere by itself.
 function spans(into: Node, text: string): void {
   for (const span of splitLinks(text)) {
+    if (span.path) {
+      const a = document.createElement("a");
+      a.className = "docref";
+      a.dataset.path = span.path;
+      a.title = "Open in the Design tab";
+      a.textContent = span.text;
+      into.appendChild(a);
+      continue;
+    }
     if (!span.href) {
       into.appendChild(document.createTextNode(span.text));
       continue;
@@ -627,7 +636,7 @@ function linkify(root: HTMLElement): void {
   for (let node = walk.nextNode(); node; node = walk.nextNode()) {
     const text = node as Text;
     if (text.parentElement?.closest("a")) continue;
-    if (splitLinks(text.data).some((span) => span.href)) found.push(text);
+    if (splitLinks(text.data).some((span) => span.href || span.path)) found.push(text);
   }
   for (const text of found) {
     const frag = document.createDocumentFragment();
@@ -946,7 +955,15 @@ function button(
 // handler of its own on document.body, and a click that reaches it opens twice.
 const openLink = (event: MouseEvent) => {
   const a = (event.target as HTMLElement | null)?.closest?.("a");
-  const href = a?.getAttribute("href");
+  if (!a) return;
+  // A design document the reply named: the window knows which tab that is.
+  if (a.dataset.path) {
+    event.preventDefault();
+    event.stopPropagation();
+    reveal(a.dataset.path);
+    return;
+  }
+  const href = a.getAttribute("href");
   if (!href) return;
   event.preventDefault();
   event.stopPropagation();

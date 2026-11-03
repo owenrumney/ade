@@ -3,12 +3,13 @@
 export interface Span {
   text: string;
   href?: string;
+  path?: string;
 }
 
-// A url runs to the first delimiter that cannot be in one. A bare loopback
-// host:port counts: a dev server prints one and it is the thing worth clicking.
+// A url runs to the first delimiter that cannot be in one; a bare loopback
+// host:port counts. The third branch captures, so a document is told from a url.
 const URL_RE =
-  /https?:\/\/[^\s<>"'`]+|\b(?:localhost|127\.0\.0\.1|\[::1\]):\d{1,5}(?:\/[^\s<>"'`]*)?/g;
+  /https?:\/\/[^\s<>"'`]+|\b(?:localhost|127\.0\.0\.1|\[::1\]):\d{1,5}(?:\/[^\s<>"'`]*)?|((?:\/[^\s<>"'`]*)?\.git\/ade\/docs\/[^\s<>"'`]+\.md)/g;
 
 // Trailing punctuation is almost always the sentence's, not the url's.
 const TRAILING = /[.,;:!?]+$/;
@@ -18,6 +19,12 @@ export function splitLinks(text: string): Span[] {
   let at = 0;
   for (const match of text.matchAll(URL_RE)) {
     const start = match.index ?? 0;
+    if (match[1]) {
+      if (start > at) out.push({ text: text.slice(at, start) });
+      out.push({ text: match[1], path: match[1] });
+      at = start + match[1].length;
+      continue;
+    }
     let href = match[0].replace(TRAILING, "");
     // A closing bracket only counts when the url opened one.
     while (href.endsWith(")") && count(href, ")") > count(href, "(")) {

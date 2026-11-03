@@ -202,6 +202,44 @@ func TestResetThreadsClearsTheReview(t *testing.T) {
 	})
 }
 
+// The route dropped its body, so all four sweep verbs cleared the lot.
+func TestResetThreadsTakesOnlyWhatTheBodyNames(t *testing.T) {
+	s := newTestServer(t)
+	createThread(t, s, `{"file":"a.go","side":"right","line":3,"body":"still open"}`)
+	done, err := s.ws.store.Add(comments.Thread{
+		File: "a.go", Side: comments.SideRight, Line: 4,
+		Comments: []comments.Comment{{Body: "fixed"}},
+	})
+	require.NoError(t, err)
+	_, err = s.ws.store.SetResolved(done.ID, true)
+	require.NoError(t, err)
+
+	rec := do(t, s, "POST", "/api/threads/reset", `{"which":"resolved"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"removed":1`)
+
+	left := s.ws.store.List()
+	require.Len(t, left, 1, "the open comment is not a resolved one")
+	assert.False(t, left[0].Resolved)
+}
+
+// Four left behind with no word why is the whole of what this reports.
+func TestResetThreadsSaysHowManyItHadToLeave(t *testing.T) {
+	s := newTestServer(t)
+	createThread(t, s, `{"file":"a.go","side":"right","line":3,"body":"mine"}`)
+	_, err := s.ws.store.Add(comments.Thread{
+		File: "a.go", Side: comments.SideRight, Line: 4, ExternalID: "gh-1",
+		Comments: []comments.Comment{{Body: "from the pull request"}},
+	})
+	require.NoError(t, err)
+
+	rec := do(t, s, "POST", "/api/threads/reset", `{"which":""}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"removed":1`)
+	assert.Contains(t, rec.Body.String(), `"kept":1`)
+	assert.Len(t, s.ws.store.List(), 1, "what came from the pull request stays")
+}
+
 func TestResetThreadsRefusesWhileTheAgentRuns(t *testing.T) {
 	s := newTestServer(t)
 	createThread(t, s, `{"file":"a.go","side":"right","line":3,"body":"mine"}`)

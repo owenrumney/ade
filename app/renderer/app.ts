@@ -3,6 +3,7 @@ import { REPORTS } from "./reports";
 import * as real from "./real";
 import type { Dash, Design, Repo, Review } from "./real";
 import { icon } from "./icons";
+import { docRef } from "./docref";
 import {
   counted,
   grouped,
@@ -25,25 +26,30 @@ import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from
 import { frame, pushTo, stirred, tell } from "./panel";
 import {
   dismissable,
+  groupOf,
   held,
   idOf,
+  inGroup,
   keepable,
   live,
+  moved,
   opened,
   newSessionPanel,
   rebuilt,
+  settled,
   shut,
   shutMany,
   startIn,
   sweeping,
   trimmed,
+  type Group,
   type Layout,
   type Sweep,
   type Tab,
 } from "./tabs";
 import { isChat, sideWidth } from "./dock";
 import { menu, type Row as MenuRow } from "./menu";
-import { edits, mount, mountDiff, reaching, saved, selected } from "./code";
+import { edits, focusEditor, mount, mountDiff, reaching, saved, selected } from "./code";
 import { close as closeTerm, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
 import { page as prPage } from "../pages/prpage";
@@ -166,7 +172,13 @@ class Ade {
   // What is open in the editor area. A pane is kept once built: moving
   // an iframe reloads it, so switching hides rather than rebuilds.
   private tabs: Tab[] = [];
-  private active = "";
+  // One active tab per half, and which half a verb lands in.
+  private actives: [string, string] = ["", ""];
+  private focus: Group = 0;
+  private sideBySide = false;
+  private splitAt = Number(localStorage.getItem("ade.split.at")) || 0.5;
+  // A tab is being carried. The strip holds still until it is put down.
+  private dragging = false;
   private panes = new Map<string, { node: HTMLElement; key: string; waiting: boolean }>();
   // What each conversation had open, and which one the tabs now belong
   // to. Switching closes them and brings back the ones for the new.
@@ -204,6 +216,7 @@ class Ade {
     );
     document.documentElement.style.setProperty("--sidebar-w", `${this.sidebarWidth}px`);
     document.documentElement.style.setProperty("--chat-w", `${this.chatWidth}px`);
+    this.saySplit();
     // How the editor reaches a language server. The window holds the
     // session, so it does the asking; the editor only says where.
     reaching(
@@ -319,6 +332,7 @@ class Ade {
     this.announced = got.active ?? [];
     this.todoList = got.todos ?? [];
     this.jobs = got.jobs ?? [];
+    this.refreshMyDay();
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
@@ -978,7 +992,12 @@ class Ade {
       got = await send(`/api/threads/${id}/convert`, {});
     } else if (asked.what === "draft") {
       const pr = this.world.status.pr;
-      if (!pr) return this.say("this branch has no pull request");
+      // A pressed verb says it is working, so every way out of here has
+      // to redraw it or the button stays dead.
+      if (!pr) {
+        this.say("this branch has no pull request");
+        return this.redrawThreads();
+      }
       got = await send("/api/review/draft", { confirm: pr, thread: asked.id });
     } else if (asked.what === "take-out") {
       got = await send(`/api/review/draft/${id}`, {}, "DELETE");
@@ -986,7 +1005,10 @@ class Ade {
       got = await send(`/api/threads/${id}`, {}, "DELETE");
     }
     const back = real.answered(got);
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      this.say(back.error);
+      return this.redrawThreads();
+    }
     // GitHub refusing one comment is not a failed request, so the answer
     // has to be read rather than assumed.
     if (asked.what === "draft") {
@@ -1096,6 +1118,9 @@ class Ade {
 
   private fromPanel(path: string): void {
     const dir = this.where.get(this.session) ?? "";
+    // A design document is a document, not a file to edit as text.
+    const doc = docRef(path, dir);
+    if (doc) return this.show({ panel: doc.panel }, doc.title, "design");
     const inside = dir && path.startsWith(dir + "/") ? path.slice(dir.length + 1) : path;
     this.place = "code";
     this.picked.set("code", inside);
@@ -1609,7 +1634,7 @@ class Ade {
       this.revealed = pick;
       sidebar.querySelector(".row.on, .twig.on")?.scrollIntoView({ block: "nearest" });
     }
-    head.replaceChildren(...this.head());
+    if (!this.dragging) head.replaceChildren(...this.head());
     statusbar.replaceChildren(...this.statusbar());
 
     // Every open tab keeps its pane; hidden, not taken out, because an
@@ -1633,8 +1658,16 @@ class Ade {
         sheet.append(node);
         if (was) node.scrollTop = was;
       }
-      held.node.hidden = tab.id !== this.active;
+      // Only the pane's edges move: a reparented iframe would reload.
+      const g = groupOf(tab);
+      held.node.hidden = tab.id !== this.actives[g];
+      held.node.classList.toggle("left", this.sideBySide && g === 0);
+      held.node.classList.toggle("right", this.sideBySide && g === 1);
     }
+    sheet.classList.toggle("two", this.sideBySide);
+    head.classList.toggle("two", this.sideBySide);
+    // A save or a selection is about the focused half's editor.
+    focusEditor(this.focus);
     // The sheet's own line, not the one a waiting pane holds.
     const empty = sheet.querySelector(":scope > .nothing");
     if (this.tabs.length === 0 && !empty) sheet.append(nothingOpen());
@@ -1674,7 +1707,10 @@ class Ade {
       this.chatWide = false;
       localStorage.removeItem("ade.chat.wide");
     }
-    this.tabs = opened(this.tabs, { id, title, icon, what });
+    // Already open stays in its own half; a new one lands in the focused.
+    const was = this.tabs.find((t) => t.id === id);
+    const group = was ? groupOf(was) : this.focus;
+    this.tabs = opened(this.tabs, { id, title, icon, what, group });
     this.active = id;
     this.remember();
     if (!live({ id, title, icon, what })) {
@@ -1684,11 +1720,45 @@ class Ade {
     this.draw();
   }
 
+  // Setting it follows the tab over, so a verb lands in its half.
+  private get active(): string {
+    return this.actives[this.focus];
+  }
+
+  private set active(id: string) {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (tab) this.focus = groupOf(tab);
+    this.actives[this.focus] = id;
+  }
+
+  // A half that empties is no split: the other takes the area back.
+  private settle(): void {
+    const done = settled(this.tabs);
+    this.tabs = done.tabs;
+    this.sideBySide = done.split;
+    if (!done.split) {
+      this.actives = [this.actives[0] || this.actives[1], ""];
+      this.focus = 0;
+    } else if (!this.actives[this.focus]) {
+      this.focus = this.focus === 0 ? 1 : 0;
+    }
+  }
+
+  private saySplit(): void {
+    document.documentElement.style.setProperty("--split-at", `${this.splitAt * 100}%`);
+  }
+
   // kept is what the window picks up again: where you were, and the
   // tabs it can open from an id alone.
   private remember(): void {
     if (this.only) return;
-    this.keptTabs.set(this.tabsFor, { tabs: keepable(this.tabs), active: this.active });
+    this.keptTabs.set(this.tabsFor, {
+      tabs: keepable(inGroup(this.tabs, 0)),
+      active: this.actives[0],
+      right: keepable(inGroup(this.tabs, 1)),
+      rightOn: this.actives[1],
+      at: this.splitAt,
+    });
     localStorage.setItem(
       "ade.window",
       JSON.stringify({
@@ -1711,7 +1781,9 @@ class Ade {
     for (const pane of this.panes.values()) pane.node.remove();
     this.panes.clear();
     this.tabs = [];
-    this.active = "";
+    this.actives = ["", ""];
+    this.focus = 0;
+    this.sideBySide = false;
     this.session = session;
     this.tabsFor = session;
     this.reopen();
@@ -1722,11 +1794,12 @@ class Ade {
   private reopen(): void {
     if (this.only || this.tabs.length > 0) return;
     const kept = this.keptTabs.get(this.tabsFor);
-    if (!kept || kept.tabs.length === 0) return;
+    const right = kept?.right ?? [];
+    if (!kept || kept.tabs.length + right.length === 0) return;
     // Replaying a file tab moves the sidebar to Code, which is how
     // openFile knows what it is opening. Where you were is not its to change.
     const was = this.place;
-    for (const id of kept.tabs) {
+    for (const id of [...kept.tabs, ...right]) {
       const [kind, ...rest] = id.split(":");
       const path = rest.join(":");
       // A layout kept before the dock still names the chat, which the dock
@@ -1742,7 +1815,15 @@ class Ade {
       }
     }
     this.place = was;
-    if (kept.active && this.tabs.some((t) => t.id === kept.active)) this.active = kept.active;
+    for (const id of right) this.tabs = moved(this.tabs, id, 1);
+    if (kept.at) {
+      this.splitAt = kept.at;
+      this.saySplit();
+    }
+    const here = (id: string | undefined) => (id && this.tabs.some((t) => t.id === id) ? id : "");
+    const last = (g: Group) => inGroup(this.tabs, g).slice(-1)[0]?.id ?? "";
+    this.actives = [here(kept.active) || last(0), here(kept.rightOn) || last(1)];
+    this.settle();
     this.remember();
     this.draw();
   }
@@ -1772,10 +1853,16 @@ class Ade {
   }
 
   private close(id = this.active): void {
-    const gone = shut(this.tabs, id, this.active);
-    this.tabs = gone.tabs;
-    this.active = gone.active;
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    // Where it lands is its own half's business: the other half is not
+    // disturbed by a tab closing over here.
+    const from = groupOf(tab);
+    const gone = shut(inGroup(this.tabs, from), id, this.actives[from]);
+    this.tabs = this.tabs.filter((t) => t.id !== id);
+    this.actives[from] = gone.active;
     this.dropPanes([id]);
+    this.settle();
     this.remember();
     this.draw();
   }
@@ -1783,8 +1870,11 @@ class Ade {
   // tabMenu is the strip's context menu. A sweep that would take nothing
   // is listed and dead, so the rows are always in the same places.
   private tabMenu(id: string, at: { x: number; y: number }): void {
+    const tab = this.tabs.find((t) => t.id === id);
+    // A sweep takes the tabs beside this one, which are its own half's.
+    const mine = inGroup(this.tabs, tab ? groupOf(tab) : 0);
     const sweep = (which: Sweep): MenuRow => {
-      const ids = sweeping(this.tabs, id, which);
+      const ids = sweeping(mine, id, which);
       const label = { others: "Close others", right: "Close to the right", left: "Close to the left", all: "Close all" };
       return { label: label[which], off: ids.length === 0, run: () => this.closeMany(ids) };
     };
@@ -1798,10 +1888,16 @@ class Ade {
   }
 
   private closeMany(ids: string[]): void {
-    const gone = shutMany(this.tabs, ids, this.active);
-    this.tabs = gone.tabs;
-    this.active = gone.active;
-    this.dropPanes(gone.gone);
+    const gone: string[] = [];
+    for (const g of [0, 1] as Group[]) {
+      const mine = inGroup(this.tabs, g);
+      const done = shutMany(mine, ids.filter((id) => mine.some((t) => t.id === id)), this.actives[g]);
+      this.actives[g] = done.active;
+      gone.push(...done.gone);
+    }
+    this.tabs = this.tabs.filter((t) => !gone.includes(t.id));
+    this.dropPanes(gone);
+    this.settle();
     this.remember();
     this.draw();
   }
@@ -1829,6 +1925,9 @@ class Ade {
     const sheet = el("div", "sheet");
     const statusbar = el("div", "statusbar");
     const main = el("div", "main");
+    const landing = el("div", "landing");
+    landing.hidden = true;
+    sheet.append(this.splitGrip(), landing);
     main.append(head, sheet);
     // Built once and filled in place: its iframe reloads if it is moved.
     const dockHead = el("div", "dockhead");
@@ -1874,9 +1973,49 @@ class Ade {
       });
       if (place.id === "review") bar.push(el("div", "gap"));
       bar.push(button);
+      // Under the bell, where what the morning holds belongs.
+      if (place.id === "waiting") {
+        const day = this.myDayButton();
+        if (day) bar.push(day);
+      }
     }
     bar.push(this.terminalButton(), this.foldButton());
     return bar;
+  }
+
+  // Not a place: one click opens this morning's report. The Jobs place keeps
+  // the older fires. Absent when the machine has no my-day job to open.
+  private myDayButton(): HTMLElement | undefined {
+    const job = real.myDay(this.jobs);
+    if (!job) return undefined;
+    const unread = real.jobUnread(job);
+    const button = document.createElement("button");
+    button.className = this.tabs.some((tab) => tab.id === "doc:My Day") ? "on" : "";
+    if (unread) button.classList.add("alert");
+    button.title = real.myDayTitle(job);
+    button.append(icon("calendar", 21));
+    if (unread) button.append(el("span", "count", String(unread)));
+    button.addEventListener("click", () => this.openMyDay());
+    return button;
+  }
+
+  // refreshMyDay puts the next fire into the tab already showing the last one.
+  // In place rather than through show(), which would pull focus to it.
+  private refreshMyDay(): void {
+    const body = real.myDayReport(real.myDay(this.jobs));
+    this.tabs = this.tabs.map((tab) =>
+      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc" && tab.what.body !== body
+        ? { ...tab, what: { ...tab.what, body } }
+        : tab,
+    );
+  }
+
+  // openMyDay draws the newest fire and takes the alert off it. The title is
+  // the same every day so the tab is reused; the report dates its own heading.
+  private openMyDay(): void {
+    const job = real.myDay(this.jobs);
+    this.show({ kind: "doc", title: "My Day", body: real.myDayReport(job) }, "My Day", "calendar");
+    if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
   }
 
   private foldButton(): HTMLElement {
@@ -2724,12 +2863,34 @@ class Ade {
     ]);
   }
 
+  // The strip, or one strip per half. Each is its own scroller, so a
+  // long row of tabs on one side does not push the other off screen.
   private head(): Element[] {
     if (this.tabs.length === 0) return [el("span", "", "Nothing open"), this.chatToggle()];
-    const tabs = this.tabs.map((tab) => {
-      const node = el("div", tab.id === this.active ? "tab on" : "tab");
+    const strips = (this.sideBySide ? [0, 1] : [0]).map((g) => {
+      const side = g === 0 ? "left" : "right";
+      const strip = el("div", g === this.focus ? `strip ${side} focus` : `strip ${side}`);
+      strip.append(...this.strip(g as Group));
+      strip.addEventListener("pointerdown", (e) => {
+        if (e.target === strip) this.focusOn(g as Group);
+      });
+      return strip;
+    });
+    return [...strips, this.chatToggle()];
+  }
+
+  private focusOn(g: Group): void {
+    if (this.focus === g) return;
+    this.focus = g;
+    this.draw();
+  }
+
+  private strip(group: Group): Element[] {
+    return inGroup(this.tabs, group).map((tab) => {
+      const node = el("div", tab.id === this.actives[group] ? "tab on" : "tab");
       node.append(icon(tab.icon, 13), el("span", "nm", tab.title));
       node.title = tab.title;
+      node.dataset.tab = tab.id;
       const what = tab.what;
       if (!("panel" in what) && what.kind === "hunks") {
         const swap = el("span", "x swap");
@@ -2748,17 +2909,115 @@ class Ade {
         this.close(tab.id);
       });
       node.append(x);
-      node.addEventListener("click", () => {
-        this.active = tab.id;
-        this.draw();
-      });
       node.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         this.tabMenu(tab.id, { x: e.clientX, y: e.clientY });
       });
+      this.dragTab(node, tab.id);
       return node;
     });
-    return [...tabs, this.chatToggle()];
+  }
+
+  // A tab is picked up where it is pressed and put down where it is let
+  // go: the half under the pointer, or the right edge, which splits.
+  private dragTab(node: HTMLElement, id: string): void {
+    node.addEventListener("pointerdown", (down) => {
+      if (down.button !== 0 || (down.target as HTMLElement).closest(".x")) return;
+      down.preventDefault();
+      this.active = id;
+      this.draw();
+      const head = this.shell?.head;
+      if (!head) return;
+      // The strip, not the tab: a poll redraw takes every tab out of the
+      // document, and the capture goes with whichever one held it.
+      head.setPointerCapture(down.pointerId);
+      const held = head.querySelector<HTMLElement>(`.tab[data-tab="${CSS.escape(id)}"]`);
+      let x = down.clientX;
+      const move = (e: PointerEvent) => {
+        x = e.clientX;
+        if (!this.dragging && Math.abs(x - down.clientX) < 6) return;
+        this.dragging = true;
+        held?.classList.add("held");
+        document.body.classList.add("tabbing");
+        this.hint(this.dropHalf(x));
+      };
+      const done = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("lostpointercapture", done);
+        if (!this.dragging) return;
+        this.dragging = false;
+        document.body.classList.remove("tabbing");
+        this.hint(undefined);
+        this.dropTab(id, x);
+        this.draw();
+      };
+      head.addEventListener("pointermove", move);
+      // Not pointerup: a capture lost any other way has to clear it too.
+      head.addEventListener("lostpointercapture", done);
+    });
+  }
+
+  // dropHalf is the half a tab let go here would land in. Unsplit, only
+  // the right of the area opens a second half.
+  private dropHalf(x: number): Group {
+    const box = this.shell?.sheet.getBoundingClientRect();
+    if (!box || box.width === 0) return 0;
+    const across = (x - box.left) / box.width;
+    if (this.sideBySide) return across < this.splitAt ? 0 : 1;
+    return across > 0.6 ? 1 : 0;
+  }
+
+  // hint is the shaded half saying where the tab would go.
+  private hint(where: Group | undefined): void {
+    const node = this.shell?.sheet.querySelector<HTMLElement>(".landing");
+    if (!node) return;
+    node.hidden = where === undefined;
+    node.classList.toggle("right", where === 1);
+    node.classList.toggle("whole", !this.sideBySide && where === 0);
+  }
+
+  private dropTab(id: string, x: number): void {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const want = this.dropHalf(x);
+    const from = groupOf(tab);
+    if (from === want) return;
+    const rest = shut(inGroup(this.tabs, from), id, this.actives[from]);
+    this.actives[from] = rest.active;
+    this.tabs = moved(this.tabs, id, want);
+    this.actives[want] = id;
+    this.focus = want;
+    this.settle();
+    this.remember();
+  }
+
+  // splitGrip drags the divider. The halves are measured as a fraction
+  // of the area, so the window resizing keeps the proportion.
+  private splitGrip(): HTMLElement {
+    const grip = el("div", "splitgrip");
+    grip.addEventListener("pointerdown", (down) => {
+      down.preventDefault();
+      grip.setPointerCapture(down.pointerId);
+      grip.classList.add("held");
+      document.body.classList.add("dragging");
+      const move = (e: PointerEvent) => {
+        const box = grip.parentElement?.getBoundingClientRect();
+        if (!box || box.width === 0) return;
+        this.splitAt = Math.min(0.85, Math.max(0.15, (e.clientX - box.left) / box.width));
+        this.saySplit();
+      };
+      const done = () => {
+        grip.classList.remove("held");
+        document.body.classList.remove("dragging");
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("lostpointercapture", done);
+        localStorage.setItem("ade.split.at", String(this.splitAt));
+        this.remember();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("lostpointercapture", done);
+    });
+    return grip;
   }
 
   // writable is the document a panel id names: a design, or a pull
@@ -2856,10 +3115,14 @@ class Ade {
     // Code is monaco: one instance, moved into the tab that is showing
     // a file. Moving a div is free; each file keeps its own model.
     if (view.kind === "code") {
-      return mount(view.source, view.title, view.line ?? 0, (line) => void this.blame(line));
+      return mount(groupOf(tab), view.source, view.title, view.line ?? 0, (line) =>
+        void this.blame(line),
+      );
     }
     if (view.kind === "hunks" && view.editing) {
-      return mountDiff(view.base ?? "", view.source ?? "", view.title, 0, (line) => void this.blame(line));
+      return mountDiff(groupOf(tab), view.base ?? "", view.source ?? "", view.title, 0, (line) =>
+        void this.blame(line),
+      );
     }
     // A diff is drawn from what is true now, not from what was true when
     // the file was opened, and the jump it carried happens once.
@@ -2989,11 +3252,21 @@ class Ade {
   }
 }
 
+// The verbs that sweep comments, and what each says it was looking for.
+const SWEPT: Record<string, string> = {
+  "ade.pruneOrphans": "orphaned comments",
+  "ade.removeResolved": "resolved comments",
+  "ade.removeDeclined": "declined comments",
+  "ade.removeAllComments": "comments",
+};
+
 // said is what a verb reports: ade answers a start with what it
 // started, and "done" for a two-minute review says nothing.
 function said(command: string, got: unknown): string {
   const back = (got ?? {}) as { agents?: string[]; running?: boolean; to?: string };
   const verb = command.replace(/^ade\./, "");
+  const sweep = SWEPT[command];
+  if (sweep !== undefined) return real.sweptSaid(got, sweep);
   if (back.agents?.length) return `${back.agents.map((a) => `@${a}`).join(", ")} reviewing`;
   if (back.to) return `asked ${back.to}`;
   if (back.running) return `${verb} started`;

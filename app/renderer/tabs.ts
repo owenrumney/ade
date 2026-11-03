@@ -4,12 +4,40 @@ import type { View } from "./model";
 // What is open in the editor area. A tab is named by what it holds, so
 // opening the same file twice is the same tab: the id is the identity.
 
+// Which half of the editor area a tab sits in. There is one until a tab
+// is dragged to the right, which is what opens the split.
+export type Group = 0 | 1;
+
 export interface Tab {
   id: string;
   title: string;
   icon: string;
   // A hosted panel, or a view the window draws.
   what: { panel: string } | View;
+  group?: Group;
+}
+
+export function groupOf(tab: Tab): Group {
+  return tab.group ?? 0;
+}
+
+export function inGroup(tabs: Tab[], group: Group): Tab[] {
+  return tabs.filter((t) => groupOf(t) === group);
+}
+
+// moved puts a tab in the other half, last in that half's strip.
+export function moved(tabs: Tab[], id: string, group: Group): Tab[] {
+  const at = tabs.findIndex((t) => t.id === id);
+  if (at < 0 || groupOf(tabs[at]) === group) return tabs;
+  return [...tabs.filter((t) => t.id !== id), { ...tabs[at], group }];
+}
+
+// settled is the split closing itself: an empty right half is no split,
+// and an empty left one is filled by what the right was holding.
+export function settled(tabs: Tab[]): { tabs: Tab[]; split: boolean } {
+  if (inGroup(tabs, 1).length === 0) return { tabs, split: false };
+  if (inGroup(tabs, 0).length > 0) return { tabs, split: true };
+  return { tabs: tabs.map((t) => ({ ...t, group: 0 as Group })), split: false };
 }
 
 // The panel ids that hold the New session screen, seeded or not.
@@ -132,9 +160,13 @@ export function rebuilt(held: Pane, key: string, waiting: boolean): boolean {
 
 // Layout is what one conversation had open: tab ids, and which was in
 // front. Ids, because a tab is rebuilt from its id and nothing else.
+// `right` is the other half of a split, and `at` is where it divides.
 export interface Layout {
   tabs: string[];
   active: string;
+  right?: string[];
+  rightOn?: string;
+  at?: number;
 }
 
 // trimmed is the sets as they are written down: the one just used

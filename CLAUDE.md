@@ -129,9 +129,11 @@ app-code"`. Named views are the only ones shot and the only ones copied to the
 outbox; a bare run writes every view to `app/dist/shots` and sends none. `make
 app-shots VIEWS=nope` lists the names. A reply carries four pictures.
 
-A reprovisioned container has neither chromium nor `tools/shots/node_modules`;
-the script installs both. Every build and install step reports its own failure,
-so when a shot does not appear, the reason is in the output.
+A reprovisioned container has no chromium, and nothing installs one for you.
+The script says so and exits 3; on Debian it is `apt-get install -y chromium`,
+and `ADE_CHROME` points at one somewhere else. Reprovisioning happens between
+turns, so a container that had chromium an hour ago may not now — read the
+error rather than assuming the last install held.
 
 `internal/web/preview.go` is a different feature — the post-turn preview capture
 of a local dev server. It is off under a sandbox by design. It is not this.

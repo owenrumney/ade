@@ -576,6 +576,11 @@ async function waitFor(
   return {};
 }
 
+interface Head {
+  title: string;
+  body: string;
+}
+
 // commit is the working tree, the draft and the verbs around them. Its
 // `busy` names the verb in flight, so a button can disable itself.
 export function commit(reach: Reach): Panel {
@@ -586,13 +591,15 @@ export function commit(reach: Reach): Panel {
   // The last state handed over, so starting work can say so without a round
   // trip. The page redraws from each one, so a partial state blanks it.
   let last: Record<string, unknown> | undefined;
+  let head: Head | undefined;
 
   const hand = async (note = "") => {
     const state = (await reach.get("session", "/api/state").catch(() => ({}))) as {
       worktree?: { ahead?: number; behind?: number };
       draft?: unknown;
       branchPr?: unknown;
-      agent?: { running?: boolean };
+      created?: { number?: string; url?: string };
+      agent?: { running?: boolean; error?: string };
       meta?: { base?: string; branch?: string };
     };
     // Before the state is built, not after as the editor does: the
@@ -600,18 +607,26 @@ export function commit(reach: Reach): Panel {
     if (busy === "redraft" && state.draft) busy = "";
     // The POST only starts the run: an agent writes the pull request. A
     // state that does not say leaves it busy; a failed read must not free it.
-    if (busy === "createPR" && state.agent && !state.agent.running) busy = "";
+    if (busy === "createPR" && state.agent && !state.agent.running) {
+      busy = "";
+      // The run is over and opened nothing, so say why: the button comes
+      // back below and pressing it again is the thing to do.
+      if (!state.created && state.agent.error) note = note || state.agent.error;
+    }
     last = {
       kind: "state",
       tree: state.worktree,
       draft: state.draft,
-      hasPR: Boolean(state.branchPr),
+      // The PR the server just opened, named here long before the poll finds
+      // it on the forge. Without it the button comes back and opens a second.
+      hasPR: Boolean(state.branchPr) || Boolean(state.created),
       ahead: state.worktree?.ahead ?? 0,
       behind: state.worktree?.behind ?? 0,
       base: state.meta?.base ?? "",
       branch: state.meta?.branch ?? "",
       busy,
       committed,
+      head,
       note,
     };
     committed = false;
@@ -669,11 +684,20 @@ export function commit(reach: Reach): Panel {
           );
         case "createPR":
           return doing("createPR", () => reach.send("session", "/api/pr-create", body));
+        // The whole message of the commit an amend would fold into.
+        case "headMessage":
+          return doing("headMessage", async () => {
+            head = (await reach.get("session", "/api/commit/head")) as Head;
+          });
         case "commit":
           return doing("commit", async () => {
             const message = split(String(body.message ?? ""));
-            await reach.send("session", "/api/commit", { ...message });
-            if (body.push) await reach.send("session", "/api/push", { force: false });
+            const amend = Boolean(body.amend);
+            await reach.send("session", "/api/commit", { ...message, amend });
+            // An amend rewrites a commit the remote may already have, so the
+            // only push that lands after one is a lease.
+            if (body.push) await reach.send("session", "/api/push", { force: amend });
+            head = undefined;
             committed = true;
           });
         // A file row's menu: the window opens it, the page cannot.
@@ -863,15 +887,31 @@ async function checkoutsIn(
   }
 }
 
+interface Host {
+  name: string;
+  label?: string;
+  connected?: boolean;
+  local?: boolean;
+}
+
+// elsewhere is the machines a session can be started on besides this one. The
+// page offers this machine itself, and an unconnected one has nothing to ask.
+export function elsewhere(hosts: Host[] | undefined): { name: string; label: string }[] {
+  return (hosts ?? [])
+    .filter((one) => one.connected && !one.local && one.name)
+    .map((one) => ({ name: one.name, label: one.label || one.name }));
+}
+
 export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
   // The page's own default, plus what the thing you started from
   // knows: a todo's text is the first message.
   let chosen: Record<string, unknown> = { ...fresh, mode: "direct", ...seed };
   const offer = async () => {
-    const [repos, roles, models] = await Promise.all([
+    const [repos, roles, models, hosts] = await Promise.all([
       reach.get("launcher", "/api/repos").catch(() => ({ repos: [] })),
       reach.get("launcher", "/api/roles").catch(() => ({ roles: [] })),
       reach.get("launcher", "/api/models").catch(() => ({ models: [] })),
+      reach.get("launcher", "/api/hosts").catch(() => ({ hosts: [] })),
     ]);
     const list = (repos as { repos?: { name: string; path: string }[] }).repos ?? [];
     const [listed, held] = await Promise.all([
@@ -879,7 +919,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
       checkoutsIn(reach, chosen as unknown as Chosen),
     ]);
     return {
-      machines: [],
+      machines: elsewhere((hosts as { hosts?: Host[] }).hosts),
       repos: list,
       agents: [
         { id: "claude", label: "claude" },
