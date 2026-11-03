@@ -28,7 +28,7 @@ var viewSafe = map[string]string{
 	"POST /api/threads/reset":               "the thread store follows the view",
 	"DELETE /api/threads":                   "the thread store follows the view",
 	"POST /api/design/review":               "reads the open design document and files notes on it; every reviewer it will run is read-only",
-	"POST /api/design/accept":               "edits the open design document, which no diff-root switch moves",
+	"POST /api/design/accept":               "edits a design document in the design directory, which no diff-root switch moves",
 	"POST /api/design/notes":                "a note is on the open design document, which no diff-root switch moves",
 	"POST /api/design/notes/{id}/reply":     "a note is on the open design document, which no diff-root switch moves",
 	"POST /api/design/notes/{id}/resolve":   "a note is on the open design document, which no diff-root switch moves",

@@ -399,6 +399,10 @@ export interface Written {
   // notes turns on comments pinned to the text. Only the session's own design
   // document has them: the store is keyed per document on that server.
   notes?: boolean;
+
+  // file names the session's document on disk, for a route that acts on one.
+  // The server's own idea of which is open may be another document entirely.
+  file?: string;
 }
 
 export function written(
@@ -439,6 +443,7 @@ export function written(
             // A directory url, because the page resolves a picture
             // beside the document against it.
             base: at ? `${at.base}/api/docs/` : "",
+            token: at?.token ?? "",
           },
           await notes(),
         ];
@@ -467,7 +472,7 @@ export function written(
       }
       if (said.kind === "accept") {
         await reach
-          .send("session", "/api/design/accept", { rows: said.rows })
+          .send("session", "/api/design/accept", { rows: said.rows, file: doc.file })
           .catch(() => undefined);
         return undefined;
       }

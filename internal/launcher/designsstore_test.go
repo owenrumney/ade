@@ -285,6 +285,47 @@ func TestADocumentInACheckoutIsImportedIntoTheStore(t *testing.T) {
 	assert.Len(t, list, 1)
 }
 
+func TestACheckoutCopyEditedApartIsFlaggedAndCanBeReadAgain(t *testing.T) {
+	m := newFixture(t)
+	dir := filepath.Join(m.code, "ade")
+	gitCheckout(t, dir)
+	under := filepath.Join(dir, ".git", "ade", "docs")
+	require.NoError(t, os.MkdirAll(under, 0o750))
+	doc := filepath.Join(under, "cart-redesign.md")
+	require.NoError(t, os.WriteFile(doc, []byte("# Cart redesign\n\nWhat it does.\n"), 0o600))
+	s := newLauncherOn(t, m)
+	s.designs = designs.New(t.TempDir(), "")
+	require.Equal(t, http.StatusOK,
+		do(t, s, http.MethodPost, "/api/designs/import?dir="+dir, `{"file":"cart-redesign.md"}`).Code)
+
+	held, err := s.designs.Read("cart-redesign")
+	require.NoError(t, err)
+	// The fixture checkout has no origin, so name the repo as an import from
+	// one would, and give the store a ticket the checkout's copy never had.
+	held.Meta.Repos, held.Meta.Ticket = []string{"owenrumney/ade"}, "ENG-1"
+	require.NoError(t, s.designs.Save("cart-redesign", held.Meta, []byte("# Cart redesign\n\nWhat it does.\n")))
+	held, err = s.designs.Read("cart-redesign")
+	require.NoError(t, err)
+	repos := []sessions.Repo{repoNamed("owenrumney", "ade", dir)}
+	assert.Empty(t, storeRowFor(held, repos).Changed, "the copies match right after the import")
+
+	// The session keeps writing to the checkout's copy.
+	require.NoError(t, os.WriteFile(doc, []byte("# Cart redesign\n\nWhat it does now.\n"), 0o600))
+	held, err = s.designs.Read("cart-redesign")
+	require.NoError(t, err)
+	assert.Equal(t, dir, storeRowFor(held, repos).Changed)
+
+	rec := do(t, s, http.MethodPost, "/api/designs/import?dir="+dir, `{"file":"cart-redesign.md","again":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	held, err = s.designs.Read("cart-redesign")
+	require.NoError(t, err)
+	assert.Empty(t, storeRowFor(held, repos).Changed)
+	assert.Equal(t, "ENG-1", held.Meta.Ticket, "a re-import keeps the meta the store gathered")
+	list, err := s.designs.List()
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "a re-import replaces rather than adding")
+}
+
 func TestImportingADocumentTheCheckoutDoesNotHaveIsRefused(t *testing.T) {
 	m := newFixture(t)
 	dir := filepath.Join(m.code, "ade")

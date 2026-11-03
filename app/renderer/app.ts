@@ -150,6 +150,9 @@ class Ade {
   private filesHeld = new Kept<{ path: string }[]>([]);
   private docsFor = "";
   private docsHeld: string[] = [];
+  // Which checkout holds a changed copy of each design in the store, so the
+  // row's Re-import knows where to read it from again.
+  private designChanged = new Map<string, string>();
 
   // The checkout the window was opened on, when it was opened on one.
   // Only until a session is picked: after that the pick is the answer.
@@ -369,7 +372,7 @@ class Ade {
           "No session on this machine yet.",
         ),
         real.designs(
-          got.designs ?? [],
+          this.noteChanged(got.designs ?? []),
           docs,
           this.where.get(this.session) ?? "",
           this.openSpaces,
@@ -2641,6 +2644,7 @@ class Ade {
   private async rowAct(act: NonNullable<Row["acts"]>[number]): Promise<void> {
     this.noted("verb", `${act.what} ${act.name}`);
     if (act.what === "design-start") return this.startDesign(act.name);
+    if (act.what === "design-again") return this.againDesign(act.name);
     if (act.what === "space-close" || act.what === "space-clone") {
       return this.space(act.what === "space-close" ? "close" : "clone", act.name);
     }
@@ -2820,6 +2824,31 @@ class Ade {
     if (back.error) return this.say(back.error);
     await this.read();
     this.say(machine ? `started ${name} on ${machine}` : `started ${name}`);
+  }
+
+  // noteChanged remembers where each design's changed copy is, and hands the
+  // list back as it came.
+  private noteChanged(all: real.Design[]): real.Design[] {
+    this.designChanged = new Map(all.filter((d) => d.changed).map((d) => [d.name, d.changed!]));
+    return all;
+  }
+
+  // Re-import reads the checkout's copy over the store's, for a design the two
+  // have been edited apart.
+  private async againDesign(name: string): Promise<void> {
+    const dir = this.designChanged.get(name);
+    if (!dir) return this.say("nothing to re-import");
+    this.say(`re-importing ${name}…`);
+    const got = await window
+      .ade!.act("launcher", `/api/designs/import?dir=${encodeURIComponent(dir)}`, {
+        file: `${name}.md`,
+        again: true,
+      })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got);
+    if (back.error) return this.say(back.error);
+    await this.read();
+    this.say(`re-imported ${name}`);
   }
 
   // Only the store's documents can start, so one written in a checkout is
@@ -3038,6 +3067,7 @@ class Ade {
           await reach.send("session", "/api/design", { file, body: text }, "PUT");
         },
         notes: true,
+        file,
       };
     }
     // A design in a space other than the session's: read and written

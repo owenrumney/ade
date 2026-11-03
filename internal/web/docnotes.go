@@ -270,13 +270,23 @@ func (s *Server) handleDesignAccept(w http.ResponseWriter, r *http.Request) {
 			Question       string `json:"question"`
 			Recommendation string `json:"recommendation"`
 		} `json:"rows"`
+		// File is the document the rows were drawn from, which is not always
+		// the one this server has open.
+		File string `json:"file"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	file := s.currentDoc()
+	file := strings.TrimSpace(req.File)
+	if file == "" {
+		file = s.currentDoc()
+	}
 	if file == "" {
 		writeError(w, http.StatusBadRequest, "there is no design document open")
+		return
+	}
+	if _, err := docs.Resolve(s.docsDir, file); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

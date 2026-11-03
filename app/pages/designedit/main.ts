@@ -162,6 +162,8 @@ class Picture extends WidgetType {
 
 // base is the document's folder as the webview may load it; the host sends it.
 let base = "";
+// token is what the session server wants on a picture's request.
+let token = "";
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 const host = acquireVsCodeApi();
@@ -337,7 +339,7 @@ function marks(state: EditorState): DecorationSet {
         }
         if (node.name === "Image") {
           if (reveals(node.name, node, node, head)) return;
-          const pic = picture(state.doc.sliceString(node.from, node.to), base);
+          const pic = picture(state.doc.sliceString(node.from, node.to), base, token);
           if (!pic) return;
           builder.push({
             from: node.from,
@@ -660,7 +662,13 @@ pad = new Notepad(view, {
 window.addEventListener("resize", () => pad?.place());
 
 window.addEventListener("message", (event: MessageEvent) => {
-  const msg = event.data as { kind?: string; text?: string; base?: string; notes?: Note[] };
+  const msg = event.data as {
+    kind?: string;
+    text?: string;
+    base?: string;
+    token?: string;
+    notes?: Note[];
+  };
   if (msg.kind === "style") {
     restyle(event.data as Style);
     return;
@@ -671,8 +679,12 @@ window.addEventListener("message", (event: MessageEvent) => {
     return;
   }
   if (msg.kind !== "doc" || typeof msg.text !== "string") return;
-  if (typeof msg.base === "string" && msg.base !== base) {
-    base = msg.base;
+  if (
+    (typeof msg.base === "string" && msg.base !== base) ||
+    (typeof msg.token === "string" && msg.token !== token)
+  ) {
+    base = msg.base ?? base;
+    token = msg.token ?? token;
     view.dispatch({ effects: look.of(view.state.field(focused)) });
   }
   if (msg.text === view.state.doc.toString()) return;

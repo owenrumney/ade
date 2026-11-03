@@ -42,6 +42,7 @@ export type { At } from "./changes";
 
 export type Act =
   | "design-start"
+  | "design-again"
   | "queue-first"
   | "session-end"
   | "job-run"

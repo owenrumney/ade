@@ -137,6 +137,12 @@ describe("pictures beside the document", () => {
     expect(picture('![a](shots/one.png "One")', base)?.url).toBe(`${base}/shots/one.png`);
   });
 
+  it("carries the session's token, which an <img> cannot send as a header", () => {
+    expect(picture("![The page](repo-page.png)", base, "abc123")?.url).toBe(
+      `${base}/repo-page.png?t=abc123`,
+    );
+  });
+
   it("leaves anything that is not beside the document as source", () => {
     expect(picture("![a](https://example.com/x.png)", base)).toBeUndefined();
     expect(picture("![a](/etc/x.png)", base)).toBeUndefined();

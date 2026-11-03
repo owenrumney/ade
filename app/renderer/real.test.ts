@@ -565,6 +565,19 @@ describe("a row that does something besides open", () => {
   it("offers nothing for one this machine is missing a repository for", () => {
     expect(real.designs([DESIGNS[1]]).rows[0].acts).toEqual([]);
   });
+
+  it("says which checkout holds a changed copy, and offers to read it again", () => {
+    const [one] = real.designs([
+      { ...DESIGNS[0], live: false, changed: "/Users/owen/code/owenrumney/ade" },
+    ] as Design[]).rows;
+    expect(one.meta).toContain("the copy in ade has changed");
+    expect(one.acts).toContainEqual({
+      label: "Re-import",
+      what: "design-again",
+      name: "one-window",
+      menu: true,
+    });
+  });
 });
 
 describe("a notification", () => {
