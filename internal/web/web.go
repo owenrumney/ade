@@ -267,6 +267,9 @@ type Server struct {
 	// recorded is the merge and keys last published for a pull request, so the
 	// poll behind it does not clone and submit the same thing on every tick.
 	recorded map[int]string
+	// ships is the Ship page's pull request cache for the repositories that
+	// are not this session's own, which nothing else polls.
+	ships shipCache
 
 	// attachment is a selection waiting to go on the next message, under mu
 	// because an editor writes it and every state read serves it.
@@ -825,6 +828,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/scope", s.guard(s.handleScope))
 	mux.HandleFunc("POST /api/diff/root", s.guard(s.handleDiffRoot))
 	mux.HandleFunc("PUT /api/diff/folders", s.guard(s.handleDiffFolders))
+	mux.HandleFunc("GET /api/ship", s.guard(s.handleShip))
 	mux.HandleFunc("GET /api/repos", s.guard(s.handleRepos))
 	mux.HandleFunc("GET /api/graph", s.guard(s.handleGraph))
 	mux.HandleFunc("POST /api/graph/cancel", s.guard(s.handleGraphCancel))

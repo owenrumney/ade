@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { marksFor, nthOf, occurrences, spanOf, type Note } from "./notes";
+import { marksFor, nthOf, occurrences, quoted, spanOf, type Note } from "./notes";
 
 const doc = "# Plan\n\nDebounce it.\n\n## Approach\n\nDebounce it.\n";
 const first = doc.indexOf("Debounce it.");
@@ -66,5 +66,29 @@ describe("saying which span the page means", () => {
     expect(nthOf(doc, first, "Debounce it.")).toBe(0);
     // A selection that is not on an occurrence boundary is the first one.
     expect(nthOf(doc, first + 1, "Debounce it.")).toBe(0);
+  });
+});
+
+describe("what a note filed from the gutter is pinned to", () => {
+  const text = "# Ship\n\nThe page is a panel.\n\n";
+  const line = { from: 8, to: 28 };
+
+  it("is the line's own words, trimmed", () => {
+    const got = quoted(text, { from: 8, to: 29 }, { from: 0, to: 0 });
+    expect(text.slice(got!.from, got!.to)).toBe("The page is a panel.");
+  });
+
+  it("is the selection when one reaches into that line", () => {
+    const got = quoted(text, line, { from: 12, to: 20 });
+    expect(text.slice(got!.from, got!.to)).toBe("page is");
+  });
+
+  it("ignores a selection that is somewhere else", () => {
+    const got = quoted(text, line, { from: 0, to: 6 });
+    expect(text.slice(got!.from, got!.to)).toBe("The page is a panel.");
+  });
+
+  it("has nothing to pin on a blank line", () => {
+    expect(quoted(text, { from: 7, to: 8 }, { from: 0, to: 0 })).toBeUndefined();
   });
 });

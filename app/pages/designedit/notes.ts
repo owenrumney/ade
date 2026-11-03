@@ -68,3 +68,17 @@ export function marksFor(text: string, notes: Note[]): Mark[] {
   }
   return out.sort((a, b) => a.from - b.from || a.to - b.to);
 }
+
+// quoted is what a note filed from the gutter is pinned to: the selection when
+// it reaches into that line, and the line's own words when it does not. Blank
+// for a line with nothing on it, which has nothing to quote.
+export function quoted(text: string, line: Span, selection: Span): Span | undefined {
+  const picked = selection.to > selection.from && selection.to > line.from && selection.from < line.to;
+  const span = picked
+    ? { from: Math.max(selection.from, 0), to: Math.min(selection.to, text.length) }
+    : line;
+  const before = text.slice(span.from, span.to);
+  const from = span.from + (before.length - before.trimStart().length);
+  const to = span.to - (before.length - before.trimEnd().length);
+  return to > from ? { from, to } : undefined;
+}

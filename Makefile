@@ -71,7 +71,7 @@ PAGES := chat:chat settings:settings commitpanel:commit worktreepanel:worktrees 
 	repo:repo purgepanel:purge designprunepanel:designprune quizpanel:quiz \
 	explainpanel:explain \
 	designedit:designedit newsession:newsession sandboxpanel:sandbox audit:audit \
-	machines:machines
+	machines:machines ship:ship
 
 app-build:
 	cd app && mkdir -p dist \

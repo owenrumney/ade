@@ -148,8 +148,6 @@ class Ade {
   private diffHeld = new Kept<Change[]>([]);
   // The file list and the checkout's documents, kept the same way.
   private filesHeld = new Kept<{ path: string }[]>([]);
-  private docsFor = "";
-  private docsHeld: string[] = [];
   // Which checkout holds a changed copy of each design in the store, so the
   // row's Re-import knows where to read it from again.
   private designChanged = new Map<string, string>();
@@ -342,9 +340,9 @@ class Ade {
     // A pass while nothing serves the session shows what was last read.
     // See `stale` in kept.ts for why it may not write an empty one.
     const starting = this.serving === "starting";
-    const [changes, files, docs] = starting
-      ? [this.diffHeld.stale(coming), this.filesHeld.stale(coming), this.docsHeld]
-      : await Promise.all([this.diff(), this.tree(), this.docs()]);
+    const [changes, files] = starting
+      ? [this.diffHeld.stale(coming), this.filesHeld.stale(coming)]
+      : await Promise.all([this.diff(), this.tree()]);
     this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
     if (this.marksFor !== this.session) {
@@ -371,12 +369,7 @@ class Ade {
           trouble.sessions,
           "No session on this machine yet.",
         ),
-        real.designs(
-          this.noteChanged(got.designs ?? []),
-          docs,
-          this.where.get(this.session) ?? "",
-          this.openSpaces,
-        ),
+        real.designs(this.noteChanged(got.designs ?? [])),
         real.prs(dash, this.mine, this.repoOf(this.session)),
         note(real.agents(got.active ?? []), trouble.agents),
         real.issues(dash),
@@ -408,7 +401,11 @@ class Ade {
     };
     if (this.serving === "starting") this.soon(1_000);
     else this.soon(real.busy(doing) ? 3_000 : 30_000);
-    this.world.places[2] = note(this.world.places[2], trouble.designs, "The designs store is empty.");
+    // By id: the places are in the bar's order by now, and the index this
+    // was written with pointed at Sessions.
+    this.world.places = this.world.places.map((place) =>
+      place.id === "designs" ? note(place, trouble.designs, "The designs store is empty.") : place,
+    );
     this.trees.clear();
     void this.heard();
     this.reopen();
@@ -461,7 +458,6 @@ class Ade {
     // Asked for by hand, so nothing kept is trusted.
     this.diffHeld.stale("");
     this.filesHeld.stale("");
-    this.docsFor = "";
     const want = refreshFor(place);
     this.say(want.say);
     let trouble = "";
@@ -586,21 +582,6 @@ class Ade {
     // review with thirteen findings in it.
     if (got.error) return { ...none, error: got.error };
     return got;
-  }
-
-  private async docs(): Promise<string[]> {
-    const dir = this.where.get(this.session);
-    if (!window.ade || !dir) return [];
-    // A checkout's documents are a directory walk that changes when
-    // somebody writes one, which is not every three seconds.
-    if (dir === this.docsFor) return this.docsHeld;
-    const at = `/api/designs?dir=${encodeURIComponent(dir)}`;
-    const got = (await window.ade.read("launcher", at).catch(() => ({}))) as {
-      designs?: string[];
-    };
-    this.docsFor = dir;
-    this.docsHeld = got.designs ?? [];
-    return this.docsHeld;
   }
 
   private async tree(): Promise<{ rows: { path: string }[]; why?: string }> {
@@ -1244,14 +1225,7 @@ class Ade {
     if (row.id.startsWith("who:")) return void this.conversation(row.id.slice("who:".length));
     const reading = { kind: "doc" as const, title: row.name, body: `# ${row.name}\n\nReading…` };
     if (this.place === "designs") {
-      // Either way it opens in the editor: one in this checkout through
-      // the session serving it, one from the store through the launcher.
-      const which = row.id.startsWith("space:")
-        ? `spacedesign:${row.id.slice("space:".length)}`
-        : row.id.startsWith("here:")
-          ? `design:${row.id.slice("here:".length)}`
-          : `store:${row.id}`;
-      return this.show({ panel: which }, row.name, "design");
+      return this.show({ panel: `store:${row.id}` }, row.name, "design");
     }
     if (this.place === "jobs") {
       const job = this.jobs.find((one) => `job:${one.name}` === row.id);

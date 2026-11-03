@@ -76,6 +76,122 @@ describe("a panel answers every button its page has", () => {
   }
 });
 
+describe("the ship panel", () => {
+  // The page's own state, as /api/ship answers it.
+  function shipping(extra: Record<string, unknown> = {}): {
+    reach: Reach;
+    seen: { path: string; body: unknown }[];
+  } {
+    const made = spy();
+    return {
+      ...made,
+      reach: {
+        ...made.reach,
+        get: async () => ({ home: "/w/ade", view: "", projects: [], gates: [], ...extra }),
+      },
+    };
+  }
+
+  it("hands the page every repository when it is ready", async () => {
+    const { reach } = shipping({ projects: [{ root: "/w/ade", name: "ade" }] });
+    const back = (await WHICH["ade.ship"](reach).onMessage({ kind: "ready" })) as {
+      projects?: unknown[];
+    };
+    expect(back.projects).toEqual([{ root: "/w/ade", name: "ade" }]);
+  });
+
+  it("calls the route each step already had", async () => {
+    const { reach, seen } = shipping();
+    const panel = WHICH["ade.ship"](reach);
+    for (const what of ["rebase", "push", "raise", "fix", "merge", "tests"]) {
+      await panel.onMessage({ kind: "do", what, root: "/w/ade" });
+    }
+    expect(seen.map((one) => one.path)).toEqual([
+      "/api/base/rebase",
+      "/api/push",
+      "/api/pr-create",
+      "/api/checks/fix",
+      "/api/pr/merge",
+      "/api/verify/run",
+    ]);
+  });
+
+  it("commits the message the agent drafted, and nothing when there is none", async () => {
+    const { reach, seen } = shipping({ draft: { title: "fix it", body: "why" } });
+    await WHICH["ade.ship"](reach).onMessage({ kind: "do", what: "commit", root: "/w/ade" });
+    expect(seen).toEqual([
+      { path: "/api/commit", body: { title: "fix it", body: "why", anyway: false } },
+    ]);
+
+    const bare = shipping();
+    const back = (await WHICH["ade.ship"](bare.reach).onMessage({
+      kind: "do",
+      what: "commit",
+      root: "/w/ade",
+    })) as { note?: string };
+    expect(bare.seen).toEqual([]);
+    expect(back.note).toContain("no commit message");
+  });
+
+  // Commit and push act on whatever the Diff tab is pointed at, so a card for
+  // another repository points it there first.
+  it("points the diff at the repository the card is for", async () => {
+    const { reach, seen } = shipping({ view: "" });
+    await WHICH["ade.ship"](reach).onMessage({ kind: "do", what: "push", root: "/w/ci" });
+    expect(seen).toEqual([
+      { path: "/api/diff/root", body: { root: "/w/ci" } },
+      { path: "/api/push", body: { anyway: false } },
+    ]);
+  });
+
+  it("leaves the diff where it is for the repository it is already on", async () => {
+    const { reach, seen } = shipping({ view: "/w/ci" });
+    await WHICH["ade.ship"](reach).onMessage({ kind: "do", what: "push", root: "/w/ci" });
+    expect(seen.map((one) => one.path)).toEqual(["/api/push"]);
+  });
+
+  it("hands a veto's reason back to the step it stopped", async () => {
+    const { reach } = shipping();
+    const panel = WHICH["ade.ship"]({
+      ...reach,
+      send: async () => ({ error: "main is the base branch" }),
+    });
+    const back = (await panel.onMessage({ kind: "do", what: "raise", root: "/w/ade" })) as {
+      refused?: { do?: string; reason?: string };
+    };
+    expect(back.refused).toEqual({
+      do: "raise",
+      root: "/w/ade",
+      reason: "main is the base branch",
+    });
+  });
+
+  // The test run only answers for the home checkout, and a gate button
+  // carries no root.
+  it("takes the diff home before running the tests", async () => {
+    const { reach, seen } = shipping({ view: "/w/ci" });
+    await WHICH["ade.ship"](reach).onMessage({ kind: "do", what: "tests" });
+    expect(seen).toEqual([
+      { path: "/api/diff/root", body: { root: "" } },
+      { path: "/api/verify/run", body: { anyway: false } },
+    ]);
+  });
+
+  it("takes a fresh page when the window is stirred", async () => {
+    const { reach, seen } = shipping();
+    const panel = WHICH["ade.ship"](reach);
+    expect(panel.stirs).toBe(true);
+    const back = (await panel.onMessage({
+      kind: "do",
+      what: "refresh",
+      quiet: true,
+    })) as { quiet?: boolean };
+    expect(seen).toEqual([]);
+    // Quiet: a press in flight keeps its buttons disabled.
+    expect(back.quiet).toBe(true);
+  });
+});
+
 describe("the machines panel", () => {
   function hosting(hosts: unknown[]): { reach: Reach; seen: { path: string; body: unknown }[] } {
     const made = spy();

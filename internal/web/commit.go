@@ -12,6 +12,7 @@ import (
 	"github.com/owenrumney/ade/internal/commitmsg"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/outgoing"
+	"github.com/owenrumney/ade/internal/ship"
 )
 
 // CommitDraft is a generated message plus the staged files it describes.
@@ -114,9 +115,18 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 		// Amend folds this into the last commit instead of making a new one.
 		// With no title it keeps the old message.
 		Amend bool `json:"amend"`
+		// Anyway commits past a veto, which is recorded in the trail.
+		Anyway bool `json:"anyway"`
 	}
 	if !decode(w, r, &req) {
 		return
+	}
+	// An amend folds into a commit that was already vetoed or overridden.
+	if !req.Amend {
+		if why := s.shipVeto(r.Context(), ship.StepCommit, req.Anyway); why != "" {
+			writeError(w, http.StatusConflict, why)
+			return
+		}
 	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" && !req.Amend {

@@ -212,44 +212,10 @@ function tagFor(r: Review): Row["tag"] {
   return undefined;
 }
 
-// designs is the shared store and the documents written in the work: every
-// open space's, or the picked checkout's when no space is open.
-export function designs(
-  all: Design[],
-  here: string[] = [],
-  where = "",
-  open: { repo: string; path?: string; designs?: string[] }[] = [],
-): Place {
-  const mine: Row[] =
-    open.length > 0
-      ? open.flatMap((space) =>
-          (space.designs ?? []).map((file) => ({
-            // The space is in the id: which checkout a document is in is
-            // what a reader of another space's design needs.
-            id: `space:${space.path ?? ""}|${file}`,
-            group: space.repo,
-            icon: "design",
-            name: file.replace(/\.md$/, ""),
-            meta: "",
-            acts: startWork(`space:${space.path ?? ""}|${file}`),
-          })),
-        )
-      : here.map((file) => ({
-          id: `here:${file}`,
-          group: where ? `In ${where.split("/").pop()}` : "In this checkout",
-          icon: "design",
-          name: file.replace(/\.md$/, ""),
-          meta: "",
-          acts: startWork(`here:${file}`),
-        }));
-  const place = store(all);
-  return { ...place, rows: [...mine, ...place.rows] };
-}
-
-// A document in a checkout starts the same way one in the store does;
-// the window imports it on the way through.
-function startWork(name: string): Row["acts"] {
-  return [{ label: "Start work", what: "design-start" as const, name }];
+// designs is the shared store, which is the only place a design lives:
+// listing a checkout's copy too put the same design on screen twice.
+export function designs(all: Design[]): Place {
+  return store(all);
 }
 
 function store(all: Design[]): Place {
@@ -259,13 +225,13 @@ function store(all: Design[]): Place {
     icon: "design",
     rows: all.map((d) => ({
       id: d.name,
-      group: d.repo || "Designs",
+      group: d.repo || "No repository",
       icon: (d.missing ?? []).length > 0 ? "warn" : d.live ? "play" : "ring",
       tone: (d.missing ?? []).length > 0 ? "bad" : d.live ? "good" : undefined,
       name: d.name,
       meta: [
         d.branch,
-        d.live ? "running" : "",
+        // Not "running": the play icon on the row already says that.
         (d.meta.repos ?? []).length > 1 ? `${d.meta.repos?.length} repos` : "",
         (d.missing ?? []).length > 0 ? `needs ${d.missing?.join(", ")}` : "",
         d.changed ? `the copy in ${d.changed.split("/").pop()} has changed` : "",

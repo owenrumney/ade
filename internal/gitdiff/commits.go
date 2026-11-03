@@ -62,6 +62,19 @@ func Commits(ctx context.Context, dir, base, head string) ([]Rev, error) {
 	return commits, nil
 }
 
+// Subjects is base..head as a list, newest first, with no patch-ids. Commits'
+// second pass reads every diff on the branch, which a status page never needs.
+func Subjects(ctx context.Context, dir, base, head string) ([]Rev, error) {
+	if base == "" || head == "" {
+		return nil, fmt.Errorf("commits need a base and a head")
+	}
+	out, err := run(ctx, dir, "log", commitFormat, base+".."+head)
+	if err != nil {
+		return nil, fmt.Errorf("list %s..%s: %w", base, head, err)
+	}
+	return parseCommits(out), nil
+}
+
 // PatchIDs keys every commit of base..head by its diff in one pass: patch-id
 // answers a line per commit of the stream, so the log carries the SHA.
 func PatchIDs(ctx context.Context, dir, base, head string) (map[string]string, error) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/prcreate"
+	"github.com/owenrumney/ade/internal/ship"
 )
 
 // CreatedPR is a pull request opened from the browser this session.
@@ -45,9 +46,20 @@ func (s *Server) prCreateBlocked() (int, string) {
 	return 0, ""
 }
 
-func (s *Server) handlePRCreate(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handlePRCreate(w http.ResponseWriter, r *http.Request) {
 	if code, why := s.prCreateBlocked(); why != "" {
 		writeError(w, code, why)
+		return
+	}
+	var req struct {
+		// Anyway raises past a veto, which is recorded in the trail.
+		Anyway bool `json:"anyway"`
+	}
+	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &req) {
+		return
+	}
+	if why := s.shipVeto(r.Context(), ship.StepRaise, req.Anyway); why != "" {
+		writeError(w, http.StatusConflict, why)
 		return
 	}
 	runCtx, ok := s.agent.begin(s.ctx, kindPRCreate)

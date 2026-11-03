@@ -11,6 +11,7 @@ import (
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
+	"github.com/owenrumney/ade/internal/prlink"
 )
 
 // The review ade builds is GitHub's own pending review: comments join it one
@@ -146,6 +147,12 @@ func (s *Server) draftAll(
 	// request, which is not always the one this checkout can see.
 	takes := prLines(ctx, ws.homeRoot, number)
 
+	sha := ""
+	if pr := s.currentBranchPR(); pr != nil {
+		sha = pr.HeadSHA
+	}
+	at, known := s.linkAt(owner, repo, sha)
+
 	// A comment GitHub will not take does not stop the rest: it is named in
 	// the refusals and left where it was, which is the only true state.
 	added := 0
@@ -159,7 +166,7 @@ func (s *Server) draftAll(
 		}
 		comment := ghpr.InlineComment{
 			Path: thread.File, Line: thread.Line, Side: thread.Side,
-			Body: comments.Badged(thread.Severity, thread.Outgoing),
+			Body: s.outgoingBody(thread, at, known),
 		}
 		var commentID string
 		var failed error
@@ -316,7 +323,8 @@ func (s *Server) handleFinishReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "there is no draft review to finish")
 		return
 	}
-	if err := submitDraft(ctx, ws.homeRoot, draft.ID, event, req.Body); err != nil {
+	at, known := s.linkAt(owner, repo, pr.HeadSHA)
+	if err := submitDraft(ctx, ws.homeRoot, draft.ID, event, prlink.In(req.Body, at, "", known)); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

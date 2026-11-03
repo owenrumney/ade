@@ -1,5 +1,5 @@
-// The floating note UI: the button a selection raises, and the thread that
-// opens on a note. All the DOM, so main.ts keeps to the editor.
+// The floating note UI: the box the gutter opens, and the thread that opens
+// on a note. All the DOM, so main.ts keeps to the editor.
 
 import { EditorView } from "@codemirror/view";
 import { nthOf, type Note } from "./notes";
@@ -38,12 +38,9 @@ export class Notepad {
     this.root.replaceChildren();
   }
 
-  // offer is the Comment button on a selection.
-  offer(from: number, to: number): void {
-    const quote = this.view.state.doc.sliceString(from, to);
-    const button = el("button", "note-new", "Comment");
-    button.addEventListener("click", () => this.compose(from, to, quote));
-    this.show(from, [button]);
+  // file opens the box straight away: the gutter mark was the button.
+  file(from: number, to: number): void {
+    this.compose(from, to, this.view.state.doc.sliceString(from, to));
   }
 
   // open is the thread on an existing note.

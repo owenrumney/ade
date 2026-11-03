@@ -3,14 +3,16 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  GutterMarker,
   WidgetType,
+  gutter,
   keymap,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { BLOCKS, body, bullet, cells, hides, isMermaid, gap, joins, level, nesting, picture, reveals, type Span } from "./marks";
-import { marksFor, spanOf, type Note } from "./notes";
+import { marksFor, quoted, spanOf, type Note } from "./notes";
 import { Notepad } from "./notepad";
 import { questionsIn, type Question } from "./questions";
 
@@ -498,6 +500,21 @@ const theme = EditorView.theme({
     whiteSpace: "pre-wrap",
     fontFamily: "var(--mono)",
   },
+  // The gutter paints its own background, which is a pale stripe against
+  // the document.
+  ".cm-gutters": { background: "transparent", border: "0" },
+  ".cm-note-gutter": {
+    width: "1.4rem",
+    color: "var(--line-no)",
+  },
+  // Faint rather than hidden: an affordance nobody can see is the Comment
+  // button's problem in another form.
+  ".cm-note-add": {
+    cursor: "pointer",
+    textAlign: "center",
+    opacity: "0.3",
+  },
+  ".cm-note-add:hover": { opacity: "1", color: "var(--accent)" },
   ".cm-note": {
     borderBottom: "2px solid var(--warn)",
     cursor: "pointer",
@@ -545,7 +562,7 @@ const padStyle = `
   font-family: inherit; font-size: inherit; padding: 0.3rem;
 }
 .note-buttons { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
-.note-act, .note-new {
+.note-act {
   background: var(--accent); color: var(--accent-ink);
   border: 0; border-radius: 3px; padding: 0.25rem 0.7rem; cursor: pointer;
   font-family: inherit; font-size: inherit;
@@ -568,6 +585,7 @@ function extensions(): Extension[] {
     // noted before noteMarks: the marks are built from what it holds.
     noted,
     noteMarks,
+    noteGutter(),
     EditorView.updateListener.of((update) => {
       if (update.selectionSet) onSelection(update.view);
       else if (update.docChanged || update.geometryChanged) pad?.place();
@@ -584,16 +602,49 @@ function extensions(): Extension[] {
 let pad: Notepad | undefined;
 let notes: Note[] = [];
 
-// onSelection raises the Comment button on a highlight, and takes it away
-// again on a bare cursor. A click on a note is handled before this runs.
+// onSelection only moves the pad out of the way: the way in is the gutter,
+// as it is on a line of the diff.
 function onSelection(view: EditorView): void {
   if (opening) return;
-  const { from, to } = view.state.selection.main;
-  if (from === to) {
-    pad?.hide();
-    return;
+  pad?.hide();
+}
+
+// noteGutter is the margin the diff has, where the mark on a line is the way
+// to say something about it (`app/renderer/sheets.ts:288`).
+class NoteMark extends GutterMarker {
+  toDOM(): HTMLElement {
+    const mark = document.createElement("div");
+    mark.className = "cm-note-add";
+    mark.textContent = "+";
+    mark.title = "Comment on this line";
+    return mark;
   }
-  pad?.offer(from, to);
+}
+
+const noteMark = new NoteMark();
+
+function noteGutter(): Extension {
+  return gutter({
+    class: "cm-note-gutter",
+    // A blank line has nothing to quote, so it is given no mark.
+    lineMarker: (view, block) =>
+      view.state.doc.lineAt(block.from).text.trim() ? noteMark : null,
+    initialSpacer: () => noteMark,
+    domEventHandlers: {
+      mousedown: (view, block, event) => {
+        event.preventDefault();
+        const line = view.state.doc.lineAt(block.from);
+        const span = quoted(
+          view.state.doc.toString(),
+          { from: line.from, to: line.to },
+          view.state.selection.main,
+        );
+        if (!span) return true;
+        pad?.file(span.from, span.to);
+        return true;
+      },
+    },
+  });
 }
 
 // opening guards the selection change a click on a note causes, which would

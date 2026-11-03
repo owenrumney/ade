@@ -60,30 +60,11 @@ describe("the Spaces list", () => {
 });
 
 describe("the Design tab", () => {
-  it("groups every open space's documents by space, and keeps the store", () => {
-    const place = designs(
-      [{ name: "stored", meta: {}, modified: "" }] as never,
-      ["ignored.md"],
-      "/c/ade",
-      [
-        space("owenrumney/ade", { path: "/c/ade", designs: ["spaces.md"] }),
-        space("infracost/coast", { path: "/c/coast", designs: ["pricing.md"] }),
-      ],
-    );
-    expect(place.rows.map((r) => r.group)).toEqual([
-      "owenrumney/ade",
-      "infracost/coast",
-      "Designs",
-    ]);
-    // The checkout is in the id: a design read against the wrong one is a
-    // 404 at best and another repository's document at worst.
-    expect(place.rows[1].id).toBe("space:/c/coast|pricing.md");
-  });
-
-  it("falls back to the picked checkout when no space is open", () => {
-    const place = designs([], ["here.md"], "/c/ade", []);
-    expect(place.rows[0].id).toBe("here:here.md");
-    expect(place.rows[0].group).toBe("In ade");
+  // An open space's own documents are on that space's page; the tab is the
+  // shared store, grouped by the repository each design is home to.
+  it("is the store, whatever spaces are open", () => {
+    const place = designs([{ name: "stored", meta: {}, modified: "" }] as never);
+    expect(place.rows.map((r) => [r.id, r.group])).toEqual([["stored", "No repository"]]);
   });
 });
 
