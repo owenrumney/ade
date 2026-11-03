@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -32,6 +33,10 @@ type storeRow struct {
 	Session string `json:"session,omitempty"`
 	Branch  string `json:"branch,omitempty"`
 	Live    bool   `json:"live,omitempty"`
+
+	// Changed is the checkout holding a copy of this document that no longer
+	// matches the store's, and so is what a re-import would read.
+	Changed string `json:"changed,omitempty"`
 }
 
 // handleStoreDesigns lists the shared store. Read off disk, so it answers
@@ -72,6 +77,7 @@ func storeRowFor(design designs.Design, repos []sessions.Repo) storeRow {
 		}
 		row.Missing = append(row.Missing, want)
 	}
+	row.Changed = changedCopy(design, row.Here)
 	for _, repo := range repos {
 		for _, checkout := range repo.Checkouts {
 			if !branchFor(checkout.Branch, design.Name) {
@@ -88,6 +94,36 @@ func storeRowFor(design designs.Design, repos []sessions.Repo) storeRow {
 	}
 	return row
 }
+
+// changedCopy is the checkout holding a copy of this design that no longer
+// matches it. Import copies rather than moves, so the two are edited apart the
+// moment a session keeps writing to the checkout's.
+func changedCopy(design designs.Design, here []string) string {
+	raw, err := os.ReadFile(design.File) // #nosec G304 -- ade's own store
+	if err != nil {
+		return ""
+	}
+	_, mine, err := designs.Split(raw)
+	if err != nil {
+		return ""
+	}
+	for _, root := range here {
+		for _, dir := range docs.SearchDirs(root, filepath.Join(root, ".git"), "") {
+			path := filepath.Join(dir, design.Name+".md")
+			found, err := os.ReadFile(path) // #nosec G304 -- a checkout's own docs directory
+			if err != nil {
+				continue
+			}
+			// Only the body: the store keeps front matter the checkout's copy has not.
+			if _, theirs, err := designs.Split(found); err == nil && !sameBody(theirs, mine) {
+				return root
+			}
+		}
+	}
+	return ""
+}
+
+func sameBody(a, b []byte) bool { return bytes.Equal(bytes.TrimSpace(a), bytes.TrimSpace(b)) }
 
 // branchFor is the branch ade create names for a design: the design's own
 // name, with or without a prefix such as feat/.
@@ -216,6 +252,9 @@ func (s *Server) handleDesignsSync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDesignImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		File string `json:"file"`
+		// Again replaces the design the store holds, for a copy that has
+		// been edited apart from it.
+		Again bool `json:"again,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -234,7 +273,7 @@ func (s *Server) handleDesignImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Already there under that name: a second copy is not what was asked.
 	name := designs.Slug(strings.TrimSuffix(req.File, ".md"))
-	if held, err := s.designs.Read(name); err == nil {
+	if held, err := s.designs.Read(name); err == nil && !req.Again {
 		writeJSON(w, http.StatusOK, map[string]any{"name": held.Name, "held": true})
 		return
 	}
@@ -247,7 +286,11 @@ func (s *Server) handleDesignImport(w http.ResponseWriter, r *http.Request) {
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		took := designs.ImportFile(s.designs.Root(), path, repo)
+		put := designs.ImportFile
+		if req.Again {
+			put = designs.ReimportFile
+		}
+		took := put(s.designs.Root(), path, repo)
 		if !took.Took() {
 			writeError(w, http.StatusBadRequest, took.Why)
 			return

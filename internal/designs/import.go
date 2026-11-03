@@ -41,6 +41,16 @@ func Import(root, from, repo string) ([]Imported, error) {
 
 // ImportFile copies one document into the store.
 func ImportFile(root, path, repo string) Imported {
+	return importFile(root, path, repo, false)
+}
+
+// ReimportFile replaces a design the store already holds with the checkout's
+// copy, keeping the meta the store has gathered since it was first imported.
+func ReimportFile(root, path, repo string) Imported {
+	return importFile(root, path, repo, true)
+}
+
+func importFile(root, path, repo string, over bool) Imported {
 	name := strings.TrimSuffix(filepath.Base(path), ".md")
 	got := Imported{From: path, Name: Slug(name)}
 	raw, err := os.ReadFile(path) // #nosec G304 -- a checkout's own docs directory
@@ -53,11 +63,22 @@ func ImportFile(root, path, repo string) Imported {
 		got.Why = err.Error()
 		return got
 	}
+	if over {
+		if held, err := Read(root, got.Name); err == nil {
+			meta = held.Meta
+		}
+	}
 	if repo != "" && !has(meta.Repos, repo) {
 		meta.Repos = append(meta.Repos, repo)
 	}
 	if meta.Title == "" {
 		meta.Title = title(body, name)
+	}
+	if over {
+		if err := Save(root, name, meta, body); err != nil {
+			got.Why = err.Error()
+		}
+		return got
 	}
 	if _, err := Write(root, name, meta, body); err != nil {
 		got.Why = err.Error()

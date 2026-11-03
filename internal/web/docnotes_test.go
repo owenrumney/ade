@@ -215,6 +215,29 @@ func TestAcceptingRecommendationsStartsOneFold(t *testing.T) {
 	assert.Contains(t, said[len(said)-1].Body, "accepted 2 recommendation(s)")
 }
 
+func TestAcceptingFoldsIntoTheDocumentTheRowsCameFrom(t *testing.T) {
+	// The page may be showing a document this server never opened, so the
+	// name it sends wins over the one the server holds.
+	s := openNotesDoc(t)
+	writeDoc(t, s, "ship.md", "# Ship\n")
+
+	rec := do(t, s, "POST", "/api/design/accept",
+		`{"file":"ship.md","rows":[{"ref":"1","question":"Where do gates live?","recommendation":"internal/ship"}]}`)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	said := s.conversation()
+	require.NotEmpty(t, said)
+	assert.Contains(t, said[len(said)-1].Body, "ship.md")
+	assert.NotContains(t, said[len(said)-1].Body, "plan.md")
+}
+
+func TestAcceptingRefusesAFileOutsideTheDesignDirectory(t *testing.T) {
+	s := openNotesDoc(t)
+	rec := do(t, s, "POST", "/api/design/accept",
+		`{"file":"../../etc/passwd.md","rows":[{"ref":"1","question":"q","recommendation":"r"}]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestAcceptingNothingIsRefused(t *testing.T) {
 	s := openNotesDoc(t)
 	rec := do(t, s, "POST", "/api/design/accept", `{"rows":[]}`)

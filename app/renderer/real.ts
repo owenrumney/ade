@@ -60,6 +60,7 @@ export interface Design {
   repo?: string;
   here?: string[];
   missing?: string[];
+  changed?: string;
   session?: string;
   branch?: string;
   live?: boolean;
@@ -267,6 +268,7 @@ function store(all: Design[]): Place {
         d.live ? "running" : "",
         (d.meta.repos ?? []).length > 1 ? `${d.meta.repos?.length} repos` : "",
         (d.missing ?? []).length > 0 ? `needs ${d.missing?.join(", ")}` : "",
+        d.changed ? `the copy in ${d.changed.split("/").pop()} has changed` : "",
         d.meta.ticket,
         ago(d.modified),
       ]
@@ -274,10 +276,14 @@ function store(all: Design[]): Place {
         .join(" · "),
       // One this machine cannot check out has nothing to start, and
       // one already being worked on is open rather than started.
-      acts:
-        (d.missing ?? []).length > 0 || d.live
+      acts: [
+        ...((d.missing ?? []).length > 0 || d.live
           ? []
-          : [{ label: "Start work", what: "design-start" as const, name: d.name }],
+          : [{ label: "Start work", what: "design-start" as const, name: d.name }]),
+        ...(d.changed
+          ? [{ label: "Re-import", what: "design-again" as const, name: d.name, menu: true as const }]
+          : []),
+      ],
     })),
   };
 }
