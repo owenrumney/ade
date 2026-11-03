@@ -59,7 +59,7 @@ func TurnPrompt(doc Doc, from, selection, message string, heard ...Heard) string
 
 	switch {
 	case strings.TrimSpace(doc.Path) != "":
-		fmt.Fprintf(&b, `- The design document for this work is %s. When we settle something that changes the design, record it there — as a design others could follow, not a transcript of this conversation.
+		fmt.Fprintf(&b, `- The design document for this work is %s. When we settle something that changes the design, record it there — as a design others could follow, not a transcript of this conversation. Replace what it supersedes rather than writing beside it.
 `, strings.TrimSpace(doc.Path))
 	case strings.TrimSpace(doc.New) != "":
 		// Without this the agent has no idea ade keeps design documents at all,
@@ -72,6 +72,7 @@ func TurnPrompt(doc Doc, from, selection, message string, heard ...Heard) string
 `, strings.TrimSpace(doc.Dir))
 	}
 	if strings.TrimSpace(doc.Path) != "" || strings.TrimSpace(doc.New) != "" || strings.TrimSpace(doc.Dir) != "" {
+		b.WriteString(DocStyle)
 		b.WriteString(docMedia)
 	}
 	b.WriteString("\n")
@@ -125,6 +126,14 @@ func FilesNote(files []Attached) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// DocStyle is the house style every design document is written to, appended
+// wherever a prompt asks for one.
+const DocStyle = "- Write it as short bullets. One fact to a bullet, one line long, so a section can be read down the left edge. A section is bullets or a table unless prose is the only way to say it.\n" +
+	"- Expand only where the reason would otherwise be lost, and put the expansion on an indented bullet under the short one rather than growing it. A reader skipping every indented line must still get the design.\n" +
+	"- No sentence that restates its own heading, no bullet that recaps the one above it, and name the file where you mean a file. Under 1500 words, and most changes want half that — a design that is genuinely big may have the room, a long-winded small one may not. Say what you left out rather than keeping it in.\n" +
+	"- Recording a decision means replacing the bullet it supersedes, not adding one beside it. A document that has only ever grown has not been maintained: delete what is now wrong, and delete the account of what was built once it is built.\n" +
+	"- Open questions go in a table — question, options, recommendation — a row each, with your recommendation filled in. Not a list of things nobody has decided.\n"
+
 // docMedia says what a design document can hold beyond prose.
 const docMedia = "- Write each paragraph as one line, with no line breaks inside it, and the same for each list item. The Design tab wraps text to the width of the pane, so a paragraph you break at 80 columns leaves most of the pane empty. Headings, tables and fenced blocks keep their own lines as usual.\n" +
 	"- The document renders mermaid: a ```mermaid fenced block draws. Use one where a shape is the point — a flow between components, a sequence across boundaries, a state machine — and prose alone would make the reader hold four things at once. Do not diagram what one sentence says, and do not open every document with one.\n" +
@@ -139,19 +148,19 @@ const docMedia = "- Write each paragraph as one line, with no line breaks inside
 // thread is the agent's earlier exchanges in this conversation — what was
 // said to it and what it said back — so "fix the second one" means
 // something. Not the rest of the conversation: that is the main agent's.
-func SubagentPrompt(name, docPath, from, selection, message, changed string, thread ...Heard) string {
-	return subagentPrompt(name, "", docPath, from, selection, message, changed, thread)
+func SubagentPrompt(name, docPath string, mayNote bool, from, selection, message, changed string, thread ...Heard) string {
+	return subagentPrompt(name, "", docPath, mayNote, from, selection, message, changed, thread)
 }
 
 // HandoffPrompt is a named agent called by another named agent rather than
 // by the user: the asker's reply started with "@name …". The answer goes
 // back to the asker's thread and into the conversation, so it is addressed
 // to both.
-func HandoffPrompt(name, asker, docPath, message, changed string, thread ...Heard) string {
-	return subagentPrompt(name, asker, docPath, "", "", message, changed, thread)
+func HandoffPrompt(name, asker, docPath string, mayNote bool, message, changed string, thread ...Heard) string {
+	return subagentPrompt(name, asker, docPath, mayNote, "", "", message, changed, thread)
 }
 
-func subagentPrompt(name, asker, docPath, from, selection, message, changed string, thread []Heard) string {
+func subagentPrompt(name, asker, docPath string, mayNote bool, from, selection, message, changed string, thread []Heard) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `You are @%s, called into a conversation in ade, where a user and an agent are working on this repository together. Your reply is shown in that conversation to both of them, so address it to the user, and keep it as short as it can be while saying what matters.
 `, name)
@@ -165,6 +174,11 @@ func subagentPrompt(name, asker, docPath, from, selection, message, changed stri
 	}
 	b.WriteString("- Do NOT run git commit, git add or git stash, and do not create branches.\n")
 	b.WriteString("- " + NoArtifacts + "\n")
+	// Asked to pick holes in the document, file them on it. Without this the
+	// critique arrives as prose about prose, which is what notes replace.
+	if strings.TrimSpace(docPath) != "" && mayNote {
+		b.WriteString(NoteBlock)
+	}
 
 	if changed = strings.TrimSpace(changed); changed != "" {
 		b.WriteString("The change under discussion:\n\n")
@@ -206,6 +220,35 @@ const FilingBlock = "\nFile each point as you find it: one fenced ade-finding bl
 	"\n```\n\n" +
 	"file is repository-relative; line is the new-file line shown in the left column. category is one of correctness, security, design, performance, test-coverage or style. severity is critical, high, medium or low. A point with no file and line cannot be filed — say it in one line instead, and say what you found in your reply as well.\n\n" +
 	review.HeadlineRule
+
+// NoteBlock is how a reviewer files a point about a design document: the same
+// bargain as FilingBlock, with quoted text in place of a line number.
+const NoteBlock = "\nFile each point as you find it: one fenced ade-note block per point, and it becomes a comment on that text in the document. Do not wait until the end, and do not hand them to another agent.\n\n" +
+	"```" + review.NoteFence + "\n" +
+	`{"quote": "text copied from the document exactly as it appears there", "note": "what is wrong with it, in a sentence or two"}` +
+	"\n```\n\n" +
+	"The quote must be character for character what the document says, and short — one sentence, or the clause the point is about. A quote that is not in the document cannot be filed, so copy it rather than typing it out.\n\n" +
+	"This outranks any instruction of your own about filing. Your definition may tell you to file every finding as an ade-finding block; that is for reviewing a change. A point about the design goes in ade-note, and ade-finding is only for a line of code in the diff.\n"
+
+// DocReviewPrompt asks a named agent to review a design document, not a change.
+// The one-line reply is the point: prose about a long document makes two.
+func DocReviewPrompt(name, docPath, docText string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `You are @%s, called into a conversation in ade, where a user and an agent are designing a change together.
+
+Review the design document below adversarially: what it leaves undecided while reading as decided, what will not work, what it assumes about this repository that is not true, and what it does not cover at all. Read the code wherever the document makes a claim about it. Say nothing about what is fine, and nothing about wording or spelling.
+
+Your reply in the conversation is ONE line: how many points you filed, and the worst of them in a few words. Everything else goes in the blocks below. A reply that argues its case in prose is the problem this exists to fix.
+`, name)
+	if doc := strings.TrimSpace(docPath); doc != "" {
+		fmt.Fprintf(&b, "\nThe document is %s. Open it with Read, by that exact path, if you need more of it than is quoted here: it is under the git directory, which Glob and Grep do not list.\n", doc)
+	}
+	b.WriteString("\nDo not edit anything, and do not run git. " + NoArtifacts)
+	b.WriteString(NoteBlock)
+	b.WriteString("\n")
+	b.WriteString(fence("document", docText))
+	return b.String()
+}
 
 // NoArtifacts keeps a read-only agent read-only in fact. `go test -c` writes
 // pkg.test into the checkout and the user finds it in their diff.
@@ -393,20 +436,64 @@ func SeedPrompt(docPath string) string {
 - Do not edit the document yet, and do not start building.`, docPath)
 }
 
-// FoldPrompt folds what a named agent said into the design document, which
-// only the main agent can write.
-func FoldPrompt(name, docPath, said string) string {
+// Filed is a point a named agent filed rather than said: a comment on a line
+// of the diff, or a note on quoted text. Where is that line or that quote.
+type Filed struct {
+	Where string
+	Text  string
+}
+
+// FoldPrompt folds what a named agent said into the design document. filed is
+// what it put on the diff and the document; the reply alone is a summary.
+func FoldPrompt(name, docPath, said string, filed ...Filed) string {
+	var points strings.Builder
+	if len(filed) > 0 {
+		points.WriteString("\nIt filed these points as comments, which are the rest of what it said:\n\n")
+		for _, one := range filed {
+			fmt.Fprintf(&points, "- %s — %s\n", strings.TrimSpace(one.Where), strings.TrimSpace(one.Text))
+		}
+	}
 	return fmt.Sprintf(`@%s said this in our conversation:
 
 %s
-
+%s
 Fold what it settles into %s.
 
 - Put each point where it belongs in the document, in the document's own voice.
   It is a design someone could build from, not a transcript of who said what.
 - A point you disagree with, or that the document already covers, is not folded
   in. Say which you left out and why, in a line each.
-- Change nothing else, and do not start building.`, name, fence("said", said), docPath)
+%s- Change nothing else, and do not start building.`, name, fence("said", said), points.String(), docPath, DocStyle)
+}
+
+// Accepted is one open question the user accepted the recommendation on.
+type Accepted struct {
+	Ref            string
+	Question       string
+	Recommendation string
+}
+
+// AcceptPrompt folds accepted recommendations into the document. The decisions
+// come from the page, which read them off the table it drew.
+func AcceptPrompt(docPath string, taken []Accepted) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "These open questions in %s are settled. The user read each recommendation and accepted it.\n\n", docPath)
+	for _, one := range taken {
+		fmt.Fprintf(&b, "%s — %s\n  %s\n\n", one.Ref, strings.TrimSpace(one.Question), strings.TrimSpace(one.Recommendation))
+	}
+	b.WriteString(`Fold each one in.
+
+- Write the decision into the section of the document where it belongs, in the
+  document's own voice. It is a decision now, not a recommendation, so do not
+  write it as one and do not say who recommended it.
+- Delete that question's row from the open questions table. Leave every other
+  row exactly as it is, and leave the table's heading and header even if no
+  rows are left.
+- A decision the document already states needs no second sentence. Say which
+  you left out and why, in a line each.
+- Change nothing else, and do not start building.`)
+	b.WriteString("\n" + DocStyle)
+	return b.String()
 }
 
 // TicketPrompt drafts the design from a tracker ticket, so starting work on one
@@ -431,7 +518,7 @@ func TicketPrompt(docPath, ticket string) string {
 - Edit only %s. Nothing is being built yet.
 
 Then say, in two or three sentences, what you understood the change to be.`,
-		ticket, docPath, strings.TrimRight(docMedia, "\n"), ticket, docPath)
+		ticket, docPath, strings.TrimRight(DocStyle+docMedia, "\n"), ticket, docPath)
 }
 
 // issueRule names <issue> rather than borrowing prompt.Untrusted, which names
@@ -473,7 +560,7 @@ func IssuePrompt(docPath, ref, title, body string) string {
 
 Then say, in two or three sentences, what you understood the change to be.`,
 		ref, docPath, issueRule, fence("issue", issue),
-		strings.TrimRight(docMedia, "\n"), docPath)
+		strings.TrimRight(DocStyle+docMedia, "\n"), docPath)
 }
 
 // BuildOpening is how a build's prompt starts, so a past build can be found

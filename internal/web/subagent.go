@@ -123,7 +123,7 @@ func (s *Server) callSubagents(names []string, message string, attached *chat.Co
 	calls := make([]sideCall, 0, len(names))
 	for _, name := range names {
 		agent, _ := agents.Find(list, name)
-		calls = append(calls, sideCall{agent: agent, prompt: design.SubagentPrompt(name, s.currentDocPath(), from, text, message, s.changedSummary(), s.thread(name)...) + note})
+		calls = append(calls, sideCall{agent: agent, prompt: design.SubagentPrompt(name, s.currentDocPath(), mayNote(agent), from, text, message, s.changedSummary(), s.thread(name)...) + note})
 	}
 	if !s.startSides(calls) {
 		// Named, understood, and not run: the note in the conversation says
@@ -156,6 +156,10 @@ type sideCall struct {
 	// rebuttal round. It cannot key on Server.sides emptying: two
 	// overlapping reviews are indistinguishable there.
 	batch string
+
+	// onDoc is a review of the open design document: its points are filed as
+	// notes on the text rather than as comments on the diff.
+	onDoc bool
 }
 
 type sideResult struct {
@@ -257,7 +261,7 @@ func (s *Server) delegatePiAgent(ctx context.Context, name, message string) (str
 	result := make(chan sideResult, 1)
 	call := sideCall{
 		agent:  agent,
-		prompt: design.SubagentPrompt(agent.Name, s.currentDocPath(), "", "", message, s.changedSummary(), s.thread(agent.Name)...),
+		prompt: design.SubagentPrompt(agent.Name, s.currentDocPath(), mayNote(agent), "", "", message, s.changedSummary(), s.thread(agent.Name)...),
 		parent: ctx,
 		result: result,
 	}
@@ -284,7 +288,7 @@ func (s *Server) callSubagent(name, message string, attached *chat.Context) bool
 	if attached != nil {
 		from, text = attached.From, attached.Text
 	}
-	return s.startSides([]sideCall{{agent: agent, prompt: design.SubagentPrompt(agent.Name, s.currentDocPath(), from, text, message, s.changedSummary(), s.thread(agent.Name)...)}})
+	return s.startSides([]sideCall{{agent: agent, prompt: design.SubagentPrompt(agent.Name, s.currentDocPath(), mayNote(agent), from, text, message, s.changedSummary(), s.thread(agent.Name)...)}})
 }
 
 // A named agent's thread is what was said to it and what it said back, most
@@ -549,7 +553,7 @@ func (s *Server) runSubagent(ctx context.Context, call sideCall) {
 	agent, prompt := call.agent, call.prompt
 	var reply strings.Builder
 	var err error
-	filer := s.newFiler(agent, call.asker, call.batch)
+	filer := s.newFiler(agent, call.asker, call.batch, call.onDoc)
 	onEvent := func(ev bridge.Event) {
 		if t := strings.TrimSpace(ev.Text); t != "" {
 			reply.WriteString(t)
@@ -675,7 +679,7 @@ func (s *Server) handoff(from agents.Agent, names []string, message string, hop 
 		}
 		calls = append(calls, sideCall{
 			agent:  agent,
-			prompt: design.HandoffPrompt(name, from.Name, s.currentDocPath(), message, s.changedSummary(), s.thread(name)...),
+			prompt: design.HandoffPrompt(name, from.Name, s.currentDocPath(), mayNote(agent), message, s.changedSummary(), s.thread(name)...),
 			asker:  from.Name,
 			hop:    hop + 1,
 			batch:  batch,
@@ -732,25 +736,39 @@ type filer struct {
 	// are filed, consolidated, once every reviewer has finished.
 	held int
 
-	// off is an agent that does not review: nothing of its reply is filed.
+	// off is an agent that does not review: none of its reply is filed on the
+	// diff. It says nothing about notes, which are asked for per call.
 	off bool
+
+	// onDoc is a review of the design document rather than of a change: it
+	// files nothing on the diff. Notes are filed either way.
+	onDoc bool
+	notes *review.NoteStreamer
+	noted []string
+	lost  []review.Note
 }
 
-func (s *Server) newFiler(agent agents.Agent, asker, batch string) *filer {
+func (s *Server) newFiler(agent agents.Agent, asker, batch string, onDoc bool) *filer {
 	author := asker
 	if author == "" {
 		author = agent.Name
 	}
 	// @commenter reviews nothing and files everything: filing is the whole job.
 	off := !agent.Reviews && agent.Name != commenterAgent
-	return &filer{s: s, name: agent.Name, author: author, batch: batch, streamer: review.NewStreamer(), off: off}
+	return &filer{
+		s: s, name: agent.Name, author: author, batch: batch,
+		streamer: review.NewStreamer(), notes: review.NewNoteStreamer(), off: off, onDoc: onDoc,
+	}
 }
 
 // push reads the next piece of the reply and files what it holds. The thread
 // ids come back with it: the rebuttal round marks those threads, so the
 // batch has to know which finding became which.
 func (f *filer) push(text string) {
-	if f.off {
+	// Notes first, and for anyone: a block only arrives from an agent that was
+	// asked for one, and @architect does not review diffs but does read designs.
+	f.pushNotes(text)
+	if f.off || f.onDoc {
 		return
 	}
 	found := f.streamer.Push(text)
@@ -773,6 +791,21 @@ func (f *filer) push(text string) {
 	f.s.hub.Broadcast("state", nil)
 }
 
+// pushNotes files the ade-note blocks a doc review emits. A quote the document
+// does not contain is kept for the reply: it is a point with nothing to sit on.
+func (f *filer) pushNotes(text string) {
+	found := f.notes.Push(text)
+	if len(found) == 0 {
+		return
+	}
+	filed, lost := f.s.fileNotes(found, f.author)
+	f.noted = append(f.noted, filed...)
+	f.lost = append(f.lost, lost...)
+	if len(filed) > 0 {
+		f.s.hub.Broadcast("notes", nil)
+	}
+}
+
 // split separates what can become a comment from what cannot: a finding on a
 // file the diff does not contain has nowhere on the diff to live.
 func (f *filer) split(found []review.Finding) (onDiff, aside []review.Finding) {
@@ -793,6 +826,9 @@ func (f *filer) split(found []review.Finding) (onDiff, aside []review.Finding) {
 // themselves are stripped from the reply, so this is all that is left of them.
 func (f *filer) asideText() string {
 	var b strings.Builder
+	for _, note := range f.lost {
+		fmt.Fprintf(&b, "**not in the document** — %s\n\n> %s\n\n", note.Note, note.Quote)
+	}
 	for _, finding := range f.aside {
 		fmt.Fprintf(&b, "**%s:%d** — %s %s\n\n%s\n\n", finding.File, finding.Line, finding.Severity, finding.Category, review.Body(finding))
 	}
@@ -810,8 +846,16 @@ func (f *filer) done() {
 		f.s.say(ChatMessage{Kind: chat.KindNote, Author: f.name, Run: runSubagent,
 			Body: fmt.Sprintf("@%s filed %d comment(s) on the diff as @%s:\n- %s", f.name, len(f.filed), f.author, strings.Join(f.filed, "\n- "))})
 	}
+	if len(f.noted) > 0 {
+		f.s.say(ChatMessage{Kind: chat.KindNote, Author: f.name, Run: runSubagent,
+			Body: fmt.Sprintf("@%s filed %d note(s) on the document as @%s:\n- %s", f.name, len(f.noted), f.author, strings.Join(f.noted, "\n- "))})
+	}
 	if aside := f.asideText(); aside != "" {
-		body := fmt.Sprintf("@%s found %d point(s) outside the diff, so they are here rather than on it:\n\n%s", f.name, len(f.aside), aside)
+		where := "outside the diff, so they are here rather than on it"
+		if len(f.aside) == 0 {
+			where = "on text the document does not contain, so they are here rather than on it"
+		}
+		body := fmt.Sprintf("@%s found %d point(s) %s:\n\n%s", f.name, len(f.aside)+len(f.lost), where, aside)
 		f.s.say(ChatMessage{Kind: chat.KindNote, Author: f.name, Run: runSubagent, Body: body, HTML: f.s.replyHTML(body)})
 	}
 }
@@ -835,6 +879,10 @@ func wantsMCP(tools []string) bool {
 	}
 	return false
 }
+
+// mayNote is whether an agent can be told how to file a note on the design.
+// One that edits is there to change the document, not to argue with it.
+func mayNote(agent agents.Agent) bool { return !writesCode(agentTools(agent)) }
 
 // writesCode is whether a tool set can change the checkout.
 func writesCode(tools []string) bool {

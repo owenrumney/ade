@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { body, bullet, cells, hides, isMermaid, joins, lang, level, picture, reveals, touched, gap } from "./marks";
+import { body, bullet, cells, hides, isMermaid, joins, lang, level, nesting, picture, reveals, touched, gap } from "./marks";
 
 describe("what the frame hides", () => {
   it("takes out the markers and leaves the words", () => {
@@ -141,5 +141,14 @@ describe("pictures beside the document", () => {
     expect(picture("![a](https://example.com/x.png)", base)).toBeUndefined();
     expect(picture("![a](/etc/x.png)", base)).toBeUndefined();
     expect(picture("![a](x.png)", "")).toBeUndefined();
+  });
+});
+
+describe("how deep a list line sits", () => {
+  it("counts two spaces to a level, and a tab as two", () => {
+    expect(nesting("- a top bullet")).toBe(0);
+    expect(nesting("  - an expansion")).toBe(1);
+    expect(nesting("    - deeper still")).toBe(2);
+    expect(nesting("\t- a tab")).toBe(1);
   });
 });

@@ -137,7 +137,7 @@ body {
 /* A design document named in a reply. It carries no href, so it needs the
    colour and the hand a real link gets for free. */
 .docref {
-  color: var(--vscode-textLink-foreground);
+  color: var(--info);
   cursor: pointer;
 }
 .docref:hover { text-decoration: underline; }

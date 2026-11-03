@@ -18,6 +18,7 @@ import (
 
 	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/chat"
+	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/design"
 	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/docsave"
@@ -408,7 +409,7 @@ func (s *Server) handleDesignFold(w http.ResponseWriter, r *http.Request) {
 
 	s.sayFold(said.Author, file)
 	s.spawn(func() {
-		s.runTurn(runCtx, design.FoldPrompt(said.Author, s.docPath(file), said.Body), "updating "+file)
+		s.runTurn(runCtx, design.FoldPrompt(said.Author, s.docPath(file), said.Body, s.filedBy(said.Author)...), "updating "+file)
 	})
 	s.hub.Broadcast("agent", nil)
 	s.hub.Broadcast("state", nil)
@@ -452,7 +453,39 @@ func (s *Server) foldNow(id string) (file, author, prompt string, ok bool) {
 	if !found {
 		return "", "", "", false
 	}
-	return file, said.Author, design.FoldPrompt(said.Author, s.docPath(file), said.Body), true
+	return file, said.Author, design.FoldPrompt(said.Author, s.docPath(file), said.Body, s.filedBy(said.Author)...), true
+}
+
+// filedBy is what a named agent put on the diff and the document, still open.
+// A fold without these folds the summary and loses the review.
+func (s *Server) filedBy(author string) []design.Filed {
+	if strings.TrimSpace(author) == "" {
+		return nil
+	}
+	var out []design.Filed
+	for _, t := range s.space().store.List() {
+		if len(t.Comments) == 0 || t.Comments[0].Author != author || t.Fate() != comments.FateOpen {
+			continue
+		}
+		out = append(out, design.Filed{
+			Where: fmt.Sprintf("%s:%d", t.File, t.Line),
+			Text:  t.Comments[0].Body,
+		})
+	}
+	notes, err := s.notesNow()
+	if err != nil {
+		return out
+	}
+	for _, n := range notes {
+		if len(n.Comments) == 0 || n.Comments[0].Author != author || n.Resolved {
+			continue
+		}
+		out = append(out, design.Filed{
+			Where: fmt.Sprintf("%q", n.Anchor.Quote),
+			Text:  n.Comments[0].Body,
+		})
+	}
+	return out
 }
 
 // namedReply is a named agent's message in this conversation. Only a named

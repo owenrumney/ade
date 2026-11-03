@@ -42,6 +42,12 @@ function spy(): { reach: Reach; seen: { path: string; body: unknown }[] } {
   return { reach, seen };
 }
 
+// refusing is a server that answers every action with a reason.
+function refusing(why: string): Reach {
+  const { reach } = spy();
+  return { ...reach, send: async () => ({ error: why }) };
+}
+
 describe("a panel answers every button its page has", () => {
   const cases: [string, string][] = [
     ["ade.worktrees", "worktreepanel"],
@@ -157,6 +163,30 @@ describe("the verbs that are more than one call", () => {
     expect(seen.map((s) => s.path)).toEqual(["/api/commit", "/api/push"]);
     expect(seen[0].body).toMatchObject({ title: "second thoughts", amend: true });
     expect(seen[1].body).toEqual({ force: true });
+  });
+
+  // act answers {error} rather than throwing, so a refusal used to be read as
+  // success: Rebase on a dirty checkout was a button that did nothing at all.
+  it("shows what the server refused, rather than nothing", async () => {
+    const reach = refusing("commit or stash 15 changed file(s) first");
+    const panel = WHICH["ade.commitPanel"](reach);
+    const back = (await panel.onMessage({ kind: "do", what: "rebase" })) as {
+      note?: string;
+      busy?: string;
+    };
+    expect(back.note).toBe("commit or stash 15 changed file(s) first");
+    expect(back.busy).toBe("");
+  });
+
+  it("shows a refusal from either half of commit-and-push", async () => {
+    const panel = WHICH["ade.commitPanel"](refusing("nothing staged"));
+    const back = (await panel.onMessage({
+      kind: "do",
+      what: "commit",
+      title: "a change",
+    })) as { note?: string; committed?: boolean };
+    expect(back.note).toBe("nothing staged");
+    expect(back.committed).toBe(false);
   });
 
   // The server clears its draft when the commit lands, but the page keeps
