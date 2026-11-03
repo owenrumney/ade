@@ -198,6 +198,8 @@ type Server struct {
 	// quiz is the questions written about the diff, held so reopening the
 	// panel does not pay for them again. Nothing about how you did is kept.
 	quiz *Quiz
+	// walkthrough is the steps through the diff, held on the same terms.
+	walkthrough *Walkthrough
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
@@ -802,6 +804,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sharpen", s.guard(s.handleSharpen))
 	mux.HandleFunc("POST /api/commit-message", s.guard(s.handleCommitMessage))
 	mux.HandleFunc("POST /api/quiz", s.guard(s.handleQuiz))
+	mux.HandleFunc("POST /api/walkthrough", s.guard(s.handleWalkthrough))
 	mux.HandleFunc("POST /api/commit", s.guard(s.handleCommit))
 	mux.HandleFunc("POST /api/stage", s.guard(s.handleStage))
 	mux.HandleFunc("POST /api/unstage", s.guard(s.handleUnstage))
@@ -1162,6 +1165,7 @@ type stateResponse struct {
 	Agent         RunState            `json:"agent"`
 	Draft         *CommitDraft        `json:"draft,omitempty"`
 	Quiz          *Quiz               `json:"quiz,omitempty"`
+	Walkthrough   *Walkthrough        `json:"walkthrough,omitempty"`
 	PR            *PRInfo             `json:"pr,omitempty"`
 	Worktree      *gitdiff.Status     `json:"worktree,omitempty"`
 	Created       *CreatedPR          `json:"created,omitempty"`
@@ -1288,6 +1292,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		Agent:         s.agentState(),
 		Draft:         s.currentDraft(),
 		Quiz:          s.currentQuiz(),
+		Walkthrough:   s.currentWalkthrough(),
 		PR:            ws.pr,
 		Worktree:      s.currentWorktree(),
 		Created:       s.currentCreatedPR(),

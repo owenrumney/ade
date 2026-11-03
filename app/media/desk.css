@@ -7,9 +7,9 @@
   gap: 8px;
   padding: 7px 12px;
   font-weight: 600;
-  color: var(--vscode-foreground);
-  background: var(--vscode-editorWidget-background);
-  border-bottom: 2px solid var(--vscode-charts-yellow, var(--vscode-focusBorder));
+  color: var(--ink);
+  background: var(--bg-raised);
+  border-bottom: 2px solid var(--warn, var(--accent));
 }
 
 #deskbell {
@@ -21,19 +21,19 @@
 #deskbell svg {
   width: 17px;
   height: 17px;
-  color: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+  color: var(--warn, var(--accent));
 }
 
 #deskwhat {
   font-weight: 400;
   font-size: 0.9em;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 /* The warm edge runs the height of the pane, so the desk is recognisable from
    the corner of the eye with nothing of its header in view. */
 #ade.desk {
-  border-left: 2px solid var(--vscode-charts-yellow, var(--vscode-focusBorder));
+  border-left: 2px solid var(--warn, var(--accent));
 }
 
 /* The desk answers in lines, not in turns of work: tighter than the session's
@@ -48,5 +48,5 @@
 }
 
 #ade.desk #composer {
-  border-top: 1px solid var(--vscode-editorWidget-border, transparent);
+  border-top: 1px solid var(--line, transparent);
 }

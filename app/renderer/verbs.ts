@@ -84,6 +84,7 @@ export const VOCABULARY: Group[] = [
       ["ade.openReview", "Open Review"],
       ["ade.explain", "Explain the diff in plain words"],
       ["ade.quizMe", "Quiz me about this change"],
+      ["ade.explainThis", "Explain this change, step by step"],
       ["ade.pullBase", "Pull the base branch"],
       ["ade.diffRoot", "Choose which repository the Diff view shows"],
       ["ade.draftReplies", "Draft replies to the review comments"],

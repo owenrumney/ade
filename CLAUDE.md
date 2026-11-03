@@ -180,9 +180,11 @@ gets the one line that says what could not be read off the line below it.
 ## Style
 
 There is no stylesheet of ade's own any more. The window's own chrome is
-`app/renderer/*.css`; a page wears `--vscode-*` variables, which
-`app/renderer/vstheme.ts` puts on the document. Take a colour from the theme
-rather than naming one.
+`app/renderer/*.css`, whose palette is `theme.css`; a page under `app/pages` is
+an iframe and cannot reach it, so `app/renderer/paneltheme.ts` puts the same
+names on the panel's own document. Take a colour from the theme rather than
+naming one. `panel.test.ts` fails a stylesheet that reads a name neither file
+sets.
 
 ## The front end
 

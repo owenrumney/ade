@@ -209,6 +209,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.openReview": W("prs"),
   "ade.explain": S("/api/explain"),
   "ade.quizMe": { at: "panel", panel: "ade.quizMe" },
+  "ade.explainThis": { at: "panel", panel: "ade.explainThis" },
   "ade.pullBase": S("/api/base/pull"),
   "ade.draftReplies": S("/api/draft-replies"),
   "ade.sendReplies": S("/api/threads/send-replies"),

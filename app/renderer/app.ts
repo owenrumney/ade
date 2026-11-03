@@ -2386,11 +2386,14 @@ class Ade {
     this.omnibox.close();
     if (typeof event !== "string") return;
     const body = await this.omnibox.type(
-      `#${pr} — the summary`,
+      event === "request-changes" ? `#${pr} — the summary, which GitHub requires` : `#${pr} — the summary`,
       event === "approve" ? `Approved with ${n} comment${n === 1 ? "" : "s"}` : "",
     );
     this.omnibox.close();
     if (body === undefined) return;
+    // GitHub refuses a request for changes with no words; the other two it takes.
+    if (event === "request-changes" && !body.trim())
+      return this.say(`#${pr}: requesting changes needs a summary`);
     const got = await window.ade
       .act("session", "/api/review/finish", { confirm: pr, event, body }, this.session)
       .catch((e: Error) => ({ error: e.message }));

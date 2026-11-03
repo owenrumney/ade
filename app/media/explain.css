@@ -1,0 +1,109 @@
+/* The window's own palette throughout: paneltheme.ts puts it here. */
+body {
+  margin: 0;
+  padding: 16px 20px 32px;
+  font: var(--ui-size) var(--ui);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+main { max-width: 56em; }
+
+h1 { font-size: 1.2em; margin: 0; }
+
+.head { margin-bottom: 14px; }
+.sub { margin: 4px 0 0; color: var(--ink-dim); }
+.warn { margin: 6px 0 0; color: var(--warn); }
+.note { color: var(--bad); }
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.verbs { margin-top: 12px; }
+
+button {
+  font: inherit;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+button:hover:not(:disabled) { background: var(--accent-hover); }
+button:disabled { opacity: 0.5; }
+
+.linkish {
+  padding: 0;
+  background: none;
+  color: var(--info);
+  text-decoration: underline;
+  font-family: var(--mono);
+}
+.linkish:hover:not(:disabled) { background: none; }
+
+/* The flow, drawn once and lit a node at a time. */
+.flow {
+  margin: 0 0 16px;
+  padding: 12px;
+  overflow-x: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+.flow.failed { color: var(--bad); font-family: var(--mono); }
+/* Mermaid writes the fill and stroke inline, so the lit node takes them
+   back the only way a stylesheet can. */
+.flow g.node.lit rect,
+.flow g.node.lit polygon,
+.flow g.node.lit circle {
+  stroke: var(--accent) !important;
+  stroke-width: 2px !important;
+  fill: var(--selection) !important;
+}
+
+.step { margin: 0; }
+.top { gap: 12px; margin: 0 0 8px; align-items: baseline; }
+.count {
+  font-family: var(--mono);
+  font-size: 1.3em;
+  color: var(--ink-dim);
+}
+.title { font-size: 1.1em; margin: 0; }
+.body { margin: 0 0 12px; }
+
+/* The lines the step is about, with the context either side held back. */
+.excerpt {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 8px 0;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: var(--mono-size);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+.line { display: flex; gap: 12px; padding: 0 10px; opacity: 0.55; white-space: pre; }
+.line.in { opacity: 1; border-left: 2px solid var(--accent); padding-left: 8px; }
+.line .n {
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--line-no);
+}
+
+.links { margin: 8px 0 0; }
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.strip .dot {
+  min-width: 2em;
+  padding: 3px 0;
+  color: var(--ink);
+  background: var(--bg-raised);
+  border: 1px solid var(--line, transparent);
+}
+.strip .dot.here { border-color: var(--accent); color: var(--ink); }

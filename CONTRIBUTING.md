@@ -177,10 +177,13 @@ not an oversight.
 There is no stylesheet of ade's own any more. `internal/ui/tokens.css` went with
 the pages it dressed; the design is `.git/ade/docs/shell-and-web-removal.md`.
 
-The window's own chrome is `app/renderer/*.css`. A page under `app/pages` wears
-the theme's variables, which `app/renderer/vstheme.ts` puts on the document:
-take a colour from `--vscode-*` rather than naming one, because a hard-coded
-colour is right in one theme and wrong in every other.
+The window's own chrome is `app/renderer/*.css`, and its palette is
+`theme.css`: `--ink`, `--bg`, `--line`, `--accent` and the rest. A page under
+`app/pages` is an iframe and cannot reach that stylesheet, so
+`app/renderer/paneltheme.ts` carries the same names and puts them on the
+panel's own document. Take a colour from the theme rather than naming one,
+because a hard-coded colour is right in one theme and wrong in every other.
+`panel.test.ts` fails a stylesheet that reads a name neither file sets.
 
 ### Running the tests
 

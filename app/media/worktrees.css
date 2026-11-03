@@ -1,10 +1,10 @@
-/* The editor's own tokens throughout: this is a pane of VS Code. */
+/* The window's own palette throughout: paneltheme.ts puts it here. */
 body {
   margin: 0;
   padding: 16px 20px 32px;
-  font: var(--vscode-font-size) var(--vscode-font-family);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  font: var(--ui-size) var(--ui);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 .head {
@@ -20,16 +20,16 @@ h1 {
 .said {
   margin: 0;
   flex: 1;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 .base,
 .none,
 .note {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   margin: 10px 0 14px;
 }
 .note {
-  color: var(--vscode-editorWarning-foreground);
+  color: var(--warn);
 }
 
 button {
@@ -37,11 +37,11 @@ button {
   padding: 4px 12px;
   border: none;
   border-radius: 2px;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 button:hover:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
+  background: var(--accent-hover);
 }
 button:disabled {
   opacity: 0.5;
@@ -68,34 +68,34 @@ button:disabled {
 .trunk,
 .rail {
   fill: none;
-  stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  stroke: var(--info);
   stroke-width: 2;
   stroke-linecap: round;
 }
 .trunk {
-  stroke: var(--vscode-foreground);
+  stroke: var(--ink);
 }
 .tie {
   fill: none;
-  stroke: var(--vscode-editorWarning-foreground);
+  stroke: var(--warn);
   stroke-width: 1.2;
   stroke-dasharray: 3 3;
 }
 
 .dot {
-  fill: var(--vscode-editor-background);
-  stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  fill: var(--bg);
+  stroke: var(--info);
   stroke-width: 2;
 }
 .dot.base {
-  fill: var(--vscode-foreground);
-  stroke: var(--vscode-foreground);
+  fill: var(--ink);
+  stroke: var(--ink);
 }
 .dot.spare {
-  stroke: var(--vscode-descriptionForeground);
+  stroke: var(--ink-dim);
 }
 .dot.commit {
-  fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  fill: var(--info, var(--info));
   stroke: none;
 }
 
@@ -107,7 +107,7 @@ button:disabled {
   min-width: 0;
 }
 .lane {
-  border-bottom: 1px solid var(--vscode-panel-border);
+  border-bottom: 1px solid var(--line);
   box-sizing: border-box;
 }
 .lane:last-child {
@@ -128,7 +128,7 @@ button:disabled {
   border-radius: 0;
 }
 .lane-head:hover:not(:disabled) {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--hover);
 }
 .lane-name {
   font-weight: 600;
@@ -137,14 +137,14 @@ button:disabled {
   gap: 8px;
 }
 .lane-state {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 .verdict {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   font-style: italic;
 }
 .verdict.spare {
-  color: var(--vscode-charts-green, var(--vscode-descriptionForeground));
+  color: var(--good, var(--ink-dim));
   font-style: normal;
 }
 
@@ -152,19 +152,19 @@ button:disabled {
   font-size: 0.85em;
   padding: 1px 7px;
   border-radius: 9px;
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
+  color: var(--ink);
+  background: var(--tint-dim);
 }
 .tag.duplicates {
-  color: var(--vscode-editorWarning-foreground);
+  color: var(--warn);
   background: transparent;
-  border: 1px solid var(--vscode-editorWarning-foreground);
+  border: 1px solid var(--warn);
 }
 .tag.absorbed,
 .tag.elsewhere {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
   background: transparent;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--line);
 }
 
 .commits {
@@ -179,11 +179,11 @@ button:disabled {
   padding: 3px 0;
 }
 .commit.empty {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 .sha {
-  font-family: var(--vscode-editor-font-family);
-  color: var(--vscode-descriptionForeground);
+  font-family: var(--mono);
+  color: var(--ink-dim);
 }
 .subject {
   flex: 1;
@@ -203,7 +203,7 @@ button:disabled {
 .tick {
   flex: none;
   margin: 0 2px 0 0;
-  accent-color: var(--vscode-button-background);
+  accent-color: var(--accent);
 }
 .tick:disabled {
   opacity: 0.35;
@@ -217,7 +217,7 @@ button:disabled {
   gap: 12px;
   margin: 20px 0 0;
   padding: 14px 0 0;
-  border-top: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--line);
 }
 .bar .said {
   flex: none;
@@ -240,7 +240,7 @@ button:disabled {
   padding: 0 10px;
 }
 .lane-head:hover {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--hover);
 }
 .fold {
   display: flex;
@@ -257,9 +257,9 @@ button:disabled {
 }
 .merge {
   flex: none;
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+  background: var(--selected-quiet);
+  color: var(--ink);
 }
 .merge:hover:not(:disabled) {
-  background: var(--vscode-button-secondaryHoverBackground);
+  background: var(--hover);
 }

@@ -3,10 +3,10 @@
 body {
   margin: 0;
   padding: 16px 20px 32px;
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
-  color: var(--vscode-foreground);
-  background: var(--vscode-editor-background);
+  font-family: var(--ui);
+  font-size: var(--ui-size);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 .head {
@@ -25,16 +25,16 @@ body {
 .when,
 .behind,
 .branch {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .refresh {
   margin-left: auto;
   padding: 3px 10px;
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--button-edge, transparent);
   border-radius: 4px;
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+  background: var(--selected-quiet);
+  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }
@@ -43,8 +43,8 @@ body {
   margin: 0 0 12px;
   padding: 8px 10px;
   border-radius: 4px;
-  background: var(--vscode-inputValidation-infoBackground);
-  border: 1px solid var(--vscode-inputValidation-infoBorder);
+  background: var(--tint-info);
+  border: 1px solid var(--info);
 }
 
 .trouble {
@@ -68,13 +68,13 @@ body {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
-  border-bottom: 1px solid var(--vscode-panel-border);
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--line);
 }
 
 .rows td {
   padding: 6px 10px 6px 0;
-  border-bottom: 1px solid var(--vscode-panel-border);
+  border-bottom: 1px solid var(--line);
   vertical-align: baseline;
 }
 
@@ -84,7 +84,7 @@ body {
 }
 
 .rows input[type="checkbox"] {
-  accent-color: var(--vscode-button-background);
+  accent-color: var(--accent);
 }
 
 .repo {
@@ -92,15 +92,15 @@ body {
 }
 
 .name {
-  font-family: var(--vscode-editor-font-family);
+  font-family: var(--mono);
 }
 
 .state.free {
-  color: var(--vscode-charts-green);
+  color: var(--good);
 }
 
 .state.kept {
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .row.kept {
@@ -114,29 +114,29 @@ body {
   gap: 14px;
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--line);
 }
 
 .force {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--vscode-descriptionForeground);
+  color: var(--ink-dim);
 }
 
 .remove {
   margin-left: auto;
   padding: 4px 14px;
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--button-edge, transparent);
   border-radius: 4px;
   font: inherit;
   cursor: pointer;
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .remove:hover:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
+  background: var(--accent-hover);
 }
 
 .remove:disabled {
