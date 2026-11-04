@@ -20,6 +20,7 @@ import (
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/hub"
 	"github.com/owenrumney/ade/internal/jobs"
+	"github.com/owenrumney/ade/internal/ledger"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/lineage"
 	"github.com/owenrumney/ade/internal/linear"
@@ -91,7 +92,12 @@ var responseShapes = map[string][]string{
 	},
 	"LineageResponse": {"turns slice"},
 	"LineageMarks":    {"files map"},
-	"DriftState":      {"at string", "file string", "items slice"},
+	"LedgerReport":    {"agent int", "files slice", "read int", "unread int"},
+	"LedgerFile": {
+		"agent int", "path string", "read int", "ticked slice", "unread int", "viewed bool",
+	},
+	"LedgerSpan": {"file string", "lines int", "start int"},
+	"DriftState": {"at string", "file string", "items slice"},
 	"DriftItem": {
 		"dismissed bool", "file string", "fileLine int", "hash string", "id string", "kind string",
 		"line int", "note string", "text string", "verdict string",
@@ -386,6 +392,9 @@ func TestTheResponseShapesStillMatchTheGoStructs(t *testing.T) {
 		"LineageTurn":       lineage.Turn{},
 		"LineageResponse":   lineageResponse{},
 		"LineageMarks":      lineageMarks{},
+		"LedgerReport":      ledger.Report{},
+		"LedgerFile":        ledger.FileCount{},
+		"LedgerSpan":        ledger.Span{},
 		"DriftState":        DriftState{},
 		"DriftItem":         DriftItem{},
 		"HubInfo":           hub.Info{},

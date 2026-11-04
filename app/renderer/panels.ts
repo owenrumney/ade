@@ -897,8 +897,8 @@ export function ship(reach: Reach): Panel {
 
       refused = {};
       note = "";
-      if (what === "threads" || what === "design") {
-        reach.run(what === "threads" ? "ade.showComments" : "ade.design");
+      if (what === "threads" || what === "design" || what === "read") {
+        reach.run(what === "design" ? "ade.design" : "ade.showComments");
         return state();
       }
 

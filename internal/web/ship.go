@@ -158,6 +158,10 @@ func (s *Server) shipSession(projects []ship.Project) ship.Session {
 		session.Threads = len(store.Unresolved())
 	}
 
+	// The rail is about the whole change, not an index someone is mid-staging.
+	report := s.ledgerReport()
+	session.Ledger.Unread, session.Ledger.Agent = report.Unread, report.Agent
+
 	if config, err := verify.Load(s.verifyPath()); err == nil {
 		session.Tests.Configured = len(config.Checks) > 0
 	}

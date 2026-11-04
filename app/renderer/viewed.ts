@@ -1,53 +1,59 @@
-// Which files you have ticked off in a review, and the version you ticked.
-// A file the agent changes again loses its tick: a stale one is worse than none.
+// What a review has read, as the server counted it. The ticks live in the
+// ledger, so they survive the browser.
 
-export type Marks = Record<string, string>;
+import type { Span } from "./dwell";
 
-export interface Counted {
+export interface LedgerFile {
   path: string;
-  status: string;
-  additions: number;
-  deletions: number;
+  agent: number;
+  read: number;
+  unread: number;
+  // viewed is every hunk of the file ticked off.
+  viewed: boolean;
+  ticked: Span[];
 }
 
-// The counts, not a hash of the hunks: the window holds these already.
-export function stamp(file: Counted): string {
-  return `${file.status}:${file.additions}:${file.deletions}`;
+export interface Ledger {
+  files: LedgerFile[];
+  agent: number;
+  read: number;
+  unread: number;
 }
 
-// pruned drops a tick whose file has gone from the diff or changed since.
-export function pruned(marks: Marks, files: Counted[]): Marks {
-  const out: Marks = {};
-  for (const file of files) {
-    if (marks[file.path] === stamp(file)) out[file.path] = marks[file.path];
+export const NO_LEDGER: Ledger = { files: [], agent: 0, read: 0, unread: 0 };
+
+export function ledgerIn(got: unknown): Ledger {
+  const ledger = got as Partial<Ledger> | undefined;
+  if (!ledger || !Array.isArray(ledger.files)) return NO_LEDGER;
+  return {
+    files: ledger.files.filter((f) => Boolean(f?.path)),
+    agent: ledger.agent ?? 0,
+    read: ledger.read ?? 0,
+    unread: ledger.unread ?? 0,
+  };
+}
+
+export function fileIn(ledger: Ledger, path: string): LedgerFile | undefined {
+  return ledger.files.find((f) => f.path === path);
+}
+
+// viewedIn is the paths ticked off, which is what dims a file in the tree.
+export function viewedIn(ledger: Ledger): Set<string> {
+  return new Set(ledger.files.filter((f) => f.viewed).map((f) => f.path));
+}
+
+// ticked is whether a hunk's own lines are all claimed. A tick on part of it
+// is not a tick on it: the box says what it means or it says nothing.
+export function ticked(file: LedgerFile | undefined, span: Span): boolean {
+  if (!file || span.lines < 1) return false;
+  for (let line = span.start; line < span.start + span.lines; line++) {
+    if (!file.ticked.some((run) => line >= run.start && line < run.start + run.lines)) return false;
   }
-  return out;
+  return true;
 }
 
-export function flip(marks: Marks, file: Counted): Marks {
-  const next = { ...marks };
-  if (next[file.path]) delete next[file.path];
-  else next[file.path] = stamp(file);
-  return next;
-}
-
-// Only the session in front of you: every session's would grow without bound.
-interface Held {
-  session: string;
-  marks: Marks;
-}
-
-export function read(raw: string | null, session: string): Marks {
-  if (!raw || !session) return {};
-  try {
-    const held = JSON.parse(raw) as Partial<Held>;
-    if (held?.session !== session || !held.marks) return {};
-    return { ...held.marks };
-  } catch {
-    return {};
-  }
-}
-
-export function write(marks: Marks, session: string): string {
-  return JSON.stringify({ session, marks } satisfies Held);
+export function unreadNote(file: LedgerFile | undefined): string {
+  if (!file || file.agent === 0) return "";
+  if (file.unread === 0) return `${file.agent} agent lines, all read`;
+  return `${file.unread} of ${file.agent} agent lines unread`;
 }

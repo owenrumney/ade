@@ -1,52 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { flip, pruned, read, write, type Counted } from "./viewed";
+import { fileIn, ledgerIn, ticked, unreadNote, viewedIn, type LedgerFile } from "./viewed";
 
-const file = (path: string, additions = 3, deletions = 1): Counted => ({
-  path,
-  status: "changed",
-  additions,
-  deletions,
+const file = (over: Partial<LedgerFile> = {}): LedgerFile => ({
+  path: "a.ts",
+  agent: 10,
+  read: 4,
+  unread: 6,
+  viewed: false,
+  ticked: [{ file: "a.ts", start: 1, lines: 4 }],
+  ...over,
 });
 
-describe("ticking a file off", () => {
-  it("ticks and unticks", () => {
-    const one = flip({}, file("a.ts"));
-    expect(one["a.ts"]).toBeTruthy();
-    expect(flip(one, file("a.ts"))).toEqual({});
+describe("the ledger as the window reads it", () => {
+  it("takes what the server sent", () => {
+    const got = ledgerIn({ files: [file()], agent: 10, read: 4, unread: 6 });
+    expect(got.unread).toBe(6);
+    expect(fileIn(got, "a.ts")?.agent).toBe(10);
+    expect(fileIn(got, "b.ts")).toBeUndefined();
   });
 
-  it("leaves the marks it was given alone", () => {
-    const was = {};
-    flip(was, file("a.ts"));
-    expect(was).toEqual({});
-  });
-});
-
-describe("a tick that has gone stale", () => {
-  // The agent touches the file again while you are reading it.
-  it("goes when the file changes again", () => {
-    const marks = flip({}, file("a.ts", 3, 1));
-    expect(pruned(marks, [file("a.ts", 3, 1)])).toEqual(marks);
-    expect(pruned(marks, [file("a.ts", 9, 1)])).toEqual({});
+  it("is empty when the server said nothing readable", () => {
+    expect(ledgerIn(undefined).files).toEqual([]);
+    expect(ledgerIn({ error: "no session" }).unread).toBe(0);
   });
 
-  it("goes when the file leaves the diff", () => {
-    const marks = flip({}, file("a.ts"));
-    expect(pruned(marks, [file("b.ts")])).toEqual({});
+  it("dims the files whose every hunk is ticked", () => {
+    const got = ledgerIn({ files: [file({ viewed: true }), file({ path: "b.ts" })] });
+    expect(viewedIn(got)).toEqual(new Set(["a.ts"]));
   });
 });
 
-describe("what survives a reload", () => {
-  it("is this session's ticks and no other's", () => {
-    const marks = flip({}, file("a.ts"));
-    const raw = write(marks, "s1");
-    expect(read(raw, "s1")).toEqual(marks);
-    expect(read(raw, "s2")).toEqual({});
+describe("a hunk's box", () => {
+  it("is ticked only when the whole span is claimed", () => {
+    expect(ticked(file(), { file: "a.ts", start: 1, lines: 4 })).toBe(true);
+    expect(ticked(file(), { file: "a.ts", start: 1, lines: 5 })).toBe(false);
+    expect(ticked(undefined, { file: "a.ts", start: 1, lines: 1 })).toBe(false);
+  });
+});
+
+describe("what the file head says", () => {
+  it("counts what is left", () => {
+    expect(unreadNote(file())).toBe("6 of 10 agent lines unread");
+    expect(unreadNote(file({ unread: 0, read: 10 }))).toBe("10 agent lines, all read");
   });
 
-  it("is nothing, when there is nothing readable", () => {
-    expect(read(null, "s1")).toEqual({});
-    expect(read("not json", "s1")).toEqual({});
-    expect(read(write({}, "s1"), "")).toEqual({});
+  it("says nothing about a file the agent did not write", () => {
+    expect(unreadNote(file({ agent: 0, read: 0, unread: 0 }))).toBe("");
+    expect(unreadNote(undefined)).toBe("");
   });
 });

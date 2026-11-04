@@ -22,7 +22,8 @@ import { fill, owed, wired, type Ask, type Doing } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
 import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
 import { needFor, Sources } from "./fresh";
-import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
+import { ledgerIn, viewedIn, NO_LEDGER, type Ledger } from "./viewed";
+import { idleAfter, merge, onScreen, plus, rowsOf, type Dwelt } from "./dwell";
 import { frame, pushTo, shown, stirred, tell } from "./panel";
 import {
   dismissable,
@@ -84,8 +85,14 @@ interface Rows<T> {
 const EMPTY_DIFF: { rows: Change[]; why: string } = { rows: [], why: "" };
 const EMPTY_TREE: { rows: { path: string }[]; why: string } = { rows: [], why: "" };
 
-// Where the files ticked off in a review are kept between reloads.
-const markKey = "ade.diff.viewed";
+// How often the window looks at what is on screen, and how often it tells
+// the server. Reading is reported, never inferred from a fetch.
+const lookEvery = 1_000;
+const tellEvery = 5_000;
+
+// The most pending ranges a failed report may hold onto, which is the server's
+// own limit on one report: past it nothing would be accepted.
+const maxPending = 500;
 
 // The dock asks a panel tab's question — is there a server to fetch from.
 const CHAT_TAB: Tab = { id: "chat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
@@ -207,9 +214,16 @@ class Ade {
   // The sidebar folded away, by the arrows under the activity bar.
   private sideShut = localStorage.getItem("ade.side.shut") === "1";
   private split = localStorage.getItem("ade.diff.split") === "1";
-  // Files ticked off in the review. Switching session starts a fresh set.
-  private marks: Marks = {};
-  private marksFor = "";
+  // How much of what the agent wrote has been read, as the server counts it.
+  private ledger: Ledger = NO_LEDGER;
+  private viewedFiles = new Set<string>();
+  // What has been on screen since the last report, and when each clock ran.
+  private dwelt: Dwelt[] = [];
+  // The session the pending dwell was gathered in. It is reported there, not
+  // wherever the window has got to by the time the report goes out.
+  private dweltIn = "";
+  private lookedAt = 0;
+  private toldAt = 0;
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
   private watching = "";
@@ -272,6 +286,7 @@ class Ade {
       });
       return;
     }
+    setInterval(() => this.look(), lookEvery);
     // ade's lists change because of other people. Each read sets the
     // next one; see soon().
     void this.read();
@@ -353,11 +368,7 @@ class Ade {
       : await this.looking();
     this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
-    if (this.marksFor !== this.session) {
-      this.marksFor = this.session;
-      this.marks = readMarks(localStorage.getItem(markKey), this.session);
-    }
-    this.marks = pruned(this.marks, this.changes);
+    this.hold(ledgerIn(await this.readLedger()));
     this.world = {
       places: inBarOrder([
         real.waiting(dash, got.active ?? []),
@@ -605,6 +616,55 @@ class Ade {
         ? ""
         : `Nothing in ${where}${view ? ` · ${view}` : ""}. ⌘K “scope” to change the view.`;
     return { rows, why };
+  }
+
+  private async readLedger(): Promise<unknown> {
+    if (!this.session) return undefined;
+    return window.ade?.read("session", "/api/ledger", this.session).catch(() => undefined);
+  }
+
+  private hold(ledger: Ledger): void {
+    this.ledger = ledger;
+    this.viewedFiles = viewedIn(ledger);
+  }
+
+  // look is what was on screen since the last look, and every so often it
+  // says so. A window nobody is looking at reports nothing.
+  private look(): void {
+    const now = Date.now();
+    const since = now - this.lookedAt;
+    this.lookedAt = now;
+    if (document.hidden || !document.hasFocus() || since > idleAfter) return;
+    // A switch of session reports what the last one earned before gathering more.
+    if (this.dwelt.length > 0 && this.dweltIn !== this.session) void this.tell();
+    const view = { top: 0, bottom: window.innerHeight };
+    for (const { file, rows } of rowsOf(this.root)) {
+      this.dwelt = plus(this.dwelt, onScreen(file, rows, view), since);
+    }
+    if (this.dwelt.length === 0) return;
+    this.dweltIn = this.session;
+    if (now - this.toldAt >= tellEvery) void this.tell();
+  }
+
+  // tell reports the dwell and takes the count back. A report that did not
+  // land is put back: five seconds of reading is not the server's to lose.
+  private async tell(): Promise<void> {
+    const seen = this.dwelt;
+    const to = this.dweltIn;
+    this.dwelt = [];
+    this.toldAt = Date.now();
+    if (!window.ade || !to || seen.length === 0) return;
+    const back = await window.ade
+      .act("session", "/api/ledger", { seen }, to)
+      .catch(() => undefined);
+    if (!back) {
+      const put = this.dweltIn === to ? merge(seen, this.dwelt) : this.dwelt;
+      if (put.length <= maxPending) this.dwelt = put;
+      return;
+    }
+    if (to !== this.session) return;
+    this.hold(ledgerIn(back));
+    if (this.place === "review") this.draw();
   }
 
   private async readTree(): Promise<{ rows: { path: string }[]; why: string }> {
@@ -1000,11 +1060,10 @@ class Ade {
       this.split = !this.split;
       localStorage.setItem("ade.diff.split", this.split ? "1" : "0");
       return this.draw();
-    } else if (asked.what === "viewed") {
-      const file = this.changes.find((c) => c.path === asked.file);
-      if (!file) return;
-      this.marks = flip(this.marks, file);
-      localStorage.setItem(markKey, writeMarks(this.marks, this.session));
+    } else if (asked.what === "tick") {
+      if (!asked.span) return;
+      const back = await send("/api/ledger", { tick: asked.span, on: Boolean(asked.on) });
+      this.hold(ledgerIn(back));
       return this.draw();
     } else if (asked.what === "unfold") {
       this.openThreads = toggled(this.openThreads, asked.id ?? "");
@@ -2378,7 +2437,7 @@ class Ade {
     const { node, depth, open } = shown;
     const row = el("div", `twig${node.status ? " " + node.status : ""}`);
     if (this.picked.get(this.place) === node.path) row.className += " on";
-    if (this.place === "review" && this.marks[node.path]) row.className += " viewed";
+    if (this.place === "review" && this.viewedFiles.has(node.path)) row.className += " viewed";
     for (let i = 0; i < depth; i++) row.append(el("span", "pad guide"));
 
     const chev = el("span", node.dir ? (open ? "chev open" : "chev") : "chev leaf");
@@ -3213,7 +3272,7 @@ class Ade {
         hasPR: Boolean(this.world.status.pr),
         open: this.openThreads,
         split: this.split,
-        viewed: new Set(Object.keys(this.marks)),
+        ledger: this.ledger,
       },
       (who, text) => void this.askPerson(who, text),
       (did) => void this.spaceAct(did),
