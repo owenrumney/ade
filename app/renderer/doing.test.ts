@@ -193,6 +193,28 @@ describe("a verdict on a pull request", () => {
   });
 });
 
+// A design in another space is held by another session, and these posted to
+// whichever one the sidebar was on: "there is no design document open".
+describe("a verb that acts on the open design", () => {
+  it("is marked as the document's, not the sidebar's", () => {
+    for (const command of [
+      "ade.reviewDesign",
+      "ade.condenseDesign",
+      "ade.grillDesign",
+      "ade.build",
+    ]) {
+      expect(wired(command), command).toMatchObject({ at: "session", onDoc: true });
+    }
+  });
+
+  it("is the only shape that may name a document", () => {
+    const named = Object.entries(WIRED).filter(
+      ([, what]) => what.at === "session" && /^\/api\/design\/(review|condense|go)$/.test(what.path),
+    );
+    expect(named.every(([, what]) => what.at === "session" && what.onDoc)).toBe(true);
+  });
+});
+
 // Not a threshold to defend, a number to watch: it should go up.
 describe("how much of ade the window has caught up with", () => {
   it("reports the split", () => {

@@ -314,3 +314,21 @@ func TestNobodyElsesPointsAreFolded(t *testing.T) {
 	assert.Empty(t, s.filedBy("architect"))
 	assert.Empty(t, s.filedBy(""))
 }
+
+// A window showing a design from another space has it open; this server does
+// not, and reviewed nothing because it asked itself which document that was.
+func TestADesignReviewTakesTheDocumentItIsGiven(t *testing.T) {
+	s := newTestServer(t)
+	writeDoc(t, s, "cart.md", "   \n")
+
+	rec := do(t, s, "POST", "/api/design/review", `{"agent":"architect","file":"cart.md"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "nothing in cart.md",
+		"the named document was read, not this server's own idea of one")
+}
+
+func TestADesignReviewRefusesADocumentThatIsNotThere(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "POST", "/api/design/review", `{"agent":"architect","file":"../secrets.md"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

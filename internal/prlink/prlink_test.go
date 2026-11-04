@@ -41,6 +41,18 @@ func TestANameInTwoDirectoriesIsLeftAlone(t *testing.T) {
 	assert.Equal(t, "view.ts:12 is one of them.", In("view.ts:12 is one of them.", at, "", known))
 }
 
+func TestAFileTheChangeOnlyReadsIsResolvedAgainstTheTree(t *testing.T) {
+	known := Or(Files([]string{"src/events.ts"}), Files([]string{"src/events.ts", "src/app.ts"}))
+	got := In("mounted without auth (`app.ts:155`).", at, "", known)
+	assert.Contains(t, got, blob("src/app.ts", "#L155"))
+}
+
+func TestTheChangesOwnPathWinsANameTheTreeHasTwiceOver(t *testing.T) {
+	known := Or(Files([]string{"a/view.ts"}), Files([]string{"a/view.ts", "b/view.ts"}))
+	got := In("view.ts:12 moved.", at, "", known)
+	assert.Contains(t, got, blob("a/view.ts", "#L12"))
+}
+
 func TestABareFilenameWithNothingToResolveAgainstIsLeftAlone(t *testing.T) {
 	assert.Equal(t, "app.ts:155 here.", In("app.ts:155 here.", at, "", nil))
 }

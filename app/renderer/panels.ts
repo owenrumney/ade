@@ -403,6 +403,8 @@ export interface Written {
   // file names the session's document on disk, for a route that acts on one.
   // The server's own idea of which is open may be another document entirely.
   file?: string;
+
+  accept?(rows: unknown[]): Promise<void>;
 }
 
 export function written(
@@ -471,9 +473,7 @@ export function written(
         return notes();
       }
       if (said.kind === "accept") {
-        await reach
-          .send("session", "/api/design/accept", { rows: said.rows, file: doc.file })
-          .catch(() => undefined);
+        await doc.accept?.(Array.isArray(said.rows) ? said.rows : []);
         return undefined;
       }
       if (said.kind === "notedelete") {

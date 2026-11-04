@@ -779,6 +779,14 @@ class Ade {
       id: this.session,
       ...(what.body ?? {}),
     };
+    if (what.at === "session" && what.onDoc) {
+      const doc = this.docShown();
+      if (!doc) return this.say("there is no design document open");
+      if (!doc.session) return this.say(`nothing is working on ${doc.name}: start work on it first`);
+      body.session = doc.session;
+      if (doc.file) body.file = doc.file;
+      this.moveTo(doc.session);
+    }
     let path = what.path;
     for (const need of what.needs ?? []) {
       const said = await this.askFor(need);
@@ -1222,7 +1230,7 @@ class Ade {
     const dir = this.where.get(this.session) ?? "";
     // A design document is a document, not a file to edit as text.
     const doc = docRef(path, dir);
-    if (doc) return this.show({ panel: doc.panel }, doc.title, "design");
+    if (doc) return this.showDesign(doc.panel, doc.title);
     const inside = dir && path.startsWith(dir + "/") ? path.slice(dir.length + 1) : path;
     this.place = "code";
     this.picked.set("code", inside);
@@ -1320,17 +1328,62 @@ class Ade {
     // A different session is a different diff. A sub-agent's id
     // carries the session it belongs to.
     const want = this.place === "agents" ? row.id.split(":")[0] : row.id;
-    if ((this.place === "sessions" || this.place === "agents") && this.session !== want) {
-      this.goTo(want);
-      // Picking a conversation means that conversation: one server per
-      // checkout, so the read that follows moves it onto this one.
-      this.wants = want;
-      // Said here, not when the first read lands: openRow() draws the
-      // chat at once, and it would fetch a 404 and print it.
-      if (!this.servedAt(want)) this.serving = "starting";
-      void this.read();
-    }
+    if (this.place === "sessions" || this.place === "agents") this.moveTo(want);
     this.openRow(row);
+  }
+
+  private moveTo(want: string): void {
+    if (!want || want === this.session) return;
+    this.goTo(want);
+    // Picking a conversation means that conversation: one server per
+    // checkout, so the read that follows moves it onto this one.
+    this.wants = want;
+    // Said here, not when the first read lands: openRow() draws the
+    // chat at once, and it would fetch a 404 and print it.
+    if (!this.servedAt(want)) this.serving = "starting";
+    void this.read();
+  }
+
+  // showDesign opens a design where its work is: a document another space
+  // holds is read from the session holding it, not from the one you are on.
+  private showDesign(panel: string, title: string): void {
+    this.moveTo(this.docFor(panel)?.session ?? "");
+    this.show({ panel }, title, "design");
+  }
+
+  private docShown(): { session: string; file: string; name: string } | undefined {
+    const tab = held(this.tabs, this.active);
+    return this.docFor(tab && "panel" in tab.what ? tab.what.panel : "");
+  }
+
+  // docFor is a design panel as the session that holds its document and the
+  // file there. A store design names no file: that session has it open.
+  private docFor(panel: string): { session: string; file: string; name: string } | undefined {
+    if (panel.startsWith("design:")) {
+      const file = panel.slice("design:".length);
+      return { session: this.session, file, name: file };
+    }
+    if (panel.startsWith("spacedesign:")) {
+      const [dir, file] = panel.slice("spacedesign:".length).split("|");
+      const on = real.sessionForDoc(this.repos, this.where, this.storeDesigns, dir, file);
+      return { session: on, file, name: file };
+    }
+    if (panel.startsWith("store:")) {
+      const name = panel.slice("store:".length);
+      return { session: real.sessionOn(this.storeDesigns, name), file: "", name };
+    }
+    return undefined;
+  }
+
+  private async fold(session: string, file: string, rows: unknown[], what: string): Promise<void> {
+    if (rows.length === 0) return;
+    if (!session) return this.say(`nothing is working on ${what}: start work on it first`);
+    this.moveTo(session);
+    const got = await window
+      .ade!.act("session", "/api/design/accept", { rows, file }, session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.say(back.error || `folding ${rows.length} into ${what}`);
   }
 
   // What a row opens as.
@@ -1342,9 +1395,7 @@ class Ade {
     if (this.place === "todos") return this.fromTodo(row.id);
     if (row.id.startsWith("who:")) return void this.conversation(row.id.slice("who:".length));
     const reading = { kind: "doc" as const, title: row.name, body: `# ${row.name}\n\nReading…` };
-    if (this.place === "designs") {
-      return this.show({ panel: `store:${row.id}` }, row.name, "design");
-    }
+    if (this.place === "designs") return this.showDesign(`store:${row.id}`, row.name);
     if (this.place === "jobs") {
       const job = this.jobs.find((one) => `job:${one.name}` === row.id);
       this.show(
@@ -1457,7 +1508,7 @@ class Ade {
       return;
     }
     if (did.what === "open-design") {
-      return this.show({ panel: `store:${did.name}` }, did.name, "design");
+      return this.showDesign(`store:${did.name}`, did.name);
     }
     if (did.what === "new-session") {
       if (!space.path) return this.say(`${space.repo} is not cloned on this machine`);
@@ -3166,6 +3217,7 @@ class Ade {
         },
         notes: true,
         file,
+        accept: (rows) => this.fold(this.session, file, rows, file),
       };
     }
     // A design in a space other than the session's: read and written
@@ -3181,6 +3233,7 @@ class Ade {
         write: async (reach, text) => {
           await reach.send("launcher", `/api/design?dir=${encodeURIComponent(dir)}`, { file, body: text }, "PUT");
         },
+        accept: (rows) => this.fold(real.sessionIn(this.where, dir), file, rows, file),
       };
     }
     if (which.startsWith("store:")) {
@@ -3195,6 +3248,7 @@ class Ade {
         write: async (reach, text) => {
           await reach.send("launcher", "/api/designs/write", { name, body: text }, "PUT");
         },
+        accept: (rows) => this.fold(real.sessionOn(this.storeDesigns, name), "", rows, name),
       };
     }
     if (which.startsWith("pr:") && this.pr) {

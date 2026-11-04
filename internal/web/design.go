@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -358,10 +359,16 @@ const condenserName = "condenser"
 
 // handleDesignCondense hands the open document to the condenser. It runs
 // beside the conversation and writes the rewrite back over the doc capability.
-func (s *Server) handleDesignCondense(w http.ResponseWriter, _ *http.Request) {
-	file := s.currentDoc()
-	if file == "" {
-		writeError(w, http.StatusBadRequest, "there is no design document open")
+func (s *Server) handleDesignCondense(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		File string `json:"file"`
+	}
+	if r.ContentLength > 0 && !decode(w, r, &req) {
+		return
+	}
+	file, err := s.docAsked(req.File)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	attached := &chat.Context{From: file, Text: "the whole document"}
@@ -566,14 +573,15 @@ func (s *Server) handleDesignGo(w http.ResponseWriter, r *http.Request) {
 		Provider string `json:"provider"`
 		Model    string `json:"model"`
 		Machine  string `json:"machine"`
+		File     string `json:"file"`
 	}
 	if r.ContentLength > 0 && !decode(w, r, &req) {
 		return
 	}
 
-	file := s.currentDoc()
-	if file == "" {
-		writeError(w, http.StatusBadRequest, "there is no design document to build")
+	file, err := s.docAsked(req.File)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if s.space().snapshot {
@@ -773,6 +781,22 @@ func (s *Server) currentDoc() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.docFile
+}
+
+// docAsked is the document a request names, or the one this server has open:
+// a window showing a design from another space names it.
+func (s *Server) docAsked(file string) (string, error) {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		file = s.currentDoc()
+	}
+	if file == "" {
+		return "", errors.New("there is no design document open")
+	}
+	if _, err := docs.Resolve(s.docsDir, file); err != nil {
+		return "", err
+	}
+	return file, nil
 }
 
 // closeDoc puts the open document away and remembers it, so the poll's branch

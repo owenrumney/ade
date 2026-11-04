@@ -110,6 +110,9 @@ export function skeleton(panel: Panel): string {
 export function open(panel: Panel): { frame: HTMLIFrameElement; stop: () => void } {
   const frame = document.createElement("iframe");
   frame.className = "panel";
+  // The panel is a different origin, so microphone defaults to denied and
+  // dictation in the chat page fails with "Permission denied".
+  frame.allow = "microphone";
   // Fetched from the webview scheme, so it has an origin: srcdoc leaves
   // it opaque, and the session server refuses that.
   void window.ade?.panel(panel.id, skeleton(panel)).then((url) => {

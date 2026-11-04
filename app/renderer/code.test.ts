@@ -72,3 +72,20 @@ describe("the design editor is given the document, not its rendering", () => {
     expect(reader.slice(0, 900)).toContain('"/api/design", { file, body: text }');
   });
 });
+
+// Opening a design from a space page went straight to show(), so the window
+// stayed on whatever session it was already on.
+describe("every way into a design goes through the one that moves", () => {
+  const src = readFileSync(join(__dirname, "app.ts"), "utf8");
+
+  it("has no design tab opened without it", () => {
+    const direct = src.match(/this\.show\(\{ panel: [^}]*\}, [^)]*"design"\)/g) ?? [];
+    expect(direct).toEqual([]);
+  });
+
+  it("moves to the session holding the document", () => {
+    const at = src.indexOf("private showDesign(");
+    expect(at).toBeGreaterThan(0);
+    expect(src.slice(at, at + 300)).toContain("this.moveTo(this.docFor(panel)?.session");
+  });
+});

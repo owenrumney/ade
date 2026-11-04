@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { commit, elsewhere, newSession, WHICH, type Reach } from "./panels";
+import { commit, elsewhere, newSession, WHICH, written, type Reach, type Written } from "./panels";
 
 // What a panel's page actually sends. Read off its own `send(...)`
 // calls rather than guessed: six panels answered "not wired yet"
@@ -1325,5 +1325,33 @@ describe("the machines a new session can be started on", () => {
       offer?: { machines?: unknown[] };
     };
     expect(back.offer?.machines).toEqual([{ name: "gpu", label: "gpu" }]);
+  });
+});
+
+describe("folding accepted recommendations", () => {
+  const doc = (accept?: (rows: unknown[]) => Promise<void>): Written => ({
+    id: "store:cart",
+    title: "cart",
+    read: async () => "# cart",
+    write: async () => {},
+    accept,
+  });
+
+  // It posted to whichever session the window was on, which for a design in
+  // another space is one that has never heard of the document.
+  it("does not post to the session the window happens to be on", async () => {
+    const { reach, seen } = spy();
+    const took: unknown[][] = [];
+    const panel = written(reach, undefined, doc(async (rows) => void took.push(rows)));
+    await panel.onMessage({ kind: "accept", rows: [{ question: "q", recommendation: "r" }] });
+
+    expect(seen).toEqual([]);
+    expect(took).toEqual([[{ question: "q", recommendation: "r" }]]);
+  });
+
+  it("asks for nothing when the document cannot be folded into", async () => {
+    const { reach, seen } = spy();
+    await written(reach, undefined, doc()).onMessage({ kind: "accept", rows: [{ question: "q" }] });
+    expect(seen).toEqual([]);
   });
 });

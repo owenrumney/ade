@@ -1007,7 +1007,7 @@ func run(ctx context.Context, cfg settings) error {
 		// Before the server starts, so a failure is a plain CLI error. The
 		// document stays in the common git dir, which the worktree shares.
 		var added bool
-		root, gitDir, branch, added, err = intoWorktree(ctx, root, docFile, cfg.createBase)
+		root, gitDir, branch, added, err = intoWorktree(ctx, root, filepath.Join(dir, docFile), cfg.createBase)
 		if err != nil {
 			return err
 		}
@@ -1277,14 +1277,14 @@ func newStopCommand() *cobra.Command {
 // The document is deliberately not moved: it lives under the common git dir,
 // which every worktree shares, so one design stays visible from both.
 func intoWorktree(ctx context.Context, root, docFile, base string) (string, string, string, bool, error) {
-	slug := strings.ToLower(web.Slug(docFile))
+	slug := strings.ToLower(web.BranchFor(filepath.Dir(docFile), docFile))
 	if slug == "" {
 		return "", "", "", false, fmt.Errorf("%q does not give a usable branch name", docFile)
 	}
 
-	path := gitdiff.WorktreePath(root, slug)
-	// Resolved only if a worktree has to be made: reuse must not wait on a fetch.
-	added, err := gitdiff.EnsureWorktreeFrom(ctx, root, path, slug, func() string {
+	// ForBranch, not From: the branch may already exist with no worktree, and
+	// `worktree add -b` refuses that rather than checking it out.
+	path, added, err := gitdiff.EnsureWorktreeForBranch(ctx, root, slug, func() string {
 		if base != "" {
 			return base
 		}

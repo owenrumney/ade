@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
@@ -99,6 +100,82 @@ func TestARepositoryWithNoOriginStillGetsAWorktree(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, added)
 	assert.FileExists(t, filepath.Join(path, "a.go"), "the fetch failed, so the local main stood in")
+}
+
+// Every design in the store is a design.md, so slugging the file alone put
+// each one on a worktree called "design".
+func TestAStoreDesignGetsAWorktreeNamedAfterItsDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+	gitAt(t, root, "init", "-b", "main", "-q")
+	commitAt(t, root, "a.go")
+
+	path, _, branch, _, err := intoWorktree(context.Background(), root, "cart-redesign/design.md", "main")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = gitdiff.RemoveWorktreeForce(context.Background(), root, path) })
+
+	assert.Equal(t, "cart-redesign", branch)
+	assert.Equal(t, gitdiff.WorktreePath(root, "cart-redesign"), path)
+}
+
+// docs.Ensure answers with a bare file name, so Start work on a store design
+// reached intoWorktree with "design.md" and no directory to be named after.
+func TestWhatEnsureAnswersStillNamesTheWorktree(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+	gitAt(t, root, "init", "-b", "main", "-q")
+	commitAt(t, root, "a.go")
+
+	dir := filepath.Join(t.TempDir(), "designs", "cart-redesign")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, docs.StoreDoc), []byte("# Cart\n"), 0o600))
+
+	file, _, err := docs.Ensure(dir, "cart-redesign", "")
+	require.NoError(t, err)
+	require.Equal(t, docs.StoreDoc, file)
+
+	path, _, branch, _, err := intoWorktree(context.Background(), root, filepath.Join(dir, file), "main")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = gitdiff.RemoveWorktreeForce(context.Background(), root, path) })
+
+	assert.Equal(t, "cart-redesign", branch)
+}
+
+// A branch left behind by an earlier run, with its worktree gone, made Start
+// work fail: `worktree add -b` refuses a name the repository already has.
+func TestABranchWithNoWorktreeIsCheckedOutRatherThanRefused(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+	gitAt(t, root, "init", "-b", "main", "-q")
+	commitAt(t, root, "a.go")
+	gitAt(t, root, "branch", "trk-1334")
+
+	path, _, branch, added, err := intoWorktree(context.Background(), root, "docs/TRK-1334.md", "main")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = gitdiff.RemoveWorktreeForce(context.Background(), root, path) })
+
+	assert.Equal(t, "trk-1334", branch)
+	assert.True(t, added, "the checkout is new even though the branch is not")
+}
+
+// The branch is already checked out somewhere, and git allows only one
+// checkout of a branch, so that worktree is where the work belongs.
+func TestAnExistingWorktreeOnTheBranchIsWhereTheWorkLands(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "proj")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+	gitAt(t, root, "init", "-b", "main", "-q")
+	commitAt(t, root, "a.go")
+
+	first := gitdiff.WorktreePath(root, "trk-1334")
+	require.NoError(t, gitdiff.AddWorktree(context.Background(), root, first, "trk-1334"))
+	t.Cleanup(func() { _ = gitdiff.RemoveWorktreeForce(context.Background(), root, first) })
+
+	path, _, branch, added, err := intoWorktree(context.Background(), root, "docs/TRK-1334.md", "main")
+	require.NoError(t, err)
+
+	assert.Equal(t, first, path)
+	assert.Equal(t, "trk-1334", branch)
+	assert.False(t, added)
 }
 
 func TestComingBackToATicketIsNotRebased(t *testing.T) {

@@ -52,7 +52,16 @@ export type Method = "PUT" | "PATCH" | "DELETE";
 export type Doing =
   | { at: "window"; place?: string; verb?: Verb }
   | { at: "launcher"; path: string; body?: Record<string, unknown>; needs?: Ask[]; how?: Method }
-  | { at: "session"; path: string; body?: Record<string, unknown>; needs?: Ask[]; how?: Method }
+  // onDoc acts on the design the window is showing, which belongs to the
+  // session that holds it rather than to whichever one the sidebar is on.
+  | {
+      at: "session";
+      path: string;
+      body?: Record<string, unknown>;
+      needs?: Ask[];
+      how?: Method;
+      onDoc?: true;
+    }
   | { at: "panel"; panel: string }
   | { at: "rules" }
   // A document the window renders through a page's own
@@ -81,6 +90,12 @@ const S = (path: string, body?: Record<string, unknown>, ...needs: Ask[]): Doing
   path,
   body,
   needs,
+});
+const D = (path: string, body?: Record<string, unknown>): Doing => ({
+  at: "session",
+  path,
+  body,
+  onDoc: true,
 });
 const type = (as: string, title: string): Ask => ({ ask: "type", as, title });
 const blank = (as: string, title: string): Ask => ({ ask: "type", as, title, blank: true });
@@ -260,11 +275,11 @@ export const WIRED: Record<string, Doing> = {
   "ade.todos": W("todos"),
   "ade.newDesign": S("/api/design", {}, type("name", "What is the design called?")),
   "ade.design": W("designs"),
-  "ade.grillDesign": S("/api/design/go", { mode: "grill" }),
-  "ade.condenseDesign": S("/api/design/condense"),
-  "ade.reviewDesign": S("/api/design/review"),
+  "ade.grillDesign": D("/api/design/go", { mode: "grill" }),
+  "ade.condenseDesign": D("/api/design/condense"),
+  "ade.reviewDesign": D("/api/design/review"),
   "ade.purgeDesigns": { at: "panel", panel: "ade.purgeDesigns" },
-  "ade.build": S("/api/design/go", { mode: "build" }),
+  "ade.build": D("/api/design/go", { mode: "build" }),
   // The file is the definition, so the box writes one and the document
   // is where it gets edited afterwards.
   "ade.newJob": L(

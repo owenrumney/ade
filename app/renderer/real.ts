@@ -218,6 +218,45 @@ export function designs(all: Design[]): Place {
   return store(all);
 }
 
+export function sessionOn(all: Design[], name: string): string {
+  const want = name.toLowerCase();
+  return all.find((d) => d.name.toLowerCase() === want)?.session ?? "";
+}
+
+export function sessionIn(where: ReadonlyMap<string, string>, dir: string): string {
+  if (!dir) return "";
+  for (const [session, at] of where) if (at === dir) return session;
+  return "";
+}
+
+// sessionOnBranch is the session in the checkout on a branch named after the
+// document, which is how ade names a branch it makes for one.
+export function sessionOnBranch(repos: Repo[], name: string): string {
+  const want = name.toLowerCase();
+  for (const repo of repos) {
+    for (const checkout of repo.checkouts ?? []) {
+      const branch = (checkout.branch ?? "").toLowerCase();
+      if (branch !== want && !branch.endsWith("/" + want)) continue;
+      const on = (checkout.sessions ?? []).find((s) => !s.archived);
+      if (on) return on.id;
+    }
+  }
+  return "";
+}
+
+// sessionForDoc is the session a design document belongs to. Its path does not
+// say: the git dir holding it is shared by every worktree of the repository.
+export function sessionForDoc(
+  repos: Repo[],
+  where: ReadonlyMap<string, string>,
+  all: Design[],
+  dir: string,
+  file: string,
+): string {
+  const name = (file.split("/").pop() ?? "").replace(/\.md$/i, "");
+  return sessionOnBranch(repos, name) || sessionOn(all, name) || sessionIn(where, dir);
+}
+
 function store(all: Design[]): Place {
   return {
     id: "designs",

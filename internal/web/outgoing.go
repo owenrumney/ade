@@ -199,7 +199,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	at, known := s.linkAt(owner, repo, pr.HeadSHA)
+	at, known := s.linkAt(r.Context(), ws.homeRoot, owner, repo, pr.HeadSHA)
 	inline := make([]ghpr.InlineComment, 0, len(ready))
 	ids := make([]string, 0, len(ready))
 	for _, thread := range ready {

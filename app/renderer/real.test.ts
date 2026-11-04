@@ -72,7 +72,7 @@ describe("what is waiting on you", () => {
 });
 
 const DESIGNS: Design[] = [
-  { name: "one-window", dir: "/d/a", file: "/d/a/design.md", meta: { repos: ["owenrumney/ade"] }, repo: "owenrumney/ade", here: ["/code/ade"], live: true, branch: "feat/one-window" },
+  { name: "one-window", dir: "/d/a", file: "/d/a/design.md", meta: { repos: ["owenrumney/ade"] }, repo: "owenrumney/ade", here: ["/code/ade"], live: true, branch: "feat/one-window", session: "ade-one-window" },
   { name: "retry-429", dir: "/d/b", file: "/d/b/design.md", meta: { repos: ["infracost/cli", "infracost/infra"], ticket: "FIX-623" }, repo: "infracost/cli", here: ["/code/cli"], missing: ["infracost/infra"] },
 ];
 
@@ -107,6 +107,66 @@ describe("designs, from the store", () => {
     expect([row.icon, row.tone]).toEqual(["play", "good"]);
     expect(row.meta).not.toContain("running");
     expect(row.meta).toContain("feat/one-window");
+  });
+
+  // Opening a design moved the window onto the work going on against it,
+  // so the tabs are the checkout the document is about.
+  it("names the session working on one", () => {
+    expect(real.sessionOn(DESIGNS, "one-window")).toBe("ade-one-window");
+    expect(real.sessionOn(DESIGNS, "retry-429")).toBe("");
+    expect(real.sessionOn(DESIGNS, "no-such-design")).toBe("");
+  });
+
+  // A design in another checkout folds there, not into whatever the window
+  // is sitting on.
+  it("names the session serving a checkout", () => {
+    const where = new Map([["ade-1", "/code/ade"], ["cli-1", "/code/cli"]]);
+    expect(real.sessionIn(where, "/code/cli")).toBe("cli-1");
+    expect(real.sessionIn(where, "/code/none")).toBe("");
+    expect(real.sessionIn(where, "")).toBe("");
+  });
+
+  // The documents live in the main checkout's git dir, which every worktree
+  // shares, so the path they are under names the checkout doing no work.
+  const WORKTREES: Repo[] = [
+    {
+      name: "coast",
+      owner: "infracost",
+      path: "/code/coast",
+      checkouts: [
+        { path: "/code/coast", name: "coast", branch: "main", sessions: [{ id: "coast-main", name: "main", dir: "/code/coast" }] },
+        {
+          path: "/code/coast-trk-1334",
+          name: "coast-trk-1334",
+          branch: "trk-1334",
+          worktree: true,
+          sessions: [{ id: "coast-trk", name: "trk", dir: "/code/coast-trk-1334" }],
+        },
+      ],
+    },
+  ];
+
+  it("folds into the worktree on the branch the document names", () => {
+    const where = new Map([["coast-main", "/code/coast"], ["coast-trk", "/code/coast-trk-1334"]]);
+    expect(real.sessionForDoc(WORKTREES, where, [], "/code/coast", "TRK-1334.md")).toBe("coast-trk");
+  });
+
+  it("falls back to the checkout the document is under", () => {
+    const where = new Map([["coast-main", "/code/coast"]]);
+    expect(real.sessionForDoc([], where, [], "/code/coast", "notes.md")).toBe("coast-main");
+  });
+
+  it("names an archived session's checkout as having none", () => {
+    const gone: Repo[] = [
+      {
+        name: "coast",
+        path: "/code/coast",
+        checkouts: [
+          { path: "/code/coast-trk-1334", name: "w", branch: "trk-1334", sessions: [{ id: "x", name: "x", dir: "/w", archived: true }] },
+        ],
+      },
+    ];
+    expect(real.sessionForDoc(gone, new Map(), [], "/code/coast", "TRK-1334.md")).toBe("");
   });
 });
 

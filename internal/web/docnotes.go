@@ -199,13 +199,14 @@ func (s *Server) handleDesignReview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Agents []string `json:"agents"`
 		Agent  string   `json:"agent"`
+		File   string   `json:"file"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	file := s.currentDoc()
-	if file == "" {
-		writeError(w, http.StatusBadRequest, "there is no design document open")
+	file, err := s.docAsked(req.File)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	body, err := docs.Read(s.docsDir, file)
@@ -277,15 +278,8 @@ func (s *Server) handleDesignAccept(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	file := strings.TrimSpace(req.File)
-	if file == "" {
-		file = s.currentDoc()
-	}
-	if file == "" {
-		writeError(w, http.StatusBadRequest, "there is no design document open")
-		return
-	}
-	if _, err := docs.Resolve(s.docsDir, file); err != nil {
+	file, err := s.docAsked(req.File)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
