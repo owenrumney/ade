@@ -718,6 +718,10 @@ func (c Claude) nodeModules() ([]Mount, error) {
 	var out []Mount
 	for _, dir := range packageDirs(c.Root, nodeModulesDepth) {
 		guest := filepath.Join(dir, "node_modules")
+		// A symlinked node_modules is another package's, which gets its own.
+		if info, err := os.Lstat(guest); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		host := NodeModulesDir(c.Home, guest)
 		if err := os.MkdirAll(host, 0o750); err != nil {
 			return nil, fmt.Errorf("sandbox: node_modules for %s: %w", dir, err)

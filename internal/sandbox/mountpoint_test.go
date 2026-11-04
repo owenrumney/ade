@@ -26,6 +26,24 @@ func TestAMountPointIsMadeInTheCheckoutFirst(t *testing.T) {
 	assert.DirExists(t, guest)
 }
 
+// dashboard's storybook/node_modules points at ../web/node_modules, which is
+// not installed yet: MkdirAll over the dangling link answers EEXIST.
+func TestASymlinkedNodeModulesIsNotAMountPoint(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "repo")
+	book := filepath.Join(root, "storybook")
+	require.NoError(t, os.MkdirAll(book, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(book, "package.json"), []byte("{}"), 0o600))
+	guest := filepath.Join(book, "node_modules")
+	require.NoError(t, os.Symlink(filepath.Join(root, "web", "node_modules"), guest))
+
+	spec, err := Claude{Home: home, Root: root, MakeMountPoints: true}.Spec(filepath.Join(home, "box"))
+	require.NoError(t, err)
+	for _, m := range spec.Mounts {
+		assert.NotEqual(t, guest, m.Guest, "the link's own target is mounted, not the link")
+	}
+}
+
 func TestTheMountPointDoesNotReplaceTheOverlay(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, "repo")
