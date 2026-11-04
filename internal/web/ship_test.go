@@ -37,7 +37,7 @@ func TestShipAnswersAOneCheckoutSessionAsOneColumn(t *testing.T) {
 	assert.Equal(t, 1, len(got.Projects[0].Unpushed), "the branch's one commit")
 	assert.Equal(t, s.space().homeRoot, got.Home)
 	assert.Empty(t, got.View, "the diff is on this session's own checkout")
-	assert.Len(t, got.Gates, 3)
+	assert.Len(t, got.Gates, 4)
 }
 
 func TestShipAnswersEveryRepositoryTheSessionTouches(t *testing.T) {

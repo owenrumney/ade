@@ -1,6 +1,8 @@
 import { el } from "./omnibox";
 import { blocks, inline } from "./markdown";
 import { linesOf, pairsOf, wanted, type At, type Cell, type Change, type Side, type Thread } from "./changes";
+import type { Span } from "./dwell";
+import { fileIn, ticked, unreadNote, NO_LEDGER, type Ledger } from "./viewed";
 import type { Rules, View } from "./model";
 import {
   foldable,
@@ -242,20 +244,17 @@ function hunks(
   jump?: At,
 ): HTMLElement {
   const out = el("div", at.split ? "diff split" : "diff");
+  out.dataset.file = file.path;
   const head = el("div", "file-head");
   head.append(el("span", "", `+${file.additions} −${file.deletions}`));
+  const counted = fileIn(at.ledger ?? NO_LEDGER, file.path);
+  const note = unreadNote(counted);
+  if (note) head.append(el("span", "unread", note));
   const acts = el("div", "file-acts");
-  const seen = el("label", "seen");
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.checked = at.viewed?.has(file.path) ?? false;
-  box.addEventListener("change", () => on({ what: "viewed", file: file.path }));
-  seen.title = "Tick this file off; it dims in the tree until it changes again";
-  seen.append(box, el("span", "", "Viewed"));
   const how = el("button", "how", at.split ? "Unified" : "Split");
   how.title = "Switch between a unified and a side-by-side diff";
   how.addEventListener("click", () => on({ what: "split" }));
-  acts.append(seen, how);
+  acts.append(how);
   head.append(acts);
   out.append(head);
   if (file.binary) {
@@ -269,7 +268,7 @@ function hunks(
   }
   for (const line of lines) {
     if (line.at === "hunk") {
-      out.append(el("div", "hunk", line.text));
+      out.append(hunkHead(line.text, line.span, counted, on));
       continue;
     }
     if (line.at === "thread") {
@@ -292,11 +291,35 @@ function hunks(
       on({ what: "new", file: file.path, side: line.kind === "del" ? "left" : "right", line: line.no }),
     );
     node.dataset.line = String(line.no);
+    if (line.kind !== "del") node.dataset.right = String(line.no);
     node.append(no, tokens(line.cell));
     out.append(node);
   }
   reveal(out, jump);
   return out;
+}
+
+// hunkHead is the hunk's header and the one tick that claims it. A hunk with
+// no lines of its own — a pure deletion — has nothing to claim.
+function hunkHead(
+  text: string,
+  span: Span | undefined,
+  counted: ReturnType<typeof fileIn>,
+  on: OnThread,
+): HTMLElement {
+  const row = el("div", "hunk", text);
+  if (!span) return row;
+  const seen = el("label", "seen");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = ticked(counted, span);
+  box.addEventListener("change", () =>
+    on({ what: "tick", file: span.file, span, on: box.checked }),
+  );
+  seen.title = "Tick this hunk off: the claim that you read it";
+  seen.append(box, el("span", "", "Read"));
+  row.append(seen);
+  return row;
 }
 
 function pair(left: Cell | null, right: Cell | null, path: string, on: OnThread): HTMLElement {
@@ -313,6 +336,7 @@ function side(cell: Cell | null, which: Side, path: string, on: OnThread): HTMLE
   no.title = "Comment on this line";
   no.addEventListener("click", () => on({ what: "new", file: path, side: which, line: cell.line }));
   node.dataset.line = String(cell.line);
+  if (which === "right") node.dataset.right = String(cell.line);
   node.append(no, tokens(cell));
   return node;
 }
@@ -330,11 +354,14 @@ function reveal(out: HTMLElement, jump?: At): void {
 export interface Asked {
   what:
     | "new" | "reply" | "resolve" | "drop" | "convert" | "draft" | "take-out"
-    | "unfold" | "split" | "viewed";
+    | "unfold" | "split" | "tick";
   id?: string;
   file?: string;
   side?: Side;
   line?: number;
+  // A tick's span and which way it is going.
+  span?: Span;
+  on?: boolean;
 }
 
 export type OnThread = (asked: Asked) => void;
@@ -345,8 +372,8 @@ export interface Review {
   hasPR: boolean;
   open: Set<string>;
   split?: boolean;
-  // Ticked off, by path. Already pruned of stale ones.
-  viewed?: Set<string>;
+  // What the server counted of what was read, including the ticks.
+  ledger?: Ledger;
 }
 
 // thread is one comment thread under the line it is about: one comment,

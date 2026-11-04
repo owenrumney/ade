@@ -233,13 +233,25 @@ func TestCommitMessageKeepsMarkdownAndDropsAIAttribution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := message("fix: thing", tt.body)
+			got := message("fix: thing", tt.body, 0)
 			assert.Contains(t, got, tt.want)
 			if tt.gone != "" {
 				assert.NotContains(t, got, tt.gone)
 			}
 		})
 	}
+}
+
+func TestTheCommitRecordsUnreadAgentLinesAndOnlyOnce(t *testing.T) {
+	plain := message("fix: thing", "Real reason.", 0)
+	assert.NotContains(t, plain, unreadTrailer, "nothing unread claims nothing")
+
+	marked := message("fix: thing", "Real reason.", 38)
+	assert.Contains(t, marked, "Unreviewed-Agent-Lines: 38")
+
+	again := message("fix: thing", strings.TrimSpace(strings.SplitN(marked, "\n\n", 2)[1]), 12)
+	assert.Contains(t, again, "Unreviewed-Agent-Lines: 12")
+	assert.NotContains(t, again, "38", "an amend replaces the trailer rather than stacking one")
 }
 
 func gitOut(t *testing.T, dir string, args ...string) string {

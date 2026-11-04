@@ -128,7 +128,18 @@
 
 .sheet-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .sheet-stack .file { flex: 1; }
-.diff .hunk { padding: 4px 16px; color: var(--ink-dim); }
+.diff .hunk {
+  padding: 4px 16px; color: var(--ink-dim);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+/* The tick on a hunk is the claim that you read it. */
+.diff .hunk .seen, .diff .file-head .seen {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--ink-dim); cursor: pointer; user-select: none;
+}
+.diff .hunk .seen:hover { color: var(--ink-bright); }
+.diff .hunk .seen input { margin: 0; cursor: pointer; accent-color: var(--accent); }
+.diff .file-head .unread { color: var(--ink-dim); }
 
 /* Anything with nothing picked yet. */
 .nothing {

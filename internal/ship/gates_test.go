@@ -9,9 +9,9 @@ import (
 
 func TestTheRailIsWhatIsRegisteredAndInThatOrder(t *testing.T) {
 	gates := Standard().Run(Session{})
-	require.Len(t, gates, 3)
-	assert.Equal(t, []string{"Threads resolved", "Tests ran", "Design approved"},
-		[]string{gates[0].Name, gates[1].Name, gates[2].Name})
+	require.Len(t, gates, 4)
+	assert.Equal(t, []string{"Threads resolved", "Tests ran", "Design approved", "Agent lines read"},
+		[]string{gates[0].Name, gates[1].Name, gates[2].Name, gates[3].Name})
 }
 
 func TestAGateAddedToTheRegistryIsDrawnWithTheRest(t *testing.T) {
@@ -19,8 +19,8 @@ func TestAGateAddedToTheRegistryIsDrawnWithTheRest(t *testing.T) {
 		return Gate{Name: "Mine", State: Pass, Note: "fine"}
 	})
 	gates := registry.Run(Session{})
-	require.Len(t, gates, 4)
-	assert.Equal(t, "Mine", gates[3].Name)
+	require.Len(t, gates, 5)
+	assert.Equal(t, "Mine", gates[4].Name)
 }
 
 func TestOpenThreadsFailTheirGateWithSomethingToPress(t *testing.T) {
@@ -54,6 +54,25 @@ func TestUnresolvedDesignNotesWarnAndNameTheDocument(t *testing.T) {
 	gate := designGate(Session{Design: Design{Open: true, File: "ship.md", Unresolved: 1}})
 	assert.Equal(t, Warn, gate.State)
 	assert.Equal(t, "1 note unresolved on ship.md", gate.Note)
+}
+
+func TestUnreadAgentLinesWarnAndNeverBlock(t *testing.T) {
+	gate := readGate(Session{Ledger: Ledger{Agent: 112, Unread: 38}})
+	assert.Equal(t, Warn, gate.State)
+	assert.Equal(t, "38 of 112 agent lines unread", gate.Note)
+	require.NotNil(t, gate.Button)
+	assert.Equal(t, "read", gate.Button.Do)
+
+	assert.Equal(t, Pass, readGate(Session{Ledger: Ledger{Agent: 112}}).State)
+	assert.Equal(t, Optional, readGate(Session{}).State,
+		"a branch the agent did not write is not asked to read it")
+}
+
+func TestUnreadAgentLinesAreNeverAVeto(t *testing.T) {
+	project := Project{Branch: "work", Base: "origin/main"}
+	session := Session{Ledger: Ledger{Agent: 112, Unread: 112}}
+	assert.Empty(t, Standing().Reason(StepCommit, session, project))
+	assert.Empty(t, Standing().Reason(StepRaise, session, project))
 }
 
 func TestCommittingToTheBaseBranchIsVetoed(t *testing.T) {

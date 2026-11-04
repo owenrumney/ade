@@ -201,6 +201,7 @@ func (s *Server) settleTurn() {
 	if err := store.Prune(diff); err != nil {
 		slog.Debug("prune lineage", "err", err)
 	}
+	s.pruneLedger(diff)
 	s.hub.Broadcast("lineage", nil)
 }
 

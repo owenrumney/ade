@@ -54,14 +54,23 @@ export type Side = "left" | "right";
 // The editor's, not a second declaration of it. A narrower copy here is what
 // left the window with no notion of a draft at all.
 import type { Thread } from "../pages/client";
+import type { Span } from "./dwell";
 export type { Comment as Said, Thread } from "../pages/client";
 
 // One line of the drawn diff: a hunk header, a cell with the number it
 // has on whichever side it belongs to, or a thread anchored under one.
 export type Line =
-  | { at: "hunk"; text: string }
+  | { at: "hunk"; text: string; span?: Span }
   | { at: "line"; kind: string; no: number; cell: Cell }
   | { at: "thread"; thread: Thread };
+
+// spanOf is a hunk's run of right-hand lines, which is what one tick claims.
+export function spanOf(file: Change | undefined, hunk: Hunk): Span | undefined {
+  const lines = (hunk.rows ?? []).map((row) => row.right?.line ?? 0).filter((line) => line > 0);
+  if (!file || lines.length === 0) return undefined;
+  const start = Math.min(...lines);
+  return { file: file.path, start, lines: Math.max(...lines) - start + 1 };
+}
 
 export function changesIn(got: unknown): Change[] {
   const diff = (got as { diff?: Diff })?.diff;
@@ -81,7 +90,11 @@ export function linesOf(file: Change | undefined, threads: Thread[] = []): Line[
     }
   };
   for (const hunk of file?.hunks ?? []) {
-    out.push({ at: "hunk", text: [hunk.header, hunk.heading].filter(Boolean).join(" ") });
+    out.push({
+      at: "hunk",
+      text: [hunk.header, hunk.heading].filter(Boolean).join(" "),
+      span: spanOf(file, hunk),
+    });
     for (const row of hunk.rows ?? []) {
       // A paired replacement is two lines, the old one first, which is
       // the order a unified diff has them in.
@@ -199,7 +212,7 @@ function firstLine(body: string): string {
 
 // One row of the file drawn split: the two sides of a pair, side by side.
 export type Pair =
-  | { at: "hunk"; text: string }
+  | { at: "hunk"; text: string; span?: Span }
   | { at: "pair"; left: Cell | null; right: Cell | null }
   | { at: "thread"; thread: Thread };
 
@@ -213,7 +226,11 @@ export function pairsOf(file: Change | undefined, threads: Thread[] = []): Pair[
     }
   };
   for (const hunk of file?.hunks ?? []) {
-    out.push({ at: "hunk", text: [hunk.header, hunk.heading].filter(Boolean).join(" ") });
+    out.push({
+      at: "hunk",
+      text: [hunk.header, hunk.heading].filter(Boolean).join(" "),
+      span: spanOf(file, hunk),
+    });
     for (const row of hunk.rows ?? []) {
       out.push({ at: "pair", left: row.left, right: row.right });
       if (row.left) under("left", row.left.line);

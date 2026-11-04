@@ -156,7 +156,8 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 
 	text := ""
 	if title != "" {
-		text = message(title, req.Body)
+		unread, _ := s.ledgerUnread(staged)
+		text = message(title, req.Body, unread)
 	}
 
 	// An amend rewrites this sha, and the ranges stamped with it move onto the
@@ -200,17 +201,30 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// unreadTrailer records how much of what the agent wrote went unread. Written
+// only when the count is not zero: the absence of a trailer claims nothing.
+const unreadTrailer = "Unreviewed-Agent-Lines:"
+
 // message joins the title and body, dropping any line that credits an AI as a
-// co-author. Attribution to a person is left alone.
-func message(title, body string) string {
+// co-author. Attribution to a person is left alone. unread is the agent lines
+// nobody read, which it records as a trailer.
+func message(title, body string, unread int) string {
 	var kept []string
 	for _, line := range strings.Split(body, "\n") {
-		if isAIAttribution(line) {
+		if isAIAttribution(line) || strings.HasPrefix(strings.TrimSpace(line), unreadTrailer) {
 			continue
 		}
 		kept = append(kept, line)
 	}
 	body = strings.TrimSpace(strings.Join(kept, "\n"))
+	if unread > 0 {
+		trailer := fmt.Sprintf("%s %d", unreadTrailer, unread)
+		if body == "" {
+			body = trailer
+		} else {
+			body += "\n\n" + trailer
+		}
+	}
 	if body == "" {
 		return title + "\n"
 	}

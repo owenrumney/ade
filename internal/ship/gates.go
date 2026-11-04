@@ -38,6 +38,14 @@ type Session struct {
 
 	Tests  Tests
 	Design Design
+	Ledger Ledger
+}
+
+// Ledger is the read ledger: how many of the lines the agent wrote have been
+// read on screen.
+type Ledger struct {
+	Agent  int
+	Unread int
 }
 
 // Tests is the repository's own check list, as the session last ran it.
@@ -82,7 +90,25 @@ func (r *Registry) Run(s Session) []Gate {
 
 // Standard is the gates ade ships.
 func Standard() *Registry {
-	return (&Registry{}).Add(threadsGate).Add(testsGate).Add(designGate)
+	return (&Registry{}).Add(threadsGate).Add(testsGate).Add(designGate).Add(readGate)
+}
+
+// readGate reports and never blocks: committing unread work is allowed, and
+// recorded in the commit's trailer.
+func readGate(s Session) Gate {
+	gate := Gate{Name: "Agent lines read"}
+	switch {
+	case s.Ledger.Agent == 0:
+		gate.State, gate.Note = Optional, "the agent has written nothing on this branch"
+	case s.Ledger.Unread == 0:
+		gate.State = Pass
+		gate.Note = fmt.Sprintf("every one of %s is read", plural(s.Ledger.Agent, "agent line"))
+	default:
+		gate.State = Warn
+		gate.Note = fmt.Sprintf("%d of %d agent lines unread", s.Ledger.Unread, s.Ledger.Agent)
+		gate.Button = &Button{Label: "Open the diff", Do: "read"}
+	}
+	return gate
 }
 
 func threadsGate(s Session) Gate {

@@ -117,6 +117,7 @@ var viewSafe = map[string]string{
 	"POST /api/transcribe":                  "audio in, text back; it reads and writes nothing",
 	"POST /api/exit":                        "the door",
 	"POST /api/verify":                      "the check list is the repository's, not one diff's",
+	"POST /api/ledger":                      "what was on screen, kept beside the lineage it counts against",
 }
 
 var routeLine = regexp.MustCompile(`mux\.HandleFunc\("(POST|PUT|DELETE) ([^"]+)", ([^\n]*)\)`)

@@ -37,6 +37,7 @@ import (
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/highlight"
 	"github.com/owenrumney/ade/internal/hub"
+	"github.com/owenrumney/ade/internal/ledger"
 	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/lineage"
 	"github.com/owenrumney/ade/internal/lsp"
@@ -242,8 +243,10 @@ type Server struct {
 	// finished turn can be credited with the lines it changed. lineages is the
 	// lineage store of each workspace that has been opened, keyed by path,
 	// since the workspace itself is swapped for a worktree or a pull request.
-	turns          []*turn
-	lineages       map[string]*lineage.Store
+	turns    []*turn
+	lineages map[string]*lineage.Store
+	// ledgers is the read ledger of each workspace opened, keyed the same way.
+	ledgers        map[string]*ledger.Store
 	previewPending bool
 	// verify is the repository's own checks after a turn: what is running,
 	// what the last run said, and a detected list waiting on your yes.
@@ -838,6 +841,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/file/at", s.guard(s.handleFileAt))
 	mux.HandleFunc("GET /api/lineage", s.guard(s.handleLineage))
 	mux.HandleFunc("GET /api/lineage/marks", s.guard(s.handleLineageMarks))
+	mux.HandleFunc("GET /api/ledger", s.guard(s.handleLedger))
+	mux.HandleFunc("POST /api/ledger", s.guard(s.handleLedgerSeen))
 	mux.HandleFunc("POST /api/attach", s.guard(s.handleAttach))
 	mux.HandleFunc("POST /api/transcribe", s.guard(whisper.Handler()))
 	mux.HandleFunc("DELETE /api/attach", s.guard(s.handleUnattach))

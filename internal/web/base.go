@@ -104,6 +104,8 @@ func (s *Server) handleRebaseBase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, why)
 		return
 	}
+	// The read marks were placed against the diff this replaced.
+	s.dropLedger()
 	s.afterRebase()
 	writeJSON(w, http.StatusOK, map[string]any{"base": base, "behind": behind, "replayed": replayed})
 }
