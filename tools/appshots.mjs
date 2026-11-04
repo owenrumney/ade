@@ -96,6 +96,7 @@ const VIEWS = [
   { name: "app-waiting", place: "Waiting on you" },
   { name: "app-sessions", place: "Sessions" },
   { name: "app-agents", place: "Agents" },
+  { name: "app-agents-stop", place: "Agents", hover: ".sidebar .row.under" },
   { name: "app-terminal", place: "Terminal" },
   { name: "app-todos", place: "Todos" },
   // The title carries the age of the fire, so the tap matches on its start.

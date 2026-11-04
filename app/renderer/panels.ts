@@ -534,7 +534,7 @@ export function quiz(reach: Reach): Panel {
 }
 
 // walkthrough is the change read back as ordered steps. Posts and waits like
-// the quiz, and wears mermaid for the flow the steps walk.
+// the quiz.
 export function explain(reach: Reach): Panel {
   const ask = async (regenerate: boolean) => {
     const got = (await reach
@@ -564,9 +564,6 @@ export function explain(reach: Reach): Panel {
     root: "explain",
     bundle: "explain.js",
     styles: ["explain.css"],
-    // Mermaid before the page: it hands it the theme's own colours as it
-    // draws, so it has to be on the window already.
-    before: ["mermaid.min.js"],
     async onMessage(said) {
       if (said.kind === "ready") return ask(false);
       if (said.kind !== "do") return undefined;

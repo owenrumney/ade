@@ -216,3 +216,40 @@ func TestALongNameIsCutRatherThanRefused(t *testing.T) {
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(filepath.Base(files[0].Path)), 140)
 }
+
+func TestAWorktreeWritesToTheRepositorysOwnAttachments(t *testing.T) {
+	main := t.TempDir()
+	tree := filepath.Join(main, "worktrees", "feat")
+	require.NoError(t, os.MkdirAll(tree, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(tree, "commondir"), []byte("../..\n"), 0o600))
+
+	files, err := Save(tree, []Incoming{{Name: "shot.png", MediaType: "image/png", Data: b64("a png")}})
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	assert.Equal(t, AttachDir(main), filepath.Dir(files[0].Path))
+	assert.Equal(t, AttachDir(main), AttachDir(tree))
+}
+
+func TestAWorktreeStillReadsWhatItWroteBeforeTheyWereShared(t *testing.T) {
+	main := t.TempDir()
+	tree := filepath.Join(main, "worktrees", "feat")
+	require.NoError(t, os.MkdirAll(tree, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(tree, "commondir"), []byte("../.."), 0o600))
+
+	dirs := AttachDirs(tree)
+	require.Len(t, dirs, 2)
+	assert.Equal(t, AttachDir(main), dirs[0])
+	assert.Equal(t, filepath.Join(tree, "ade", "attachments"), dirs[1])
+
+	assert.Equal(t, []string{AttachDir(main)}, AttachDirs(main), "no worktree, one place to look")
+}
+
+func TestAnAbsoluteCommondirIsTakenAsItIs(t *testing.T) {
+	main := t.TempDir()
+	tree := filepath.Join(t.TempDir(), "feat")
+	require.NoError(t, os.MkdirAll(tree, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(tree, "commondir"), []byte(main+"\n"), 0o600))
+
+	assert.Equal(t, AttachDir(main), AttachDir(tree))
+}

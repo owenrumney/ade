@@ -41,8 +41,36 @@ var unsafeRune = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // a line of the prompt, so a newline in it would be a line of its own.
 var controlRune = regexp.MustCompile(`[\x00-\x1f\x7f]+`)
 
-// AttachDir is where a checkout's attachments live, beside its conversations.
-func AttachDir(gitDir string) string { return filepath.Join(statedir.Git(gitDir), "attachments") }
+// AttachDir is where a repository's attachments live. The repository's main
+// git directory, not a worktree's: a removed worktree took them with it.
+func AttachDir(gitDir string) string {
+	return filepath.Join(statedir.Git(sharedGit(gitDir)), "attachments")
+}
+
+// AttachDirs is AttachDir plus, for a worktree, the one it used to write to.
+func AttachDirs(gitDir string) []string {
+	dirs := []string{AttachDir(gitDir)}
+	if own := filepath.Join(statedir.Git(gitDir), "attachments"); own != dirs[0] {
+		dirs = append(dirs, own)
+	}
+	return dirs
+}
+
+// sharedGit is the main git directory, which a worktree's commondir names.
+func sharedGit(gitDir string) string {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "commondir")) // #nosec G304 -- inside the repository's own git directory.
+	if err != nil {
+		return gitDir
+	}
+	shared := strings.TrimSpace(string(raw))
+	if shared == "" {
+		return gitDir
+	}
+	if !filepath.IsAbs(shared) {
+		shared = filepath.Join(gitDir, shared)
+	}
+	return filepath.Clean(shared)
+}
 
 // Check applies the caps before anything is written, so the message can
 // name the limit rather than the request failing.

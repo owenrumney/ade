@@ -1212,7 +1212,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			LastEventAt: state.LastEventAt, Activity: state.Activity, Asking: len(state.Asking),
 		}
 		for _, side := range state.SideRuns {
-			agent.SideRuns = append(agent.SideRuns, side.Name)
+			agent.SideRuns = append(agent.SideRuns, session.AgentSide{ID: side.ID, Name: side.Name})
 		}
 		for _, each := range state.Waiting {
 			agent.Stacked = append(agent.Stacked, session.AgentQueued{

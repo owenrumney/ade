@@ -21,7 +21,7 @@ const ACTIVE: Active[] = [
     agent: {
       running: true,
       model: "opus",
-      sideRuns: ["security"],
+      sideRuns: [{ id: "r1", name: "security" }],
       children: [{ kind: "agent", name: "explore", doing: "reading web.go" }],
     },
   },
@@ -121,7 +121,7 @@ describe("a side run and a sub-agent are not the same row", () => {
         name: "x",
         agent: {
           running: true,
-          sideRuns: ["security"],
+          sideRuns: [{ id: "r1", name: "security" }],
           children: [{ kind: "agent", name: "explore" }],
         },
       },

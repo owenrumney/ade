@@ -426,7 +426,7 @@ import {
   tree,
   waiting as wantingYou,
 } from "../pages/agents";
-import type { Active } from "../pages/agents";
+import type { Active, Node } from "../pages/agents";
 export type { Active, Health } from "../pages/agents";
 export { attention, stateOf } from "../pages/agents";
 
@@ -512,6 +512,16 @@ export function ended(what: string, body?: unknown): string {
   }
 }
 
+// stopping is the verb on a child row: a named agent ends on its own, a
+// sub-agent only with the turn that called it.
+function stopping(child: Node): NonNullable<Row["acts"]> {
+  if (child.kind === "side") {
+    if (!child.run) return [];
+    return [{ label: "Stop", what: "side-stop" as const, name: child.run, on: child.session }];
+  }
+  return [{ label: "Stop the turn…", what: "session-end" as const, name: child.session }];
+}
+
 export function agents(all: Active[]): Place {
   const rows: Row[] = [];
   for (const branch of tree(all)) {
@@ -543,6 +553,7 @@ export function agents(all: Active[]): Place {
         tone: "warn",
         name: child.name,
         meta: detail(child),
+        acts: row.machine ? [] : stopping(child),
       });
     }
   }

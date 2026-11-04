@@ -3,7 +3,7 @@ import { blocks, inline } from "./markdown";
 import { linesOf, pairsOf, wanted, type At, type Cell, type Change, type Side, type Thread } from "./changes";
 import type { Span } from "./dwell";
 import { fileIn, ticked, unreadNote, NO_LEDGER, type Ledger } from "./viewed";
-import type { Rules, View } from "./model";
+import type { DocAct, Rules, View } from "./model";
 import {
   foldable,
   folded,
@@ -27,6 +27,7 @@ export function sheet(
   review: Review = { hasPR: false, open: new Set() },
   ask: (who: string, text: string) => void = () => {},
   space: (did: SpaceAct) => void = () => {},
+  docAct: (id: string) => void = () => {},
 ): HTMLElement {
   switch (view.kind) {
     case "rules":
@@ -36,7 +37,7 @@ export function sheet(
     case "code":
       return code(view.source, picked, view.line);
     case "doc":
-      return doc(view.body);
+      return doc(view.body, view.acts, docAct, view.busy);
     case "pr":
       return pr(view.body, view.acts, act, view.busy);
     case "person":
@@ -62,11 +63,26 @@ function nothing(): HTMLElement {
 
 // doc is a document the window drew and nobody edits. Anything written
 // goes through `written()` in panels.ts.
-function doc(body: string): HTMLElement {
+function doc(
+  body: string,
+  acts: DocAct[] = [],
+  act: (id: string) => void = () => {},
+  busy?: string,
+): HTMLElement {
   const out = el("div", "doc");
   const page = el("div", "rendered");
   page.innerHTML = html(body);
   out.append(page);
+  if (acts.length) {
+    const bar = el("div", "pr-acts");
+    for (const one of acts) {
+      const button = el("button", "", busy === one.id ? "working…" : one.label);
+      (button as HTMLButtonElement).disabled = Boolean(busy);
+      button.addEventListener("click", () => act(one.id));
+      bar.append(button);
+    }
+    out.prepend(bar);
+  }
   return out;
 }
 

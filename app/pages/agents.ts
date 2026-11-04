@@ -8,7 +8,7 @@ export interface Health {
   error?: string;
   queued?: number;
   asking?: number;
-  sideRuns?: string[] | null;
+  sideRuns?: { id: string; name: string }[] | null;
   children?: { kind?: string; name: string; doing?: string }[] | null;
   stacked?: { id: string; kind: string; what?: string }[] | null;
   lastEventAt?: string;
@@ -60,6 +60,8 @@ export interface Node {
   branch?: string;
   machine?: string;
   doing?: string;
+  // The side run's own id. A sub-agent has none: only its turn can end it.
+  run?: string;
 }
 
 // Branch is one session and what it called.
@@ -87,12 +89,13 @@ export function tree(all: Active[]): Branch[] {
       },
       children: [
         ...(each.agent?.sideRuns ?? []).map((side) => ({
-          id: `${each.id}:side:${side}`,
+          id: `${each.id}:side:${side.id || side.name}`,
           session: each.id,
           dir: each.dir,
           kind: "side" as const,
-          name: `@${side}`,
+          name: `@${side.name}`,
           state: "working" as State,
+          run: side.id,
         })),
         ...(each.agent?.children ?? []).map((child) => ({
           id: `${each.id}:child:${child.name}`,

@@ -45,6 +45,7 @@ export type Act =
   | "design-again"
   | "queue-first"
   | "session-end"
+  | "side-stop"
   | "job-run"
   | "job-pause"
   | "todo-start"
@@ -77,7 +78,7 @@ export type View =
   | { kind: "rules"; title: string; rules: Rules }
   // A document the window drew: read-only. Anything you write goes
   // through the editor instead — see `written()` in panels.ts.
-  | { kind: "doc"; title: string; body: string }
+  | { kind: "doc"; title: string; body: string; acts?: DocAct[]; busy?: string }
   // A conversation with one person on agentbus, and the box to say more.
   | { kind: "person"; title: string; who: string; body: string; count: number }
   | { kind: "pr"; title: string; body: string; acts: PrAct[]; busy?: PrActId }
@@ -85,6 +86,13 @@ export type View =
   | { kind: "space"; title: string; seen: Seen }
   | { kind: "term"; title: string }
   | { kind: "none" };
+
+// DocAct is a button above a drawn document, for a document that is a
+// report of something that can be asked for again.
+export interface DocAct {
+  id: string;
+  label: string;
+}
 
 export interface Place {
   id: string;
