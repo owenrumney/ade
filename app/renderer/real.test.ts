@@ -907,7 +907,7 @@ describe("the agents tree", () => {
       agent: {
         running: true,
         model: "opus",
-        sideRuns: ["security"],
+        sideRuns: [{ id: "r1", name: "security" }],
         children: [{ kind: "agent", name: "explore", doing: "reading web.go" }],
       },
     },
@@ -954,6 +954,29 @@ describe("the agents tree", () => {
   it("says a sub-agent's session in its id, so the row opens that chat", () => {
     const place = real.agents(active);
     expect(place.rows.find((r) => r.name === "explore")?.id).toBe("busy:child:explore");
+  });
+
+  it("stops a named agent on its own, and a sub-agent by ending the turn", () => {
+    const place = real.agents(active);
+    expect(place.rows.find((r) => r.name === "@security")?.acts).toEqual([
+      { label: "Stop", what: "side-stop", name: "r1", on: "busy" },
+    ]);
+    expect(place.rows.find((r) => r.name === "explore")?.acts).toEqual([
+      { label: "Stop the turn…", what: "session-end", name: "busy" },
+    ]);
+  });
+
+  it("offers nothing on a child of a session somewhere else", () => {
+    const away: real.Active[] = [
+      {
+        id: "s2",
+        dir: "/code/ade",
+        name: "ade",
+        machine: "mini",
+        agent: { running: true, children: [{ kind: "agent", name: "explore" }] },
+      },
+    ];
+    expect(real.agents(away).rows[1].acts).toEqual([]);
   });
 });
 

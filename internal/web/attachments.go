@@ -23,6 +23,23 @@ var attachmentTypes = map[string]string{
 	".json": "text/plain; charset=utf-8", ".pdf": "application/pdf",
 }
 
+// attachmentPath is where a stored name is found, or empty. safepath.Inside
+// is belt and braces over Base, and refuses a link out rather than follow it.
+func attachmentPath(dirs []string, name string) string {
+	for _, dir := range dirs {
+		path, err := safepath.Inside(dir, name)
+		if err != nil {
+			continue
+		}
+		// Lstat before the open: Stat through an opened file has already
+		// followed the link it was pointed at.
+		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
+			return path
+		}
+	}
+	return ""
+}
+
 // handleAttachment serves a message's attachment by base name, so a name
 // cannot reach anything else. A purged one is a 404, which renders struck.
 func (s *Server) handleAttachment(w http.ResponseWriter, r *http.Request) {
@@ -31,17 +48,8 @@ func (s *Server) handleAttachment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	dir := chat.AttachDir(s.space().gitDir)
-	// Belt and braces over Base, whatever the router handed over, and a link
-	// out of the directory is refused rather than followed.
-	path, err := safepath.Inside(dir, name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	// Lstat before the open: Stat through an opened file has already followed
-	// the link it was pointed at.
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+	path := attachmentPath(chat.AttachDirs(s.space().gitDir), name)
+	if path == "" {
 		http.NotFound(w, r)
 		return
 	}

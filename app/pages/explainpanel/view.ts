@@ -87,32 +87,51 @@ export function moved(was: Walkthrough | undefined, now: Walkthrough | undefined
   return refs(was) !== refs(now);
 }
 
-// lit is which node a step is at, or -1. The index is the identity: mermaid
-// takes ids of its own, and a label is not one.
+// lit is which node a step is at, or -1. The index is the identity.
 export function lit(flow: Flow | undefined, step: Step | undefined): number {
   if (!flow || !step?.node) return -1;
   return flow.nodes.findIndex((node) => node.id === step.node);
 }
 
-// mermaidOf is the flow as one diagram, drawn once. Nodes are numbered rather
-// than named: an id from a model is not a mermaid identifier.
-export function mermaidOf(flow: Flow | undefined): string {
-  if (!flow || flow.nodes.length < 2) return "";
-  const which = new Map(flow.nodes.map((node, i) => [node.id, `n${i}`]));
-  const lines = ["flowchart LR"];
-  for (const [i, node] of flow.nodes.entries()) lines.push(`  n${i}["${safe(node.label)}"]`);
+// Lane is one node, drawn as a column with a line down it.
+export interface Lane {
+  label: string;
+  file?: string;
+  line?: number;
+  lit: boolean;
+}
+
+// Wire is one edge, a row across lanes. from === to is work at one lane.
+export interface Wire {
+  label: string;
+  from: number;
+  to: number;
+  lit: boolean;
+}
+
+export interface Sequence {
+  lanes: Lane[];
+  wires: Wire[];
+}
+
+// sequence is the lanes and their messages, in the order the edges come.
+export function sequence(flow: Flow | undefined, step: Step | undefined): Sequence {
+  if (!flow || flow.nodes.length < 2) return { lanes: [], wires: [] };
+  const which = new Map<string, number>();
+  for (const [i, node] of flow.nodes.entries()) if (!which.has(node.id)) which.set(node.id, i);
+  const on = lit(flow, step);
+  const lanes = flow.nodes.map((node, i) => ({
+    label: node.label,
+    file: node.file,
+    line: node.line,
+    lit: i === on,
+  }));
+  const wires: Wire[] = [];
   for (const edge of flow.edges) {
     const from = which.get(edge.from);
     const to = which.get(edge.to);
-    if (!from || !to) continue;
-    const words = safe(edge.label ?? "");
-    lines.push(words ? `  ${from} -->|"${words}"| ${to}` : `  ${from} --> ${to}`);
+    if (from === undefined || to === undefined) continue;
+    wires.push({ label: edge.label ?? "", from, to, lit: from === on });
   }
-  return lines.join("\n");
-}
-
-// safe is a label mermaid will take: its own punctuation taken out rather
-// than escaped, because a broken diagram tells the reader nothing.
-function safe(text: string): string {
-  return text.replace(/["`<>|#;]/g, "").replace(/\s+/g, " ").trim();
+  return { lanes, wires };
 }

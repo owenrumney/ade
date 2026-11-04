@@ -5,8 +5,8 @@ import {
   counter,
   header,
   lit,
-  mermaidOf,
   moved,
+  sequence,
   where,
   type Flow,
   type Step,
@@ -112,33 +112,82 @@ describe("lit", () => {
   });
 });
 
-describe("mermaidOf", () => {
-  it("numbers the nodes rather than trusting the ids it was given", () => {
-    expect(mermaidOf(flow)).toBe(
-      ['flowchart LR', '  n0["Client config"]', '  n1["GitHub API"]', '  n0 -->|"one request"| n1'].join(
-        "\n",
-      ),
-    );
+describe("sequence", () => {
+  const chain: Flow = {
+    nodes: [
+      { id: "a", label: "A", file: "a.go", line: 4 },
+      { id: "b", label: "B" },
+      { id: "c", label: "C" },
+    ],
+    edges: [
+      { from: "a", to: "b", label: "one request" },
+      { from: "b", to: "c" },
+    ],
+  };
+
+  it("is a lane a node, in the order the flow declares them", () => {
+    expect(sequence(flow, step()).lanes.map((l) => l.label)).toEqual([
+      "Client config",
+      "GitHub API",
+    ]);
   });
 
-  it("draws an edge with no words on it", () => {
-    const bare = { ...flow, edges: [{ from: "config", to: "api" }] };
-    expect(mermaidOf(bare)).toContain("  n0 --> n1");
+  it("carries the node's file so the lane head can open it", () => {
+    const { lanes } = sequence(chain, step());
+    expect(lanes[0]).toMatchObject({ file: "a.go", line: 4 });
+    expect(lanes[1].file).toBeUndefined();
   });
 
-  it("takes mermaid's own punctuation out of a label", () => {
-    const risky = {
+  it("is a row an edge, pointing between the lanes it joins", () => {
+    expect(sequence(chain, step()).wires).toEqual([
+      { label: "one request", from: 0, to: 1, lit: false },
+      { label: "", from: 1, to: 2, lit: false },
+    ]);
+  });
+
+  it("keeps an edge that skips ahead, and one that goes back", () => {
+    const far = { ...chain, edges: [{ from: "a", to: "c" }, { from: "c", to: "a" }] };
+    expect(sequence(far, step()).wires).toEqual([
+      { label: "", from: 0, to: 2, lit: false },
+      { label: "", from: 2, to: 0, lit: false },
+    ]);
+  });
+
+  it("keeps an edge from a lane to itself, as work at that lane", () => {
+    const self = { ...chain, edges: [{ from: "b", to: "b", label: "render" }] };
+    expect(sequence(self, step()).wires).toEqual([
+      { label: "render", from: 1, to: 1, lit: false },
+    ]);
+  });
+
+  it("lights the step's lane and everything leaving it", () => {
+    const { lanes, wires } = sequence(chain, step({ node: "a" }));
+    expect(lanes.map((l) => l.lit)).toEqual([true, false, false]);
+    expect(wires.map((w) => w.lit)).toEqual([true, false]);
+  });
+
+  it("takes the first of a repeated id, and drops an edge to a node nobody declared", () => {
+    const twice: Flow = {
       nodes: [
-        { id: "a", label: 'the "quoted" one | and more' },
+        { id: "a", label: "A" },
         { id: "b", label: "B" },
+        { id: "a", label: "A again" },
       ],
-      edges: [],
+      edges: [
+        { from: "a", to: "b", label: "once" },
+        { from: "b", to: "nope" },
+      ],
     };
-    expect(mermaidOf(risky)).toContain('n0["the quoted one and more"]');
+    const { lanes, wires } = sequence(twice, step());
+    expect(lanes.map((l) => l.label)).toEqual(["A", "B", "A again"]);
+    expect(wires).toEqual([{ label: "once", from: 0, to: 1, lit: false }]);
   });
 
   it("is nothing when there is no flow worth drawing", () => {
-    expect(mermaidOf(undefined)).toBe("");
-    expect(mermaidOf({ nodes: [{ id: "a", label: "A" }], edges: [] })).toBe("");
+    expect(sequence(undefined, step())).toEqual({ lanes: [], wires: [] });
+    expect(sequence({ nodes: [{ id: "a", label: "A" }], edges: [] }, step())).toEqual({
+      lanes: [],
+      wires: [],
+    });
   });
 });

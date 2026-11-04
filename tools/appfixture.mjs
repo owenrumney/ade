@@ -176,7 +176,7 @@ export const WORLD = {
       agent: {
         running: true,
         model: "opus",
-        sideRuns: ["security"],
+        sideRuns: [{ id: "s1", name: "security" }],
         stacked: [
           { id: "q1", kind: "message", what: "look at the sandbox image size" },
           { id: "q2", kind: "review" },
@@ -405,15 +405,17 @@ const WALK = {
   stale: false,
   flow: {
     nodes: [
-      { id: "verb", label: "A verb in the omnibox" },
-      { id: "ask", label: "What it asks for" },
-      { id: "sources", label: "Where the answers come from" },
+      { id: "verb", label: "A verb in the omnibox", file: "app/renderer/doing.ts", line: 63 },
+      { id: "ask", label: "What it asks for", file: "app/renderer/doing.ts", line: 112 },
+      { id: "sources", label: "Where the answers come from", file: "app/renderer/sources.ts" },
       { id: "server", label: "POST /api/review" },
     ],
     edges: [
       { from: "verb", to: "ask", label: "needs an answer" },
       { from: "ask", to: "sources", label: "which list" },
+      { from: "sources", to: "sources", label: "one row an agent" },
       { from: "sources", to: "server", label: "the picked agents" },
+      { from: "server", to: "verb", label: "the review id" },
     ],
   },
   steps: [

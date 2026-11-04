@@ -77,6 +77,9 @@ const startingFor = 8_000;
 // What every list says while that server is on its way up.
 const coming = "Starting ade for this checkout…";
 
+// The Refresh button on the My Day report.
+const MY_DAY_AGAIN = "my-day-again";
+
 interface Rows<T> {
   rows: T;
   why?: string;
@@ -2142,11 +2145,11 @@ class Ade {
 
   // refreshMyDay puts the next fire into the tab already showing the last one.
   // In place rather than through show(), which would pull focus to it.
-  private refreshMyDay(): void {
+  private refreshMyDay(busy?: string): void {
     const body = real.myDayReport(real.myDay(this.jobs));
     this.tabs = this.tabs.map((tab) =>
-      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc" && tab.what.body !== body
-        ? { ...tab, what: { ...tab.what, body } }
+      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc"
+        ? { ...tab, what: { ...tab.what, body, busy } }
         : tab,
     );
   }
@@ -2155,8 +2158,33 @@ class Ade {
   // the same every day so the tab is reused; the report dates its own heading.
   private openMyDay(): void {
     const job = real.myDay(this.jobs);
-    this.show({ kind: "doc", title: "My Day", body: real.myDayReport(job) }, "My Day", "calendar");
+    this.show(
+      {
+        kind: "doc",
+        title: "My Day",
+        body: real.myDayReport(job),
+        acts: [{ id: MY_DAY_AGAIN, label: "Refresh" }],
+      },
+      "My Day",
+      "calendar",
+    );
     if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
+  }
+
+  // docAct is the one verb a drawn report offers: ask for it again. The run
+  // is the job's own, so the report it writes is the one the timer writes.
+  private async docAct(id: string): Promise<void> {
+    if (id !== MY_DAY_AGAIN) return;
+    this.refreshMyDay(id);
+    this.draw();
+    const got = await window.ade
+      ?.act("launcher", "/api/jobs/run", { name: real.MY_DAY })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) this.say(back.error);
+    await this.read();
+    this.refreshMyDay();
+    this.draw();
   }
 
   private foldButton(): HTMLElement {
@@ -2809,6 +2837,19 @@ class Ade {
         .catch((e: Error) => ({ error: e.message }));
       return void this.read();
     }
+    if (act.what === "side-stop") {
+      const got = await window.ade
+        ?.act(
+          "session",
+          `/api/sides/${encodeURIComponent(act.name)}/cancel`,
+          {},
+          act.on ?? this.session,
+        )
+        .catch((e: Error) => ({ error: e.message }));
+      const back = real.answered(got as real.Answer);
+      this.say(back.error || "stopped");
+      return void this.read();
+    }
     if (act.what === "session-end") return this.endSession(act.name);
     // Both are the launcher's, and row-only verbs in the fork too. The
     // label says which way it goes: Pause stops it, Resume starts.
@@ -3330,6 +3371,7 @@ class Ade {
       },
       (who, text) => void this.askPerson(who, text),
       (did) => void this.spaceAct(did),
+      (id) => void this.docAct(id),
     );
   }
 

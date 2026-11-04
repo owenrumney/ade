@@ -48,7 +48,7 @@ func TestCancelWithNoRecordSaysSoAndAsksNothing(t *testing.T) {
 }
 
 func TestCancelReportsWhatTheServerWasDoing(t *testing.T) {
-	agent := &session.AgentHealth{Running: true, Queued: 2, SideRuns: []string{"security"}}
+	agent := &session.AgentHealth{Running: true, Queued: 2, SideRuns: []session.AgentSide{{ID: "r1", Name: "security"}}}
 	path, asked := fakeSession(t, agent, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})

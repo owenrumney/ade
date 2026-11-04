@@ -129,7 +129,7 @@ func (s *Server) loadQueue() int {
 	for _, msg := range s.chat.List(s.agent.Current()) {
 		shown[msg.ID] = true
 	}
-	attachments := chat.AttachDir(s.space().gitDir)
+	attachments := chat.AttachDirs(s.space().gitDir)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -157,10 +157,10 @@ func (s *Server) loadQueue() int {
 
 // restoredFiles keeps only attachments this checkout wrote. A stored path is
 // read by chat.Block and named to the agent, so dir bounds it like the message.
-func restoredFiles(dir string, files []chat.File) []chat.File {
+func restoredFiles(dirs []string, files []chat.File) []chat.File {
 	var out []chat.File
 	for _, f := range files {
-		if filepath.Dir(filepath.Clean(f.Path)) != dir {
+		if !slices.Contains(dirs, filepath.Dir(filepath.Clean(f.Path))) {
 			slog.Debug("dropping a saved attachment from outside the attachments directory", "path", f.Path)
 			continue
 		}

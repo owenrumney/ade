@@ -39,24 +39,66 @@ button:disabled { opacity: 0.5; }
 }
 .linkish:hover:not(:disabled) { background: none; }
 
-/* The flow, drawn once and lit a node at a time. */
+/* A lane a node, a row an edge: it grows down the pane, never across it. */
 .flow {
-  margin: 0 0 16px;
-  padding: 12px;
-  overflow-x: auto;
+  display: grid;
+  align-items: center;
+  row-gap: 10px;
+  margin: 0 0 20px;
+}
+
+.flow .head {
+  padding: 8px 10px;
+  margin: 0 4px 10px;
+  font: inherit;
+  text-align: center;
+  color: var(--ink);
   background: var(--bg-raised);
-  border: 1px solid var(--line);
+  border: 1px solid var(--button-edge);
+  border-radius: 3px;
 }
-.flow.failed { color: var(--bad); font-family: var(--mono); }
-/* Mermaid writes the fill and stroke inline, so the lit node takes them
-   back the only way a stylesheet can. */
-.flow g.node.lit rect,
-.flow g.node.lit polygon,
-.flow g.node.lit circle {
-  stroke: var(--accent) !important;
-  stroke-width: 2px !important;
-  fill: var(--selection) !important;
+.flow button.head:hover { border-color: var(--ink-dim); }
+.flow .head.lit { background: var(--selection); border-color: var(--accent); }
+
+.flow .rail {
+  justify-self: center;
+  align-self: stretch;
+  width: 1px;
+  background: var(--line-no);
 }
+
+.flow .wire {
+  position: relative;
+  padding: 0 8px 4px;
+  text-align: center;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--ink-dim);
+}
+.flow .wire.lit { color: var(--ink); border-bottom-color: var(--accent); }
+.flow .wire .words { background: var(--bg); padding: 0 4px; }
+
+/* The arrowhead, at whichever end the edge points. */
+.flow .wire::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -4px;
+  border: 4px solid transparent;
+  border-left-color: var(--ink-dim);
+}
+.flow .wire.back::after { right: auto; left: -1px; border-left-color: transparent; border-right-color: var(--ink-dim); }
+.flow .wire.lit::after { border-left-color: var(--accent); }
+.flow .wire.back.lit::after { border-left-color: transparent; border-right-color: var(--accent); }
+
+.flow .wire.here {
+  padding: 4px 8px;
+  border: 1px solid var(--button-edge);
+  border-radius: 3px;
+  background: var(--bg-raised);
+}
+.flow .wire.here::after { content: none; }
+.flow .wire.here .words { background: none; }
+.flow .wire.here.lit { border-color: var(--accent); background: var(--selection); }
 
 .step { margin: 0; }
 .top { gap: 12px; margin: 0 0 8px; align-items: baseline; }

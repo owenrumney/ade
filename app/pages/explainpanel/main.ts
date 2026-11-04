@@ -3,13 +3,14 @@ import {
   clamp,
   counter,
   header,
-  lit,
-  mermaidOf,
   moved,
+  sequence,
   where,
   type Flow,
+  type Lane,
   type Step,
   type Walkthrough,
+  type Wire,
 } from "./view";
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
@@ -138,86 +139,55 @@ function draw(): void {
 
 // ── The flow ──
 
-interface Mermaid {
-  render(id: string, source: string): Promise<{ svg: string }>;
-  initialize(config: Record<string, unknown>): void;
-}
-
-let drawn = 0;
-let started = false;
-// The rendered diagram, kept across steps: redrawing it on every step makes
-// it flicker and move, and only the lit node changes.
-let pane: HTMLElement | undefined;
-let painted = "";
-
+// One grid: a lane a node, a row an edge, the rails spanning every row.
 function flowPane(flow: Flow, step: Step | undefined): HTMLElement {
-  const source = mermaidOf(flow);
-  if (!pane || source !== painted) {
-    pane = el("div", "flow");
-    painted = source;
-    void paint(pane, source);
-    return pane;
+  const { lanes, wires } = sequence(flow, step);
+  const pane = el("div", "flow");
+  if (!lanes.length) return pane;
+  pane.style.gridTemplateColumns = `repeat(${lanes.length * 2}, minmax(0, 1fr))`;
+  for (const [i, lane] of lanes.entries()) {
+    const rail = el("span", "rail");
+    rail.style.gridColumn = lane_(i);
+    rail.style.gridRow = `2 / ${wires.length + 2}`;
+    pane.append(rail, headPane(lane, i));
   }
-  light(pane, lit(flow, step));
+  for (const [row, wire] of wires.entries()) pane.append(wirePane(wire, row));
   return pane;
 }
 
-// start hands mermaid the editor's own colours. Its base theme is the one
-// that takes them; the named themes carry a palette of their own.
-function start(mermaid: Mermaid): void {
-  if (started) return;
-  started = true;
-  const css = getComputedStyle(document.body);
-  const to = (name: string) => css.getPropertyValue(name).trim();
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "base",
-    fontFamily: to("--ui"),
-    flowchart: { useMaxWidth: true },
-    themeVariables: {
-      background: to("--bg"),
-      primaryColor: to("--bg"),
-      primaryTextColor: to("--ink"),
-      // The panel border is a hairline against the pane: a box nobody can
-      // see is not a diagram.
-      primaryBorderColor: to("--ink-dim"),
-      secondaryColor: to("--bg-raised"),
-      tertiaryColor: to("--bg"),
-      lineColor: to("--ink-dim"),
-      textColor: to("--ink"),
-      fontSize: "13px",
-    },
-  });
+// Each lane is two grid columns, so a message can run centre to centre
+// rather than edge to edge. lane_ is the pair, mid the line between them.
+function lane_(i: number): string {
+  return `${2 * i + 1} / ${2 * i + 3}`;
+}
+function mid(i: number): number {
+  return 2 * i + 2;
 }
 
-async function paint(into: HTMLElement, source: string): Promise<void> {
-  const mermaid = (window as unknown as { mermaid?: Mermaid }).mermaid;
-  if (!mermaid || !source) {
-    into.textContent = source;
-    return;
+function headPane(lane: Lane, i: number): HTMLElement {
+  const node = lane.file ? el("button", "head") : el("div", "head");
+  node.textContent = lane.label;
+  node.style.gridColumn = lane_(i);
+  node.style.gridRow = "1";
+  if (lane.lit) node.classList.add("lit");
+  if (lane.file) {
+    node.title = lane.line ? `${lane.file}:${lane.line}` : lane.file;
+    node.addEventListener("click", () => send("open", { file: lane.file }));
   }
-  start(mermaid);
-  try {
-    const { svg } = await mermaid.render(`flow-${++drawn}`, source);
-    into.innerHTML = svg;
-  } catch (err) {
-    into.classList.add("failed");
-    into.textContent = String(err);
-    return;
-  }
-  // The step now, not the one the render started on: a draw during it had no
-  // nodes to light.
-  light(into, lit(walk?.flow, at(walk, here)));
+  return node;
 }
 
-// light puts the class on the node the step is at. Mermaid names a node group
-// <render id>-flowchart-<node id>-<n>, and the node id is mermaidOf's.
-function light(into: HTMLElement, which: number): void {
-  const want = new RegExp(`flowchart-n${which}-\\d+$`);
-  for (const node of into.querySelectorAll("g.node")) {
-    node.classList.toggle("lit", which >= 0 && want.test(node.id));
-  }
+function wirePane(wire: Wire, row: number): HTMLElement {
+  const here = wire.from === wire.to;
+  const node = el("span", here ? "wire here" : "wire");
+  if (wire.from > wire.to) node.classList.add("back");
+  if (wire.lit) node.classList.add("lit");
+  node.append(el("span", "words", wire.label));
+  node.style.gridColumn = here
+    ? lane_(wire.from)
+    : `${mid(Math.min(wire.from, wire.to))} / ${mid(Math.max(wire.from, wire.to))}`;
+  node.style.gridRow = String(row + 2);
+  return node;
 }
 
 window.addEventListener("message", (event: MessageEvent<Carried>) => {

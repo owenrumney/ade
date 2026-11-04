@@ -71,8 +71,8 @@ type AgentHealth struct {
 	// Asking is how many questions the agent is waiting on answers to. A
 	// server with one is paused, which from outside looks like a long run.
 	Asking int `json:"asking,omitempty"`
-	// SideRuns names the agents at work beside the main one.
-	SideRuns []string `json:"sideRuns,omitempty"`
+	// SideRuns is the agents at work beside the main one.
+	SideRuns []AgentSide `json:"sideRuns,omitempty"`
 	// Children is the sub-agents the main agent called, so a reader outside
 	// the process can draw the tree rather than one row per session.
 	Children []AgentChild `json:"children,omitempty"`
@@ -89,6 +89,12 @@ type AgentQueued struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	What string `json:"what,omitempty"`
+}
+
+// AgentSide is one named agent, by the id /api/sides/{id}/cancel takes.
+type AgentSide struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // AgentChild is one sub-agent under the main one, as a list outside the
