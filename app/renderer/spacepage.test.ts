@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { designsOf, drawnFrom, sessionsOf } from "./spacepage";
-import type { Repo } from "./real";
-import type { Space } from "./spaces";
+import type { Design, Repo } from "./real";
 
 const now = Date.parse("2026-10-23T12:00:00Z");
 
@@ -99,49 +98,59 @@ describe("sessionsOf", () => {
 });
 
 describe("designsOf", () => {
-  // The id is the designs list's own, so a document opens the same way
-  // from either place; the file alone is what the archive takes.
-  it("carries the checkout in the id and the path on its own", () => {
-    const space: Space = {
+  const all: Design[] = [
+    {
+      name: "mechanics",
+      dir: "/d/mechanics",
+      file: "/d/mechanics/design.md",
+      meta: { repos: ["owenrumney/ade"], ticket: "DEV-1" },
       repo: "owenrumney/ade",
-      path: "/code/ade",
-      sessions: 2,
-      here: true,
-      designs: ["space-page.md"],
-    };
-    expect(designsOf(space)).toEqual([
-      { file: "space-page.md", id: "/code/ade|space-page.md", name: "space-page" },
-    ]);
+      branch: "mechanics",
+      live: true,
+    },
+    {
+      name: "other-thing",
+      dir: "/d/other-thing",
+      file: "/d/other-thing/design.md",
+      meta: { repos: ["owenrumney/mdview"] },
+      repo: "owenrumney/mdview",
+    },
+  ];
+
+  // The page listed the repository's own markdown: nine files against a
+  // store of a hundred and fifty.
+  it("lists the store's designs for this repository and nobody else's", () => {
+    expect(designsOf(all, "owenrumney/ade").map((d) => d.name)).toEqual(["mechanics"]);
   });
 
-  it("leaves out what this window has just archived", () => {
-    const space: Space = {
-      repo: "owenrumney/ade",
-      path: "/code/ade",
-      sessions: 2,
-      here: true,
-      designs: ["a.md", "b.md"],
-    };
-    expect(designsOf(space, new Set(["a.md"])).map((d) => d.file)).toEqual(["b.md"]);
+  it("says what the Designs list says about a row", () => {
+    const [one] = designsOf(all, "owenrumney/ade");
+    expect(one.live).toBe(true);
+    expect(one.meta).toContain("mechanics");
+    expect(one.meta).toContain("DEV-1");
+  });
+
+  it("has no rows for a repository with nothing in the store", () => {
+    expect(designsOf(all, "owenrumney/squealer")).toEqual([]);
   });
 });
 
 // The page is built once and kept, so what it was built from has to say when
-// it is stale: archiving a design takes a minute on the server, and the row
-// has to go when it lands rather than when the page is next opened.
+// it is stale: a design that starts is a row that has to change while the
+// page is open.
 describe("when a drawn space page is stale", () => {
   const seen = {
     space: { repo: "owenrumney/ade", sessions: 1, here: true, designs: ["a.md", "b.md"] },
     sessions: [{ id: "s1", name: "one", meta: "main · live", live: true }],
     designs: [
-      { file: "a.md", id: "/code/ade|a.md", name: "a" },
-      { file: "b.md", id: "/code/ade|b.md", name: "b" },
+      { name: "a", meta: "main · 2m" },
+      { name: "b", meta: "main · 3m" },
     ],
   };
 
   // The key follows the list drawn, not the space's own: the row goes when
   // this window archives it, before any read agrees.
-  it("changes when a design is archived", () => {
+  it("changes when a design leaves the store", () => {
     const after = { ...seen, designs: seen.designs.slice(1) };
     expect(drawnFrom(after)).not.toBe(drawnFrom(seen));
   });

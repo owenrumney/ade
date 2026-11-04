@@ -67,7 +67,6 @@ func TestASpaceThisMachineHasNoCloneOfIsStillListed(t *testing.T) {
 	require.Len(t, open, 1)
 	assert.Equal(t, "nobody/nowhere", open[0].Repo)
 	assert.False(t, open[0].Here)
-	assert.Empty(t, open[0].Designs)
 }
 
 // Opening none is not asking to see less, but it is also not 107 spaces.
@@ -107,39 +106,6 @@ func TestTheCheckoutYouAreInIsASpaceWithoutOpeningOne(t *testing.T) {
 
 	// Shown, not written: a repository you passed through is not one to
 	// remember for every window from now on.
-	cfg, err := settings.Load()
-	require.NoError(t, err)
-	assert.Empty(t, cfg.Spaces)
-}
-
-// A review you take on is work you have opened, so its repository becomes a
-// space: a checkout no open space holds is not listed anywhere.
-func TestTakingOnAReviewOpensItsSpace(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	require.NoError(t, settings.Save(settings.Settings{Spaces: []string{"owenrumney/ade"}}))
-	s.openSpaceFor("infracost/infra")
-
-	cfg, err := settings.Load()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"owenrumney/ade", "infracost/infra"}, cfg.Spaces)
-
-	// Twice is once: the list is ordered and a repeat would move nothing.
-	s.openSpaceFor("infracost/infra")
-	cfg, err = settings.Load()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"owenrumney/ade", "infracost/infra"}, cfg.Spaces)
-}
-
-// Nobody has opened a space, so everything the scan found is listed. Adding
-// one here would hide every other repository on the machine.
-func TestAReviewDoesNotOpenTheFirstSpaceForYou(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	s.openSpaceFor("infracost/infra")
-
 	cfg, err := settings.Load()
 	require.NoError(t, err)
 	assert.Empty(t, cfg.Spaces)

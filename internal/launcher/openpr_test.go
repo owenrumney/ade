@@ -1,9 +1,12 @@
 package launcher
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
+	"github.com/owenrumney/ade/internal/dash"
+	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,29 +33,30 @@ func TestAPastedLinkIsReadBeforeAnythingIsCheckedOut(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// A settings file with a blank or a repeat in it is shorter once cleaned, and
-// the save was skipped because the lengths matched. The review's repository
-// then never became a space, so its checkout was listed nowhere.
-func TestOpeningAReviewAddsItsSpaceEvenWhenTheListNeedsCleaning(t *testing.T) {
+// A pull request opened from a link lands in a worktree of a repository this
+// machine already has. If that repository is not an open space, the checkout
+// is listed nowhere, so opening it is opening its space.
+func TestOpeningAPastedLinkOpensTheSpaceForARepositoryYouHave(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := newTestLauncher(t)
-	require.NoError(t, settings.Save(settings.Settings{Spaces: []string{"infracost/coast", "", "infracost/coast"}}))
+	require.NoError(t, settings.Save(settings.Settings{Spaces: []string{"owenrumney/ade"}}))
 
-	s.openSpaceFor("infracost/tokenomics")
+	here := t.TempDir()
+	s.board = dash.New(dash.Deps{
+		Repos: func() ([]sessions.Repo, error) {
+			return []sessions.Repo{{Owner: "infracost", Name: "coast", Path: here}}, nil
+		},
+		CheckOut: func(context.Context, string, int) (string, error) { return here + "-pr7", nil },
+		Open: func(context.Context, string, string) (string, error) {
+			return "http://127.0.0.1:1/#s", nil
+		},
+	})
+
+	rec := do(t, s, http.MethodPost, "/api/reviews/open",
+		`{"link":"https://github.com/infracost/coast/pull/7"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	cfg, err := settings.Load()
 	require.NoError(t, err)
-	assert.Equal(t, []string{"infracost/coast", "infracost/tokenomics"}, cfg.Spaces)
-}
-
-// No spaces open is every repository listed, so there is nothing to add to.
-func TestOpeningAReviewLeavesAnEmptySpaceListEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	s.openSpaceFor("infracost/tokenomics")
-
-	cfg, err := settings.Load()
-	require.NoError(t, err)
-	assert.Empty(t, cfg.Spaces)
+	assert.Equal(t, []string{"owenrumney/ade", "infracost/coast"}, cfg.Spaces)
 }

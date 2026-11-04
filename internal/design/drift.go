@@ -43,6 +43,10 @@ const (
 	DriftContradicted = "contradicted"
 )
 
+// DriftDropped is the checklist's own: an unmet requirement that has since
+// left the document.
+const DriftDropped = "dropped"
+
 // The kinds of requirement a design document yields.
 const (
 	KindHeading = "heading"

@@ -41,7 +41,7 @@ export function children(row: Row): Row[] {
     : [];
 }
 
-const ORDER = ["contradicted", "absent", "partial", "", "done"];
+const ORDER = ["dropped", "contradicted", "absent", "partial", "", "done"];
 
 function rank(item: DriftItem): number {
   const at = ORDER.indexOf(item.verdict ?? "");
@@ -56,7 +56,7 @@ export function open(state: DriftState | undefined): number {
 
 // drifted is a verdict worth a squiggle. Unscored is not: no pass has run.
 export function drifted(item: DriftItem): boolean {
-  return ["contradicted", "absent", "partial"].includes(item.verdict ?? "");
+  return ["dropped", "contradicted", "absent", "partial"].includes(item.verdict ?? "");
 }
 
 export function context(row: Row): string {
@@ -74,6 +74,8 @@ export function icon(item: DriftItem): string {
       return "circle-large-outline";
     case "contradicted":
       return "error";
+    case "dropped":
+      return "error";
     default:
       return "circle-outline";
   }
@@ -87,6 +89,7 @@ export function said(item: DriftItem): string {
       partial: "partly done",
       absent: "not in the change",
       contradicted: "contradicted by the change",
+      dropped: "taken out of the design while it was unmet",
     }[item.verdict ?? ""] ?? "not checked yet";
   return item.note ? `${verdict} — ${item.note}` : verdict;
 }
@@ -110,6 +113,8 @@ export function marks(state: DriftState | undefined): Mark[] {
   const out: Mark[] = [];
   for (const item of state.items ?? []) {
     if (item.dismissed || !drifted(item)) continue;
+    // Its line is where it used to be, so there is nothing to underline.
+    if (item.verdict === "dropped") continue;
     const error = item.verdict === "contradicted";
     out.push({
       design: true,

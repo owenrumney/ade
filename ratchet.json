@@ -1,0 +1,14 @@
+{
+  "files over 1000 lines": {
+    "count": 10,
+    "worst": "cmd/ade/main.go"
+  },
+  "goroutines without a recover": {
+    "count": 31,
+    "worst": "internal/launcher/jobs.go"
+  },
+  "nolint directives": {
+    "count": 33,
+    "worst": "internal/fixtures/run.go"
+  }
+}

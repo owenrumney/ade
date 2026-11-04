@@ -1,5 +1,5 @@
 import { el } from "./omnibox";
-import { ago, type Repo, type Session } from "./real";
+import { ago, type Design, type Repo, type Session } from "./real";
 import type { Space } from "./spaces";
 import {
   against,
@@ -28,11 +28,10 @@ export interface SessionLine {
 }
 
 export interface DesignLine {
-  // file is the path inside the repository, which is what the archive
-  // takes; id carries the checkout it is in, which is what opens it.
-  file: string;
-  id: string;
+  // name is the store's name for it, which is what opens it.
   name: string;
+  meta: string;
+  live?: boolean;
 }
 
 export interface Seen {
@@ -48,8 +47,7 @@ export type SpaceAct =
   | { what: "open-session"; id: string }
   | { what: "archive-session"; id: string }
   | { what: "import-session" }
-  | { what: "open-design"; id: string }
-  | { what: "archive-design"; id: string }
+  | { what: "open-design"; name: string }
   | { what: "new-session" };
 
 // sessionsOf is every conversation in the repository, newest first. `gone` is
@@ -87,21 +85,31 @@ export function sessionsOf(
   return out.map(({ at: _at, ...line }) => line);
 }
 
-// designsOf is the documents written anywhere in the repository. The id
-// is the one the designs list uses, so both open the same editor.
-export function designsOf(space: Space, gone: ReadonlySet<string> = new Set()): DesignLine[] {
-  return (space.designs ?? []).filter((file) => !gone.has(file)).map((file) => ({
-    file,
-    id: `${space.path ?? ""}|${file}`,
-    name: file.replace(/\.md$/, ""),
-  }));
+// designsOf is the store's designs whose home is this repository. A checkout's
+// own markdown is not a design: see the Designs list in real.ts.
+export function designsOf(all: Design[], repo: string): DesignLine[] {
+  return all
+    .filter((one) => (one.repo ?? "") === repo)
+    .map((one) => ({
+      name: one.name,
+      live: one.live,
+      meta: [
+        one.branch,
+        (one.missing ?? []).length > 0 ? `needs ${one.missing?.join(", ")}` : "",
+        one.changed ? `the copy in ${one.changed.split("/").pop()} has changed` : "",
+        one.meta.ticket,
+        ago(one.modified),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    }));
 }
 
 // drawnFrom is what the page draws beside the repository's numbers. A page
 // built from one of these is stale the moment it changes.
 export function drawnFrom(seen: Seen): string {
   return [
-    seen.designs.map((one) => one.file).join(","),
+    seen.designs.map((one) => `${one.name}.${one.live ? 1 : 0}.${one.meta}`).join(","),
     seen.sessions.map((one) => `${one.id}.${one.live ? 1 : 0}.${one.meta}`).join(","),
     seen.stats ? "stats" : (seen.note ?? "reading"),
   ].join("|");
@@ -129,12 +137,11 @@ export function spacePage(seen: Seen, act: (did: SpaceAct) => void): HTMLElement
       "Designs",
       seen.designs.map((one) => ({
         name: one.name,
-        meta: one.file,
-        tone: "",
-        open: () => act({ what: "open-design", id: one.id }),
-        away: { label: "Archive", run: () => act({ what: "archive-design", id: one.file }) },
+        meta: one.meta,
+        tone: one.live ? "live" : "",
+        open: () => act({ what: "open-design", name: one.name }),
       })),
-      "No design documents in this repository.",
+      "No designs in the store for this repository.",
     ),
   );
   if (!seen.stats) {
@@ -175,10 +182,12 @@ interface Line {
   meta: string;
   tone: string;
   open: () => void;
-  away: { label: string; run: () => void };
+  // A row with nothing to do to it has no verb: a design is archived by the
+  // nightly job, not from here.
+  away?: { label: string; run: () => void };
 }
 
-function list(title: string, lines: Line[], empty: string, verb?: Line["away"]): HTMLElement {
+function list(title: string, lines: Line[], empty: string, verb?: { label: string; run: () => void }): HTMLElement {
   const box = el("section", "space-list");
   const head = el("div", "space-head-row");
   head.append(el("h2", "", `${title}${lines.length ? ` (${lines.length})` : ""}`));
@@ -199,9 +208,11 @@ function list(title: string, lines: Line[], empty: string, verb?: Line["away"]):
     row.append(open);
     if (line.tone) row.append(el("span", "pip", line.tone));
     row.append(el("span", "meta", line.meta));
-    const away = el("button", "away", line.away.label);
-    away.addEventListener("click", line.away.run);
-    row.append(away);
+    if (line.away) {
+      const away = el("button", "away", line.away.label);
+      away.addEventListener("click", line.away.run);
+      row.append(away);
+    }
     box.append(row);
   }
   return box;

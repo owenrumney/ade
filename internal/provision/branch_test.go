@@ -17,8 +17,11 @@ func TestBranchNameIsTheDocumentsSlug(t *testing.T) {
 		"FIX-1234 Cancel.md":                 "fix-1234-cancel",
 		"notes/worker ssh user.md":           "worker-ssh-user",
 		"--force.md":                         "force",
-		"   ":                                "",
-		"":                                   "",
+		// The store keeps one design.md per directory, so the directory names it.
+		"/home/o/.ade/designs/mechanics/design.md": "mechanics",
+		"design.md": "",
+		"   ":       "",
+		"":          "",
 	} {
 		t.Run(doc, func(t *testing.T) {
 			assert.Equal(t, want, BranchName(doc))

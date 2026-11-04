@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+
+	"github.com/owenrumney/ade/internal/designs"
 )
 
 const (
@@ -80,7 +82,11 @@ var unsafeBranch = regexp.MustCompile(`[^a-z0-9._-]+`)
 
 // BranchName is the branch a design document names: its slug, the rule
 // `ade create` uses for a worktree. Empty when the name gives nothing usable.
+// A store design is one design.md per directory, so the directory is the name.
 func BranchName(doc string) string {
+	if strings.EqualFold(filepath.Base(doc), designs.File) {
+		doc = filepath.Dir(doc)
+	}
 	base := strings.ToLower(filepath.Base(strings.TrimSuffix(doc, filepath.Ext(doc))))
 	return strings.Trim(unsafeBranch.ReplaceAllString(base, "-"), "-.")
 }

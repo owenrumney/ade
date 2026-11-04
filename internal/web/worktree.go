@@ -29,11 +29,11 @@ type Worktree struct {
 
 // proposedWorktree names the worktree a build of the open document would use.
 func (s *Server) proposedWorktree() *Worktree {
-	file := s.currentDoc()
+	dir, file := s.designPlace()
 	if file == "" || s.space().snapshot {
 		return nil
 	}
-	slug := Slug(file)
+	slug := BranchFor(dir, file)
 	if slug == "" {
 		return nil
 	}
@@ -43,6 +43,15 @@ func (s *Server) proposedWorktree() *Worktree {
 		return nil
 	}
 	return &Worktree{Path: gitdiff.WorktreePath(s.space().homeRoot, slug), Branch: slug}
+}
+
+// BranchFor is the branch dir/file names. A store design is one design.md per
+// directory, so there the directory is the name.
+func BranchFor(dir, file string) string {
+	if strings.EqualFold(filepath.Base(file), docs.StoreDoc) {
+		return Slug(filepath.Base(dir))
+	}
+	return Slug(file)
 }
 
 // Slug turns a document name into something usable as a branch and a directory.

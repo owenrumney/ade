@@ -15,6 +15,7 @@ import (
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
+	"github.com/owenrumney/ade/internal/spaces"
 )
 
 // Review is a pull request waiting on you. Muting is ade's own state, kept out
@@ -254,6 +255,9 @@ func (b *Board) startReview(ctx context.Context, repos []sessions.Repo, asked gh
 	if err != nil {
 		return "", "", err
 	}
+	// Here rather than in a handler: a worktree no open space holds is
+	// listed nowhere, and every opener comes through this.
+	OpenSpaceFor(asked.Repo)
 	if b.deps.Open == nil {
 		return "", "", fmt.Errorf("#%d is checked out at %s but this server cannot start a ade in it", asked.Number, path)
 	}
@@ -265,6 +269,27 @@ func (b *Board) startReview(ctx context.Context, repos []sessions.Repo, asked gh
 		url = url[:cut]
 	}
 	return url + "#review", path, nil
+}
+
+// OpenSpaceFor opens a repository as a space. An empty list is left empty:
+// the first space would hide every other repository on the machine.
+func OpenSpaceFor(repo string) {
+	cfg, err := settings.Load()
+	if err != nil {
+		slog.Debug("open the space for a review", "repo", repo, "err", err)
+		return
+	}
+	if len(spaces.Clean(cfg.Spaces)) == 0 {
+		return
+	}
+	want := spaces.Open(cfg.Spaces, repo)
+	if len(want) == len(spaces.Clean(cfg.Spaces)) {
+		return
+	}
+	cfg.Spaces = want
+	if err := settings.Save(cfg); err != nil {
+		slog.Debug("save the space for a review", "repo", repo, "err", err)
+	}
 }
 
 // cloneForReview clones owner/name under the first scan directory: one you do
