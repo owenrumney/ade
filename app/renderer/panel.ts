@@ -140,17 +140,35 @@ const held = new Map<
   { key: string; node: HTMLElement; stop: () => void; panel: Panel }
 >();
 
-// stirred asks every panel that takes a push what it is now, and posts
-// it. Work that finishes elsewhere reaches the page no other way.
+// stirred re-reads the panels on screen: an event is not a reason to read a
+// page nobody is looking at.
 // Quiet: nobody pressed, so the page is not told it is busy once a second.
 export async function stirred(): Promise<void> {
-  for (const { node, panel } of held.values()) {
-    if (!panel.stirs) continue;
-    const said = await panel
-      .onMessage({ kind: "do", what: "refresh", quiet: true })
-      .catch(() => undefined);
-    if (said) node.querySelector("iframe")?.contentWindow?.postMessage(said, "*");
+  for (const [id, { node, panel }] of held) {
+    if (!panel.stirs || !onScreen(node)) continue;
+    await refreshed(id);
   }
+}
+
+// shown reads once for the stirs a pane sat out while it was hidden.
+export async function shown(pane: HTMLElement): Promise<void> {
+  for (const [id, have] of held) {
+    if (have.panel.stirs && pane.contains(have.node)) return void (await refreshed(id));
+  }
+}
+
+// onScreen is whether the pane is in front: hidden rather than taken out.
+export function onScreen(node: HTMLElement): boolean {
+  return node.closest("[hidden]") === null;
+}
+
+async function refreshed(id: string): Promise<void> {
+  const have = held.get(id);
+  if (!have) return;
+  const said = await have.panel
+    .onMessage({ kind: "do", what: "refresh", quiet: true })
+    .catch(() => undefined);
+  if (said) have.node.querySelector("iframe")?.contentWindow?.postMessage(said, "*");
 }
 
 // pushTo posts to one panel unasked. A host that only answers cannot say

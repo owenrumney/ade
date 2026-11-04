@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/owenrumney/ade/internal/agentshim"
@@ -36,5 +38,9 @@ func TestMain(m *testing.M) {
 	hostGitHubToken = func(context.Context) string { return "" }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+	if left := Contained(); len(left) > 0 && code == 0 {
+		fmt.Fprintf(os.Stderr, "panics the suite contained rather than fixed:\n%s\n", strings.Join(left, "\n"))
+		code = 1
+	}
 	os.Exit(code)
 }

@@ -31,6 +31,24 @@ var houseRules = `Comments in code you write or edit — this overrides your def
 
 A test enforces the ` + capLine + `-line limit on what you add. Write to it.`
 
+// designRules go with houseRules: a run that can write code can write the
+// document too, and that is the cheaper way to make a bullet true.
+const designRules = `The design document, when one is open:
+
+- A bullet that does not match what you built is a bug in the code, not in the
+  bullet. Change the code.
+- Never reword or delete a requirement to describe what you built instead. That
+  is the design document agreeing with itself, and it is the one thing it is
+  for.
+- Cannot meet it? Say so in the reply and leave the bullet as it is, or put the
+  trade-off in the open questions table for the user to decide.
+- Record a decision only once the user has made it, in their words, not as the
+  summary of what the code now happens to do.
+- Delete a bullet only when it is built, wrong, or superseded by a decision the
+  user took. "Built" means the code does what it says.
+- The checklist notices: a requirement that leaves the document while it was
+  unmet is listed as dropped, with what it used to say.`
+
 // writingRules governs prose rather than code, so unlike houseRules it goes to
 // read-only runs too: a reviewer writes nothing but prose.
 const writingRules = `What you write for the user — this overrides your defaults:
@@ -186,7 +204,7 @@ func prompt(extra string, includeRole, edits bool, also ...string) string {
 	}
 	parts = append(parts, writingRules, searchRules, toolRules)
 	if edits {
-		parts = append(parts, houseRules, wikiRules, showRules)
+		parts = append(parts, houseRules, designRules, wikiRules, showRules)
 	}
 	parts = append(parts, also...)
 	return strings.Join(parts, "\n\n")

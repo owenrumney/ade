@@ -53,6 +53,14 @@ func TestSlug(t *testing.T) {
 	}
 }
 
+func TestAStoreDesignIsNamedByItsDirectoryNotItsDesignMd(t *testing.T) {
+	// Every design in the store is a design.md, so naming branches off the
+	// file put all of them on one called "design".
+	assert.Equal(t, "mechanics", BranchFor("/home/o/.ade/designs/mechanics", "design.md"))
+	assert.Equal(t, "cart-redesign", BranchFor("/repo/docs", "cart-redesign.md"))
+	assert.Equal(t, "", BranchFor("", "design.md"))
+}
+
 func TestProposedWorktree(t *testing.T) {
 	s := newTestServer(t)
 	assert.Nil(t, s.proposedWorktree(), "no document, nothing to name it after")

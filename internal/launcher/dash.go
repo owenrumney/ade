@@ -13,8 +13,6 @@ import (
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/limits"
-	"github.com/owenrumney/ade/internal/settings"
-	"github.com/owenrumney/ade/internal/spaces"
 )
 
 // decodeJSON reads a request body, or says so.
@@ -125,7 +123,6 @@ func (s *Server) handleOpenReview(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		s.openSpaceFor(req.Repo)
 		writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
 		return
 	}
@@ -136,32 +133,7 @@ func (s *Server) handleOpenReview(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
 	default:
-		s.openSpaceFor(req.Repo)
 		writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
-	}
-}
-
-// openSpaceFor opens the review's repository as a space, so the checkout it
-// was put in is listed. An empty list hides nothing, so it is left empty.
-func (s *Server) openSpaceFor(repo string) {
-	cfg, err := settings.Load()
-	if err != nil {
-		slog.Debug("open the space for a review", "repo", repo, "err", err)
-		return
-	}
-	open := spaces.Clean(cfg.Spaces)
-	if len(open) == 0 {
-		return
-	}
-	// Against the cleaned list, not the raw one: a settings file with a
-	// blank or a repeat in it counted as unchanged and the space never opened.
-	want := spaces.Open(cfg.Spaces, repo)
-	if len(want) == len(open) {
-		return
-	}
-	cfg.Spaces = want
-	if err := settings.Save(cfg); err != nil {
-		slog.Debug("save the space for a review", "repo", repo, "err", err)
 	}
 }
 
@@ -182,7 +154,6 @@ func (s *Server) handleRunReview(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
 	default:
-		s.openSpaceFor(req.Repo)
 		writeJSON(w, http.StatusAccepted, map[string]any{"path": path})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +145,92 @@ func TestAVerdictOnlySurvivesWhileItsWordingDoes(t *testing.T) {
 		"the reworded requirement is unscored")
 	assert.Equal(t, design.DriftDone, itemByText(t, items, "Expire it after an hour.").Verdict,
 		"its neighbours keep their verdicts")
+}
+
+// The cheapest way to make a requirement true is to delete it. A pass found
+// this one absent; the next read must still say so.
+func TestARequirementTakenOutWhileUnmetIsListedAsDropped(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	s := newTestServer(t)
+	writeDoc(t, s, "cart.md", driftDoc)
+	s.setDoc("cart.md")
+
+	scored := getDrift(t, s).Items
+	for i := range scored {
+		scored[i].Verdict = design.DriftDone
+		if scored[i].Text == "Cache the cart in Redis." {
+			scored[i].Verdict = design.DriftAbsent
+		}
+	}
+	s.mu.Lock()
+	s.drift = &DriftState{File: "cart.md", At: time.Now(), Items: scored}
+	s.mu.Unlock()
+
+	without := strings.Replace(driftDoc, "- Cache the cart in Redis.\n", "", 1)
+	writeDoc(t, s, "cart.md", without)
+
+	item := itemByVerdict(t, getDrift(t, s).Items, design.DriftDropped)
+	assert.Equal(t, "Cache the cart in Redis.", item.Text)
+	assert.Contains(t, item.Note, "no longer in the document")
+}
+
+// One that was done and is gone is built and tidied away, which is what the
+// document is supposed to do.
+func TestARequirementThatWasDoneAndIsGoneIsNotDropped(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	s := newTestServer(t)
+	writeDoc(t, s, "cart.md", driftDoc)
+	s.setDoc("cart.md")
+
+	scored := getDrift(t, s).Items
+	for i := range scored {
+		scored[i].Verdict = design.DriftDone
+	}
+	s.mu.Lock()
+	s.drift = &DriftState{File: "cart.md", At: time.Now(), Items: scored}
+	s.mu.Unlock()
+
+	without := strings.Replace(driftDoc, "- Cache the cart in Redis.\n", "", 1)
+	writeDoc(t, s, "cart.md", without)
+	for _, item := range getDrift(t, s).Items {
+		assert.NotEqual(t, design.DriftDropped, item.Verdict, item.Text)
+	}
+}
+
+// Rewording it is the same move as deleting it: the words a pass judged are
+// gone either way.
+func TestARequirementRewordedWhileUnmetIsListedAsDropped(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	s := newTestServer(t)
+	writeDoc(t, s, "cart.md", driftDoc)
+	s.setDoc("cart.md")
+
+	scored := getDrift(t, s).Items
+	for i := range scored {
+		if scored[i].Text == "Cache the cart in Redis." {
+			scored[i].Verdict = design.DriftAbsent
+		}
+	}
+	s.mu.Lock()
+	s.drift = &DriftState{File: "cart.md", At: time.Now(), Items: scored}
+	s.mu.Unlock()
+
+	reworded := strings.Replace(driftDoc, "Cache the cart in Redis.", "Cache the cart in memory.", 1)
+	writeDoc(t, s, "cart.md", reworded)
+
+	item := itemByVerdict(t, getDrift(t, s).Items, design.DriftDropped)
+	assert.Equal(t, "Cache the cart in Redis.", item.Text)
+}
+
+func itemByVerdict(t *testing.T, items []DriftItem, verdict string) DriftItem {
+	t.Helper()
+	for _, item := range items {
+		if item.Verdict == verdict {
+			return item
+		}
+	}
+	require.FailNowf(t, "no item", "nothing is %s", verdict)
+	return DriftItem{}
 }
 
 // A score belongs to the document it was about, so opening another design shows

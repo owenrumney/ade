@@ -1,10 +1,12 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -244,6 +246,7 @@ func (s *Server) driftChecklist(file string) ([]DriftItem, error) {
 
 	aside := settings.DismissedRequirements()
 	out := []DriftItem{}
+	held := map[string]bool{}
 	for _, r := range design.Requirements(text) {
 		item := DriftItem{ID: r.ID, Kind: r.Kind, Text: r.Text, Line: r.Line, Hash: r.Hash,
 			Dismissed: settings.IsRequirementDismissed(aside, s.startRoot, file, r.ID, r.Hash)}
@@ -251,10 +254,31 @@ func (s *Server) driftChecklist(file string) ([]DriftItem, error) {
 		// requirement shows as unscored rather than carrying a stale score.
 		if was, ok := scored[r.ID]; ok && was.Hash == r.Hash {
 			item.Verdict, item.Note, item.File, item.FileLine = was.Verdict, was.Note, was.File, was.FileLine
+			held[r.ID] = true
 		}
 		out = append(out, item)
 	}
-	return out, nil
+	return append(out, leftTheDesign(scored, held)...), nil
+}
+
+// leftTheDesign is every unmet requirement the document no longer says:
+// rewording a bullet is how one goes green with no code written.
+func leftTheDesign(scored map[string]DriftItem, held map[string]bool) []DriftItem {
+	out := []DriftItem{}
+	for id, was := range scored {
+		if held[id] || was.Dismissed || was.Verdict == design.DriftDone {
+			continue
+		}
+		was.Verdict, was.Note = design.DriftDropped, droppedNote(was)
+		out = append(out, was)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func droppedNote(was DriftItem) string {
+	return fmt.Sprintf("was %s and is no longer in the document: put the bullet back, or say in the chat what replaced it",
+		cmp.Or(was.Verdict, "unscored"))
 }
 
 // contradiction is the comment body: what the pass found, and the design line it

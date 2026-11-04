@@ -34,10 +34,10 @@ describe("what the open spaces cover", () => {
 
 describe("the Spaces list", () => {
   it("offers Close on one that is here and Clone on one that is not", () => {
-    const place = spaces([
-      space("owenrumney/ade", { sessions: 3, designs: ["a.md"] }),
-      space("nobody/nowhere", { here: false }),
-    ]);
+    const place = spaces(
+      [space("owenrumney/ade", { sessions: 3 }), space("nobody/nowhere", { here: false })],
+      new Map([["owenrumney/ade", 1]]),
+    );
     expect(place.rows[0].acts?.[0]).toMatchObject({ label: "Close", what: "space-close" });
     expect(place.rows[0].meta).toBe("3 sessions · 1 designs");
     expect(place.rows[1].acts?.[0]).toMatchObject({ label: "Clone", what: "space-clone" });

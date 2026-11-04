@@ -21,9 +21,9 @@ import { build, flatten, squashed, toggled, type Node, type Shown } from "./tree
 import { fill, owed, wired, type Ask, type Doing } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
 import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
-import { Kept } from "./kept";
+import { needFor, Sources } from "./fresh";
 import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
-import { frame, pushTo, stirred, tell } from "./panel";
+import { frame, pushTo, shown, stirred, tell } from "./panel";
 import {
   dismissable,
   groupOf,
@@ -75,6 +75,14 @@ const startingFor = 8_000;
 
 // What every list says while that server is on its way up.
 const coming = "Starting ade for this checkout…";
+
+interface Rows<T> {
+  rows: T;
+  why?: string;
+}
+
+const EMPTY_DIFF: { rows: Change[]; why: string } = { rows: [], why: "" };
+const EMPTY_TREE: { rows: { path: string }[]; why: string } = { rows: [], why: "" };
 
 // Where the files ticked off in a review are kept between reloads.
 const markKey = "ade.diff.viewed";
@@ -131,7 +139,6 @@ class Ade {
   private spaceShown?: Space;
   // Archived from a space page, until a read brings a list that agrees.
   private goneSessions = new Set<string>();
-  private goneDesigns = new Set<string>();
   private goneSpaces = new Set<string>();
   // Where the picked session's server is up to. "starting" is one
   // this window has in flight, which is not yet a failure.
@@ -142,15 +149,17 @@ class Ade {
   private announced: real.Active[] = [];
   private todoList: real.Todo[] = [];
   private jobs: real.Job[] = [];
-  // The diff is the largest thing the server holds, kept until the
-  // version it publishes for exactly this moves.
+  // Every read the window keeps, by age. See fresh.ts.
+  private sources = new Sources();
+  // The version the server publishes for exactly this diff.
   private diffNow = "";
-  private diffHeld = new Kept<Change[]>([]);
-  // The file list and the checkout's documents, kept the same way.
-  private filesHeld = new Kept<{ path: string }[]>([]);
+  private diffRead = "";
   // Which checkout holds a changed copy of each design in the store, so the
   // row's Re-import knows where to read it from again.
   private designChanged = new Map<string, string>();
+  // The store as the last read listed it.
+  private storeDesigns: real.Design[] = [];
+  private faultsSaid = 0;
 
   // The checkout the window was opened on, when it was opened on one.
   // Only until a session is picked: after that the pick is the answer.
@@ -338,11 +347,10 @@ class Ade {
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
     // A pass while nothing serves the session shows what was last read.
-    // See `stale` in kept.ts for why it may not write an empty one.
     const starting = this.serving === "starting";
     const [changes, files] = starting
-      ? [this.diffHeld.stale(coming), this.filesHeld.stale(coming)]
-      : await Promise.all([this.diff(), this.tree()]);
+      ? [this.held(this.diffKey, EMPTY_DIFF, coming), this.held(this.treeKey, EMPTY_TREE, coming)]
+      : await this.looking();
     this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
     if (this.marksFor !== this.session) {
@@ -353,7 +361,7 @@ class Ade {
     this.world = {
       places: inBarOrder([
         real.waiting(dash, got.active ?? []),
-        spacesPlace(this.openSpaces),
+        spacesPlace(this.openSpaces, this.designCounts()),
         note(
           without(
             real.sessions(
@@ -435,7 +443,7 @@ class Ade {
     if (what === "close") {
       this.goneSpaces.add(repo);
       this.openSpaces = this.openSpaces.filter((s) => s.repo !== repo);
-      this.redrawPlace(spacesPlace(this.openSpaces));
+      this.redrawPlace(spacesPlace(this.openSpaces, this.designCounts()));
       this.say(`closing ${repo}…`);
     }
     const got =
@@ -455,9 +463,8 @@ class Ade {
   // again re-reads the showing place. What it asks first is the service
   // behind that place, if any: Issues is Linear, Team is agentbus.
   private async again(place = this.place): Promise<void> {
-    // Asked for by hand, so nothing kept is trusted.
-    this.diffHeld.stale("");
-    this.filesHeld.stale("");
+    // Asked for by hand, so nothing held is trusted.
+    this.sources.stale();
     const want = refreshFor(place);
     this.say(want.say);
     let trouble = "";
@@ -496,10 +503,18 @@ class Ade {
     } else if (Date.now() - this.startedAt > startingFor) {
       this.serving = "failed";
     }
+    this.faulted(got as { fault?: { count?: number; latest?: string } });
     this.mine = ((got as { openPrs?: real.Listed[] | null })?.openPrs ?? []).filter((p) => p.number);
     this.bus = (got as { bus?: real.Bus })?.bus;
     this.threads = ((got as { threads?: Thread[] | null })?.threads ?? []).filter((t) => t.id);
     this.diffNow = String((got as { diffVersion?: string }).diffVersion ?? "");
+    // The version makes the diff stale, not the event that brought it.
+    const at = `${this.session}:${this.diffNow}`;
+    if (this.diffNow !== "" && at !== this.diffRead) {
+      this.diffRead = at;
+      this.sources.stale(this.diffKey);
+      this.sources.stale(this.treeKey);
+    }
     return real.doingIn(got);
   }
 
@@ -546,19 +561,41 @@ class Ade {
     this.timer = setTimeout(() => void this.read(), ms);
   }
 
-  private async diff(): Promise<{ rows: Change[]; why?: string }> {
-    if (!window.ade) return { rows: [] };
-    if (!this.session) return { rows: [], why: "Pick a session: the diff is one checkout's." };
-    // Only when it has moved: a run writes a step a second and the diff
-    // behind it does not change nearly that often.
-    const kept = this.diffHeld.good(`${this.session}:${this.diffNow}`);
-    if (kept) return kept;
-    const got = await window.ade
-      .read("session", "/api/diff", this.session)
-      .catch((e: Error) => ({ error: e.message }));
-    const bad = (got as { error?: string }).error;
-    // Not remembered: a failure is worth asking about again.
-    if (bad) return { rows: [], why: `/api/diff — ${bad}` };
+  private get diffKey(): string {
+    return `diff:${this.session}`;
+  }
+
+  private get treeKey(): string {
+    return `tree:${this.session}`;
+  }
+
+  // looking is one pass's look at the diff and the file list.
+  private async looking(): Promise<[Rows<Change[]>, Rows<{ path: string }[]>]> {
+    if (!window.ade) return [{ rows: [] }, { rows: [] }];
+    if (!this.session) {
+      return [
+        { rows: [], why: "Pick a session: the diff is one checkout's." },
+        { rows: [], why: "Pick a session: Code is one checkout's." },
+      ];
+    }
+    this.sources.watch(this.diffKey, () => this.readDiff(), "diff");
+    this.sources.watch(this.treeKey, () => this.readTree(), "diff");
+    // A source nothing looked at is dropped: a session left behind stops being read.
+    await this.sources.settled();
+    this.sources.looked();
+    return [this.held(this.diffKey, EMPTY_DIFF), this.held(this.treeKey, EMPTY_TREE)];
+  }
+
+  // held is a reading as a place takes it: rows, and a line for having none.
+  private held<T>(key: string, empty: { rows: T; why: string }, instead = ""): Rows<T> {
+    const got = this.sources.reading(key, empty);
+    return { rows: got.value.rows, why: instead || got.error || got.value.why };
+  }
+
+  private async readDiff(): Promise<{ rows: Change[]; why: string }> {
+    const got = await window.ade?.read("session", "/api/diff", this.session);
+    const bad = (got as { error?: string } | undefined)?.error;
+    if (bad) throw new Error(`/api/diff — ${bad}`);
     const rows = changesIn(got);
     const d = (got as { diff?: { mode?: string; base?: string } }).diff ?? {};
     const where = this.where.get(this.session) ?? "the picked session";
@@ -567,11 +604,28 @@ class Ade {
       rows.length > 0
         ? ""
         : `Nothing in ${where}${view ? ` · ${view}` : ""}. ⌘K “scope” to change the view.`;
-    return this.diffHeld.keep(`${this.session}:${this.diffNow}`, rows, why);
+    return { rows, why };
+  }
+
+  private async readTree(): Promise<{ rows: { path: string }[]; why: string }> {
+    const got = (await window.ade?.read("session", "/api/tree", this.session)) as {
+      files?: string[];
+      error?: string;
+    };
+    if (got.error) throw new Error(`/api/tree — ${got.error}`);
+    return { rows: (got.files ?? []).map((path) => ({ path })), why: "" };
   }
 
   // draftState is how far the review has got, which the Review place says and
   // the verbs act on.
+  // faulted says a panic the session contained, once per fault.
+  private faulted(got: { fault?: { count?: number; latest?: string } }): void {
+    const count = got.fault?.count ?? 0;
+    if (count <= this.faultsSaid) return;
+    this.faultsSaid = count;
+    this.say(`ade hit a fault and carried on: ${got.fault?.latest ?? "see the Logs panel"}`);
+  }
+
   private async draftState(): Promise<real.DraftState> {
     const none = { inDraft: 0, ready: 0, notGoing: 0 };
     if (!window.ade || !this.session) return none;
@@ -582,22 +636,6 @@ class Ade {
     // review with thirteen findings in it.
     if (got.error) return { ...none, error: got.error };
     return got;
-  }
-
-  private async tree(): Promise<{ rows: { path: string }[]; why?: string }> {
-    if (!window.ade || !this.session) {
-      return { rows: [], why: "Pick a session: Code is one checkout's." };
-    }
-    // On the diff's version too: a file added or removed moves it, and
-    // nothing else changes what git lists.
-    const at = `${this.session}:${this.diffNow}`;
-    const kept = this.filesHeld.good(at);
-    if (kept) return kept;
-    const got = (await window.ade
-      .read("session", "/api/tree", this.session)
-      .catch((e: Error) => ({ error: e.message }))) as { files?: string[]; error?: string };
-    if (got.error) return { rows: [], why: `/api/tree — ${got.error}` };
-    return this.filesHeld.keep(at, (got.files ?? []).map((path) => ({ path })));
   }
 
   run(command: string): void {
@@ -1069,9 +1107,10 @@ class Ade {
   private reach(): Reach {
     // Read when the call is made: a panel outlives the pick.
     return {
-      get: (at, path) => window.ade!.read(at, path, this.session),
-      call: (at, path, method, body) => window.ade!.call(at, path, method, body, this.session),
-      send: (at, path, body, method) => window.ade!.act(at, path, body, this.session, method),
+      get: (at, path) => this.reached(at, path),
+      call: (at, path, method, body) => this.acted(window.ade!.call(at, path, method, body, this.session)),
+      send: (at, path, body, method) =>
+        this.acted(window.ade!.act(at, path, body, this.session, method)),
       open: (path) => this.fromPanel(path),
       link: (href) => void window.ade!.link(href),
       run: (command) => this.run(command),
@@ -1079,6 +1118,26 @@ class Ade {
       follow: (dir) => this.follow(dir),
       ask: (title, rows) => this.omnibox.ask(title, rows),
     };
+  }
+
+  // reached is a panel's read, by age: one /api/ship pass is four git
+  // commands per repository, and a stir arrives on every agent step.
+  private async reached(at: "launcher" | "session", path: string): Promise<unknown> {
+    const need = needFor(path);
+    const read = () => window.ade!.read(at, path, this.session);
+    if (need === 0) return read();
+    const key = `panel:${at}:${this.session}:${path}`;
+    this.sources.watch<unknown>(key, read, need);
+    await this.sources.settled();
+    const got = this.sources.reading<unknown>(key, undefined);
+    return got.error ? { error: got.error } : got.value;
+  }
+
+  // acted is a panel's press: what it changed is anybody's guess.
+  private async acted<T>(doing: Promise<T>): Promise<T> {
+    const got = await doing;
+    this.sources.stale();
+    return got;
   }
 
   private todoAt(id: string): string {
@@ -1297,7 +1356,7 @@ class Ade {
     return {
       space,
       sessions: sessionsOf(repo, Date.now(), this.goneSessions),
-      designs: designsOf(space, this.goneDesigns),
+      designs: designsOf(this.storeDesigns, space.repo),
       stats,
       note,
     };
@@ -1339,8 +1398,7 @@ class Ade {
       return;
     }
     if (did.what === "open-design") {
-      const name = did.id.split("|").pop() ?? did.id;
-      return this.show({ panel: `spacedesign:${did.id}` }, name.replace(/\.md$/, ""), "design");
+      return this.show({ panel: `store:${did.name}` }, did.name, "design");
     }
     if (did.what === "new-session") {
       if (!space.path) return this.say(`${space.repo} is not cloned on this machine`);
@@ -1349,23 +1407,16 @@ class Ade {
     if (did.what === "import-session") return this.importSession(space.repo);
     // Off the page first, then the request: a row that stays put reads as a
     // button that did nothing.
-    const session = did.what === "archive-session";
-    const gone = session ? this.goneSessions : this.goneDesigns;
-    gone.add(did.id);
+    this.goneSessions.add(did.id);
     const listed = this.world.places.find((p) => p.id === "sessions");
-    if (session && listed) this.redrawPlace(without(listed, gone));
-    this.say(session ? "archiving the session…" : "archiving the design…");
+    if (listed) this.redrawPlace(without(listed, this.goneSessions));
+    this.say("archiving the session…");
     this.openSpace(space.repo);
 
-    const got = session
-      ? await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true })
-      : await window.ade.act("launcher", "/api/designs/archive", {
-          repo: space.repo,
-          file: did.id,
-        });
+    const got = await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true });
     const back = real.answered(got as real.Answer);
     if (back.error) {
-      gone.delete(did.id);
+      this.goneSessions.delete(did.id);
       this.openSpace(space.repo);
       return this.say(back.error);
     }
@@ -1637,7 +1688,10 @@ class Ade {
       }
       // Only the pane's edges move: a reparented iframe would reload.
       const g = groupOf(tab);
+      const hid = held.node.hidden;
       held.node.hidden = tab.id !== this.actives[g];
+      // Back in front, so its panel reads the stir it sat out while hidden.
+      if (hid && !held.node.hidden) void shown(held.node);
       held.node.classList.toggle("left", this.sideBySide && g === 0);
       held.node.classList.toggle("right", this.sideBySide && g === 1);
     }
@@ -2802,8 +2856,19 @@ class Ade {
 
   // noteChanged remembers where each design's changed copy is, and hands the
   // list back as it came.
+  // designCounts is the store's designs per repository, for the Spaces rows.
+  private designCounts(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const one of this.storeDesigns) {
+      const repo = one.repo ?? "";
+      if (repo) out.set(repo, (out.get(repo) ?? 0) + 1);
+    }
+    return out;
+  }
+
   private noteChanged(all: real.Design[]): real.Design[] {
     this.designChanged = new Map(all.filter((d) => d.changed).map((d) => [d.name, d.changed!]));
+    this.storeDesigns = all;
     return all;
   }
 

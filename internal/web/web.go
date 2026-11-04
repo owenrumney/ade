@@ -15,7 +15,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
+	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -594,11 +597,64 @@ const closeWait = 5 * time.Second
 
 // spawn runs f on its own goroutine, counted so Close can wait for it.
 func (s *Server) spawn(f func()) {
+	name := goroutineName(f)
 	s.bg.Add(1)
 	go func() {
 		defer s.bg.Done()
+		defer s.contain(name)
 		f()
 	}()
+}
+
+// contain keeps a panicking goroutine from taking the session with it.
+func (s *Server) contain(what string) {
+	if raised := recover(); raised != nil {
+		s.contained(what, raised)
+	}
+}
+
+func (s *Server) contained(what string, raised any) {
+	slog.Error("panic contained", "in", what, "panic", raised, "stack", string(debug.Stack()))
+	containedMu.Lock()
+	containedPanics = append(containedPanics, fmt.Sprintf("%s: %v", what, raised))
+	containedMu.Unlock()
+	if s != nil && s.hub != nil {
+		s.hub.Broadcast("logs", nil)
+	}
+}
+
+// containedPanics is what this process swallowed. The suite fails on any:
+// containing one is not a way to live with it.
+var (
+	containedMu     sync.Mutex
+	containedPanics []string
+)
+
+func Contained() []string {
+	containedMu.Lock()
+	defer containedMu.Unlock()
+	return slices.Clone(containedPanics)
+}
+
+func currentFault() *Fault {
+	containedMu.Lock()
+	defer containedMu.Unlock()
+	if len(containedPanics) == 0 {
+		return nil
+	}
+	return &Fault{Count: len(containedPanics), Latest: containedPanics[len(containedPanics)-1]}
+}
+
+func goroutineName(f func()) string {
+	fn := runtime.FuncForPC(reflect.ValueOf(f).Pointer())
+	if fn == nil {
+		return "a background goroutine"
+	}
+	name := fn.Name()
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
 }
 
 // settle waits for the goroutines spawn started, or for most, and says which.
@@ -1021,6 +1077,13 @@ func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 		}
 		started := time.Now()
 		rec := &logged{ResponseWriter: w, status: http.StatusOK}
+		// Every route answers through here, so one recover covers all of them.
+		defer func() {
+			if raised := recover(); raised != nil {
+				http.Error(rec, "something in ade failed answering that", http.StatusInternalServerError)
+				s.contained(r.Method+" "+r.URL.Path, raised)
+			}
+		}()
 		next(rec, r)
 		rec.report(r)
 		// Not the log's own fetch: logging it wakes the viewer, which fetches again.
@@ -1224,6 +1287,16 @@ type stateResponse struct {
 	// Bus is what agentbus has offered this ade, and whether it is joined.
 	// Absent when there is no bus and nothing waiting.
 	Bus *BusState `json:"bus,omitempty"`
+
+	// Fault is a panic the server contained rather than died of.
+	Fault *Fault `json:"fault,omitempty"`
+}
+
+// Fault is what the window says. The count is how a second one is told from
+// the first still showing.
+type Fault struct {
+	Count  int    `json:"count"`
+	Latest string `json:"latest"`
 }
 
 // ChatInfo is the conversation's session and its length.
@@ -1328,6 +1401,7 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 		Chat:          s.chatInfo(),
 		Attachment:    s.currentAttachment(),
 		Bus:           s.currentBus(),
+		Fault:         currentFault(),
 	})
 }
 

@@ -19,6 +19,8 @@ import (
 )
 
 func TestAReviewRequestBecomesASessionInAWorktreeOfTheRepository(t *testing.T) {
+	// A checkout for a review opens its space, which reads the settings.
+	t.Setenv("HOME", t.TempDir())
 	asked := ghpr.Request{Repo: "acme/other", Number: 9, URL: "https://github.com/acme/other/pull/9"}
 
 	var checkedOutIn, openedDir, cloned, clonedTo string

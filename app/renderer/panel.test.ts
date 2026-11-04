@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { skeleton } from "./panel";
+import { onScreen, skeleton } from "./panel";
 import { declared, read, taken, THEME } from "./paneltheme";
 
 const PANEL = {
@@ -46,6 +46,21 @@ describe("the host half of a webview", () => {
 
   it("escapes a quote in the data it writes onto the root", () => {
     expect(skeleton(PANEL)).toContain('data-note="a &quot;quoted&quot; one"');
+  });
+});
+
+// Refreshing every kept panel on every agent step is where the /api/ship git
+// commands were going.
+describe("which panels a stir re-reads", () => {
+  const node = (hidden: boolean) =>
+    ({ closest: (sel: string) => (hidden && sel === "[hidden]" ? {} : null) }) as unknown as HTMLElement;
+
+  it("reads the pane in front", () => {
+    expect(onScreen(node(false))).toBe(true);
+  });
+
+  it("leaves a pane behind another tab alone", () => {
+    expect(onScreen(node(true))).toBe(false);
   });
 });
 

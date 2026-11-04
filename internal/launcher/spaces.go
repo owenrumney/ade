@@ -1,29 +1,26 @@
 package launcher
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/docs"
 	"github.com/owenrumney/ade/internal/ghpr"
-	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/spaces"
 )
 
-// Space is one repository kept open, with the designs written anywhere in it.
+// Space is one repository kept open. Its designs are the store's, which the
+// window already has: a repository's own markdown is not a design.
 type Space struct {
-	Repo     string   `json:"repo"`
-	Owner    string   `json:"owner,omitempty"`
-	Name     string   `json:"name,omitempty"`
-	Path     string   `json:"path,omitempty"`
-	Branch   string   `json:"branch,omitempty"`
-	Sessions int      `json:"sessions"`
-	Designs  []string `json:"designs,omitempty"`
+	Repo     string `json:"repo"`
+	Owner    string `json:"owner,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Sessions int    `json:"sessions"`
 
 	// Here is false for a space whose clone this machine has not got: listed
 	// anyway, so it can be cloned rather than quietly forgotten.
@@ -57,7 +54,7 @@ func (s *Server) handleSpaces(w http.ResponseWriter, r *http.Request) {
 	// which is right for scoping a list and wrong for listing the set.
 	if len(want) > 0 {
 		for _, repo := range spaces.Within(all, want) {
-			space := s.spaceOf(r.Context(), repo)
+			space := s.spaceOf(repo)
 			space.Current = space.Repo == here && here != ""
 			out = append(out, space)
 		}
@@ -71,7 +68,7 @@ func (s *Server) handleSpaces(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) spaceOf(ctx context.Context, repo sessions.Repo) Space {
+func (s *Server) spaceOf(repo sessions.Repo) Space {
 	main := mainOf(repo)
 	space := Space{
 		Repo:     spaces.KeyOf(repo),
@@ -82,48 +79,7 @@ func (s *Server) spaceOf(ctx context.Context, repo sessions.Repo) Space {
 		Sessions: repo.Sessions,
 		Here:     true,
 	}
-	space.Designs = designsAnywhereIn(ctx, repo, main)
 	return space
-}
-
-// designsAnywhereIn is every design in the repository, whichever worktree
-// wrote it: a design belongs to the repository, not to one checkout.
-func designsAnywhereIn(ctx context.Context, repo sessions.Repo, main string) []string {
-	if main == "" {
-		return nil
-	}
-	// Every worktree shares the repository's git dir, so this is asked once
-	// and not thirteen times for a repository with twelve worktrees.
-	common, err := gitdiff.CommonGitDir(ctx, main)
-	if err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	out := []string{}
-	for _, root := range append([]string{main}, worktreesOf(repo)...) {
-		list, err := designsIn(root, common)
-		if err != nil {
-			continue
-		}
-		for _, file := range list {
-			if !seen[file] {
-				seen[file] = true
-				out = append(out, file)
-			}
-		}
-	}
-	docs.SortFiles(out)
-	return out
-}
-
-func worktreesOf(repo sessions.Repo) []string {
-	out := []string{}
-	for _, checkout := range repo.Checkouts {
-		if checkout.Worktree {
-			out = append(out, checkout.Path)
-		}
-	}
-	return out
 }
 
 type offer struct {

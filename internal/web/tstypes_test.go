@@ -186,7 +186,7 @@ var responseShapes = map[string][]string{
 	},
 	"StateResponse": {
 		"agent struct", "attachment ptr", "branchPr ptr", "bus ptr", "chat struct", "created ptr", "design ptr", "diffVersion string",
-		"draft ptr", "hub ptr", "limits ptr", "linear ptr", "meta struct", "notifications slice",
+		"draft ptr", "fault ptr", "hub ptr", "limits ptr", "linear ptr", "meta struct", "notifications slice",
 		"openPrs slice", "pr ptr", "project ptr", "quiz ptr", "reviews slice", "threads slice",
 		"verify ptr", "walkthrough ptr", "worktree ptr",
 	},

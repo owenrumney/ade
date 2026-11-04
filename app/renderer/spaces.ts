@@ -10,7 +10,6 @@ export interface Space {
   path?: string;
   branch?: string;
   sessions: number;
-  designs?: string[];
   here: boolean;
   // The repository the window is working in. Open because you are in it,
   // so there is nothing to close.
@@ -35,8 +34,9 @@ export function inSpaces(open: Space[]): (repo: Repo) => boolean {
   return (repo) => keys.has(keyOf(repo));
 }
 
-// place is the Spaces list: what is open, and what each holds.
-export function spaces(open: Space[]): Place {
+// place is the Spaces list: what is open, and what each holds. designs counts
+// the store's, per repository.
+export function spaces(open: Space[], designs: ReadonlyMap<string, number> = new Map()): Place {
   const rows: Row[] = open.map((space) => ({
     id: `space:${space.repo}`,
     icon: space.here ? "space" : "warn",
@@ -46,7 +46,7 @@ export function spaces(open: Space[]): Place {
       ? [
           space.current ? "you are here" : "",
           space.sessions ? `${space.sessions} session${space.sessions === 1 ? "" : "s"}` : "",
-          (space.designs ?? []).length ? `${space.designs?.length} designs` : "",
+          designs.get(space.repo) ? `${designs.get(space.repo)} designs` : "",
           space.branch,
         ]
           .filter(Boolean)

@@ -74,7 +74,7 @@ func TestNoStandingInstructionLeavesThePromptAsItWas(t *testing.T) {
 	pin(t, "   ")
 	pinRole(t, "")
 	prompt := after(claudeArgs(Opts{}), "--append-system-prompt")
-	assert.Equal(t, writingRules+"\n\n"+searchRules+"\n\n"+toolRules+"\n\n"+houseRules+"\n\n"+wikiRules+"\n\n"+showRules+"\n\n"+sessionRules, prompt, "nothing set, nothing added")
+	assert.Equal(t, writingRules+"\n\n"+searchRules+"\n\n"+toolRules+"\n\n"+houseRules+"\n\n"+designRules+"\n\n"+wikiRules+"\n\n"+showRules+"\n\n"+sessionRules, prompt, "nothing set, nothing added")
 }
 
 func TestTheRoleReachesOnlyTheMainChat(t *testing.T) {
@@ -135,6 +135,21 @@ func TestTheHouseRulesReachEveryTurnThatCanEditCode(t *testing.T) {
 		args := oneShotArgs(OneShotOpts{Prompt: "rewrite this comment"})
 		assert.NotContains(t, args, "--append-system-prompt")
 	})
+}
+
+// The cheapest way to make a design bullet true is to edit the bullet. Every
+// run that can write code can write the document too, so the rule goes with it.
+func TestARunThatCanEditIsToldNotToEditTheDesignToMatchTheCode(t *testing.T) {
+	prompt := after(claudeArgs(Opts{}), "--append-system-prompt")
+	assert.Contains(t, prompt, "The design document, when one is open")
+	assert.Contains(t, prompt, "is a bug in the code, not in the\n  bullet")
+
+	writes := oneShotArgs(OneShotOpts{Prompt: "apply the findings", Tools: []string{"Read", "Edit"}})
+	assert.Contains(t, after(writes, "--append-system-prompt"), "The design document, when one is open")
+
+	// A reviewer writes no code and no documents.
+	reads := oneShotArgs(OneShotOpts{Prompt: "review this", Tools: []string{"Read", "Grep"}})
+	assert.NotContains(t, reads, "--append-system-prompt")
 }
 
 func TestEditsCode(t *testing.T) {
