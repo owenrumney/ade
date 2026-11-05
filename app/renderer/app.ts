@@ -378,7 +378,7 @@ class Ade {
     this.marks = pruned(this.marks, this.changes);
     this.world = {
       places: inBarOrder([
-        real.waiting(dash, got.active ?? []),
+        real.waiting(dash, got.active ?? [], this.bus),
         spacesPlace(this.openSpaces, this.designCounts()),
         note(
           without(
@@ -1595,7 +1595,12 @@ class Ade {
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
     if (back.error) return this.say(back.error);
-    const path = (back.body as { path?: string } | undefined)?.path ?? "";
+    await this.landOnReview((back.body as { path?: string } | undefined)?.path ?? "", agent);
+  }
+
+  // landOnReview is a pull request just checked out: an agent seated in it,
+  // and the window landing on its diff once it announces.
+  private async landOnReview(path: string, agent: string): Promise<void> {
     if (!path) return this.say("it was opened, but nothing said where");
     if (agent) await this.seatAgent(path, agent);
     this.landing = path;
@@ -1603,6 +1608,44 @@ class Ade {
     this.landingSince = Date.now();
     this.say(`checked out in ${path}`);
     await this.read();
+  }
+
+  // claimReview takes a review a teammate asked for over agentbus and opens
+  // it exactly as Open PR from link does.
+  private async claimReview(id: string): Promise<void> {
+    const agent = this.terminal ? await this.whichAgent() : "";
+    if (this.terminal && !agent) return;
+    this.say("claiming the review and checking it out…", true);
+    const got = await window.ade
+      ?.act("launcher", "/api/bus/claim", { id, open: true })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    await this.landOnReview((back.body as { path?: string } | undefined)?.path ?? "", agent);
+  }
+
+  // answerOffer is a teammate's question, answered in the omnibox: one of
+  // its options when it gave some, your own words otherwise.
+  private async answerOffer(id: string): Promise<void> {
+    const offer = this.bus?.offers?.find((one) => one.id === id);
+    if (!offer) return this.say("that question is no longer waiting");
+    const title = `${offer.from} asks: ${offer.question ?? ""}`;
+    let option = "";
+    if (offer.options?.length) {
+      const rows = offer.options.map((one) => ({ label: one, value: one }));
+      const picked = await this.omnibox.ask(title, [...rows, { label: "Something else…", value: "" }]);
+      this.omnibox.close();
+      if (typeof picked !== "string") return;
+      option = picked;
+    }
+    const text = option ? "" : ((await this.omnibox.type(title, ""))?.trim() ?? "");
+    this.omnibox.close();
+    if (!option && !text) return;
+    const got = await window.ade
+      ?.act("launcher", "/api/bus/answer", { id, option, text })
+      .catch((e: Error) => ({ error: e.message }));
+    this.say(real.answered(got as real.Answer).error || `answered ${offer.from}`);
+    void this.read();
   }
 
   // whichAgent asks which CLI a session runs, the last one used first.
@@ -2882,6 +2925,8 @@ class Ade {
     }
     if (act.what === "todo-start") return this.fromTodo(act.name);
     if (act.what === "todo-done" || act.what === "todo-drop") return this.todoOff(act);
+    if (act.what === "bus-claim") return this.claimReview(act.name);
+    if (act.what === "bus-answer") return this.answerOffer(act.name);
     if (act.what === "bus-dismiss") {
       const team = this.world.places.find((p) => p.id === "team");
       if (team) this.redrawPlace(without(team, new Set([act.name])));

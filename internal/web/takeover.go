@@ -81,7 +81,7 @@ func (s *Server) agentPane(ctx context.Context, prompt string) (*term.Session, e
 		s.agent.endTakeover()
 		return nil, err
 	}
-	sess.Setenv(s.agent.badgeEnv()...)
+	sess.Setenv(append(s.agent.badgeEnv(), s.agent.busEnv()...)...)
 	s.agent.freshBadge(strings.TrimSpace(prompt) != "")
 	if s.agent.isCodex() {
 		s.agent.codexDenies()
@@ -98,8 +98,17 @@ func (s *Server) agentTerm() *term.Session {
 }
 
 // typed pastes text at the agent's prompt and sends it, newlines and all.
+// Control characters go: the text may be another person's answer.
 func typed(sess *term.Session, text string) error {
-	text = strings.ReplaceAll(strings.TrimSpace(text), "\x1b", "")
+	text = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(text))
 	if text == "" {
 		return nil
 	}
@@ -192,7 +201,12 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 		resume = a.session
 	}
 	if bin == "codex" {
-		argv = codexArgv(resume, started, !boxed)
+		var config []string
+		// A boxed one reaches neither this binary nor this server.
+		if !boxed {
+			config = append([]string{codexNotify()}, a.codexBus()...)
+		}
+		argv = codexArgv(resume, started, config...)
 	} else {
 		argv = a.claudeArgv(resume, started)
 	}
@@ -211,10 +225,13 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 
 // codexArgv resumes by subcommand. Codex names its own conversations, so one
 // started here and not yet read back is the last in this directory.
-func codexArgv(resume string, started, told bool) []string {
+func codexArgv(resume string, started bool, config ...string) []string {
 	argv := []string{"codex"}
-	if notify := codexNotify(); told && notify != "" {
-		argv = append(argv, "-c", notify)
+	// Each is a -c override, which codex takes only before the subcommand.
+	for _, one := range config {
+		if one != "" {
+			argv = append(argv, "-c", one)
+		}
 	}
 	switch {
 	case resume != "":
@@ -244,6 +261,10 @@ func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	}
 	if a.model != "" {
 		argv = append(argv, "--model", a.model)
+	}
+	// A boxed one cannot reach this server's loopback address.
+	if config := a.busConfig(resume); config != "" && !a.sandbox {
+		argv = append(argv, "--mcp-config", config)
 	}
 	settings := map[string]any{}
 	// Deny rules hold in every permission mode, which an allow rule does not.

@@ -639,9 +639,9 @@ describe("the team, as agentbus has it", () => {
     ]);
   });
 
-  it("offers Dismiss on an offer and Clear on an answer", () => {
+  it("offers Claim and Dismiss on a review asked of you, and Clear on an answer", () => {
     const acts = real.team(bus, now).rows.map((r) => r.acts?.map((a) => `${a.label}:${a.what}`));
-    expect(acts.slice(0, 2)).toEqual([["Dismiss:bus-dismiss"], ["Clear:bus-dismiss"]]);
+    expect(acts.slice(0, 2)).toEqual([["Claim:bus-claim", "Dismiss:bus-dismiss"], ["Clear:bus-dismiss"]]);
     expect(acts.slice(2).every((a) => a === undefined)).toBe(true);
   });
 
@@ -1542,5 +1542,35 @@ describe("when opening the window builds My Day", () => {
     expect(real.myDayDue(job({ paused: true }), thursday)).toBe(false);
     expect(real.myDayDue(job({ running: true }), thursday)).toBe(false);
     expect(real.myDayDue(undefined, thursday)).toBe(false);
+  });
+});
+
+describe("what teammates asked of you over agentbus", () => {
+  const bus: real.Bus = {
+    offers: [
+      { id: "o1", kind: "review", from: "kim", pr: "owenrumney/ade#412" },
+      { id: "o2", kind: "ask", from: "liam", question: "Ship it?", options: ["yes", "no"] },
+      { id: "o3", kind: "review", from: "kim", pr: "owenrumney/ade#413", claimed: true },
+    ],
+  };
+
+  it("offers a review to claim and a question to answer", () => {
+    const rows = real.offered(bus);
+    expect(rows.map((row) => row.acts?.map((act) => `${act.label}:${act.what}`))).toEqual([
+      ["Claim:bus-claim", "Dismiss:bus-dismiss"],
+      ["Answer:bus-answer", "Dismiss:bus-dismiss"],
+      ["Open:bus-claim", "Dismiss:bus-dismiss"],
+    ]);
+    expect(rows[1].name).toBe("Ship it?");
+  });
+
+  it("lists them in Waiting on you, first, so the bell counts them", () => {
+    const place = real.waiting({}, [], bus);
+    expect(place.rows.map((row) => row.id)).toEqual(["o1", "o2", "o3"]);
+    expect(real.waiting({}, []).rows).toEqual([]);
+  });
+
+  it("lists them in Team as before", () => {
+    expect(real.team(bus).rows.slice(0, 3).map((row) => row.id)).toEqual(["o1", "o2", "o3"]);
   });
 });

@@ -575,7 +575,10 @@ const STATE = {
   ],
   bus: {
     online: true,
-    offers: [{ id: "o1", kind: "review", from: "kim", pr: "owenrumney/ade#412" }],
+    offers: [
+      { id: "o1", kind: "review", from: "kim", pr: "owenrumney/ade#412" },
+      { id: "o2", kind: "ask", from: "liam", question: "Is the proxy hop safe to ship today?", options: ["yes", "not yet"] },
+    ],
     replies: [{ id: "r1", from: "kim", text: "the proxy hop looks right", at: "2026-10-22T11:40:00Z" }],
     sent: [{ id: "s1", to: "anyone", question: "anyone seen the sandbox image size?" }],
     // Two instances of one person, which is the ordinary case: an ade on the

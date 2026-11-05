@@ -52,7 +52,9 @@ export type Act =
   | "todo-drop"
   | "space-close"
   | "space-clone"
-  | "bus-dismiss";
+  | "bus-dismiss"
+  | "bus-claim"
+  | "bus-answer";
 
 export type View =
   | { kind: "diff"; title: string; patch: string }

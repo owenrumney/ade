@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/owenrumney/ade/internal/agentbus"
 	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/term"
@@ -327,7 +329,7 @@ func TestAnAgentOnThisMachineIsToldToReportWhatItIsDoing(t *testing.T) {
 		assert.Regexp(t, `^'.+' badge$`, settings.Hooks[event][0].Hooks[0].Command)
 	}
 
-	codex := codexArgv("thread-1", false, true)
+	codex := codexArgv("thread-1", false, codexNotify())
 	require.Len(t, codex, 5)
 	assert.Equal(t, "-c", codex[1])
 	assert.Regexp(t, `^notify=\[".+","badge"\]$`, codex[2])
@@ -458,4 +460,78 @@ func TestAColdRunDoesNotWaitForTheAgentsTerminal(t *testing.T) {
 		a.finish(nil)
 	}
 	assert.True(t, a.TakenOver(), "the terminal still holds the conversation afterwards")
+}
+
+func TestATerminalAgentIsHandedTheBusTools(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeAgent(t)
+	a := &agentRunner{provider: "claude", delegateURL: "http://127.0.0.1:4100/", delegateToken: "tok-1"}
+
+	argv, _, _, err := a.takeoverArgv("", false)
+	require.NoError(t, err)
+	at := slices.Index(argv, "--mcp-config")
+	require.Positive(t, at, "claude is given a config file")
+	raw, err := os.ReadFile(argv[at+1])
+	require.NoError(t, err)
+	var config struct {
+		Servers map[string]struct {
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &config))
+	require.Len(t, config.Servers, 1, "the bus and nothing else of ade's")
+	assert.Equal(t, "http://127.0.0.1:4100"+BusMCPPath, config.Servers[busServerName].URL)
+	assert.Equal(t, "tok-1", config.Servers[busServerName].Headers["X-Ade-Delegate-Token"])
+
+	env := a.busEnv()
+	assert.Contains(t, env, busTokenVar+"=tok-1")
+	assert.Regexp(t, "^"+agentbus.EnvInstance+"=ade-", env[0])
+
+	codex := codexArgv("", true, (&agentRunner{delegateURL: "http://127.0.0.1:4100", delegateToken: "tok-1"}).codexBus()...)
+	assert.Equal(t, []string{
+		"codex",
+		"-c", `mcp_servers.agentbus.url="http://127.0.0.1:4100/mcp/agentbus"`,
+		"-c", `mcp_servers.agentbus.bearer_token_env_var="ADE_AGENTBUS_TOKEN"`,
+		"resume", "--last",
+	}, codex, "the token is in the environment, not on the command line")
+
+	boxed := &agentRunner{provider: "claude", sandbox: true, delegateURL: "http://127.0.0.1:4100", delegateToken: "tok-1"}
+	assert.Empty(t, boxed.busEnv(), "a box has no route to this server")
+}
+
+func TestAnAnswerFromTheBusIsTypedAtATerminalAgent(t *testing.T) {
+	fakeAgent(t)
+	s := newTestServer(t)
+	t.Cleanup(s.closeTerminal)
+
+	s.answered(t.Context(), "kim answered: before any terminal")
+	assert.Nil(t, s.agentTerm(), "an answer alone starts no agent")
+
+	pane, err := s.agentPane(t.Context(), "the first message")
+	require.NoError(t, err)
+	seen(t, pane, "the first message")
+
+	s.answered(t.Context(), "kim answered \"ship it?\": yes\x03, go\x1b[201~")
+	assert.Contains(t, seen(t, pane, "go[201~"), `From agentbus: kim answered "ship it?": yes, go[201~`, "nothing in an answer ends the paste or the agent")
+}
+
+func TestATerminalAgentsBadgeIsItsStandingOnTheBus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		run     RunState
+		running bool
+		asking  int
+	}{
+		"a turn of ade's own":   {RunState{Running: true}, true, 0},
+		"working in a terminal": {RunState{Terminal: badgeWorking}, true, 0},
+		"waiting on its human":  {RunState{Terminal: badgeNeeds}, false, 1},
+		"idle":                  {RunState{Terminal: badgeIdle}, false, 0},
+		"ended":                 {RunState{Terminal: badgeEnded}, false, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			running, asking := busStanding(tc.run)
+			assert.Equal(t, tc.running, running)
+			assert.Equal(t, tc.asking, asking)
+		})
+	}
 }

@@ -605,7 +605,7 @@ export interface Bus {
   online?: boolean;
   why?: string;
   user?: string;
-  offers?: { id: string; kind: string; from: string; question?: string; pr?: string; claimed?: boolean }[];
+  offers?: { id: string; kind: string; from: string; question?: string; options?: string[]; pr?: string; claimed?: boolean }[];
   replies?: { id: string; from: string; question?: string; text?: string; verdict?: string; at?: string }[];
   sent?: { id: string; to?: string; question?: string; pr?: string; at?: string }[];
   team?: Member[];
@@ -660,19 +660,27 @@ export function notConnected(why?: string): string {
   return why ? `${said} ${why}` : said;
 }
 
+// offered is what teammates asked of you over agentbus: a question to answer
+// or a review to claim. Team lists it, and so does Waiting on you.
+export function offered(bus: Bus | undefined): Row[] {
+  return (bus?.offers ?? []).map((offer) => ({
+    id: offer.id,
+    group: "Offered to you",
+    icon: offer.kind === "review" ? "review" : "ask",
+    tone: "warn" as const,
+    name: offer.question || offer.pr || offer.kind,
+    meta: [offer.from, offer.claimed ? "claimed" : ""].filter(Boolean).join(" · "),
+    acts: [
+      offer.kind === "review"
+        ? { label: offer.claimed ? "Open" : "Claim", what: "bus-claim" as const, name: offer.id }
+        : { label: "Answer", what: "bus-answer" as const, name: offer.id },
+      { label: "Dismiss", what: "bus-dismiss" as const, name: offer.id },
+    ],
+  }));
+}
+
 export function team(bus: Bus | undefined, now = Date.now()): Place {
-  const rows: Row[] = [];
-  for (const offer of bus?.offers ?? []) {
-    rows.push({
-      id: offer.id,
-      group: "Offered to you",
-      icon: offer.kind === "review" ? "review" : "ask",
-      tone: "warn",
-      name: offer.question || offer.pr || offer.kind,
-      meta: [offer.from, offer.claimed ? "claimed" : ""].filter(Boolean).join(" · "),
-      acts: [{ label: "Dismiss", what: "bus-dismiss" as const, name: offer.id }],
-    });
-  }
+  const rows: Row[] = offered(bus);
   for (const reply of bus?.replies ?? []) {
     rows.push({
       id: reply.id,
@@ -887,18 +895,19 @@ export function jobs(all: Job[], now = Date.now()): Place {
 
 // waiting is the desk's first list, and the machine's rather than this
 // checkout's: every repository's reviews, every session's queues.
-export function waiting(dash: Dash & { error?: string }, active: Active[] = []): Place {
+export function waiting(dash: Dash & { error?: string }, active: Active[] = [], bus?: Bus): Place {
   const stacked = queued(active);
+  const asked = offered(bus);
   const rows = (dash.reviews ?? [])
     .filter((r) => !r.muted && (r.review?.state === "ready" || r.review?.state === "drafted"))
     .map(reviewRow)
     // Grouped only when there is a second list to tell it from.
-    .map((row) => ({ ...row, group: stacked.length > 0 ? "Yours to move" : undefined }));
+    .map((row) => ({ ...row, group: stacked.length + asked.length > 0 ? "Yours to move" : undefined }));
   return {
     id: "waiting",
     title: "Waiting on you",
     icon: "bell",
-    rows: [...rows, ...stacked],
+    rows: [...asked, ...rows, ...stacked],
     note: why(dash),
   };
 }

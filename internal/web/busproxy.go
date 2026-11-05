@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/busstate"
-	"github.com/owenrumney/ade/internal/chat"
 )
 
 // The launcher holds this machine's one agentbus connection, so a person is
@@ -106,12 +105,13 @@ func (s *Server) pulseBus(ctx context.Context) {
 // see from outside, which is focus and what the agent is doing.
 func (s *Server) reportBus(ctx context.Context) {
 	run := s.agentState()
+	running, asking := busStanding(run)
 	body := map[string]any{
 		"dir":         s.startRoot,
 		"label":       s.busLabel(),
 		"focused":     s.here(),
-		"asking":      len(run.Asking),
-		"running":     run.Running,
+		"asking":      asking,
+		"running":     running,
 		"queued":      run.Queued,
 		"queue_since": s.queueSince(),
 	}
@@ -159,7 +159,7 @@ func (s *Server) refreshBus(ctx context.Context) {
 		s.hub.Broadcast("state", nil)
 	}
 	for _, reply := range fresh {
-		s.say(ChatMessage{Kind: chat.KindNote, Body: replyLine(reply)})
+		s.answered(ctx, replyLine(reply))
 	}
 }
 
