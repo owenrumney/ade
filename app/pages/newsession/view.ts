@@ -78,6 +78,21 @@ export const ROWS: Row[] = [
   },
 ];
 
+// rowsFor is the rows a session can start from. Plan and Design write a
+// document through ade's chat, which a terminal session does not have.
+export function rowsFor(terminal: boolean): Row[] {
+  if (!terminal) return ROWS;
+  return ROWS.filter((row) => row.mode !== "plan" && row.mode !== "design").map((row) =>
+    row.mode === "work" ? { ...row, detail: "a branch and a worktree" } : row,
+  );
+}
+
+// GRILL is the first message that opens a session on its own design.
+export const GRILL =
+  "Grill me about this work. Ask in rounds, each question with the answer you recommend, until we agree what to build. " +
+  "Then write a short brief as a markdown file under ade/docs in this repository's git dir: goal, decisions, out of scope, steps, how to check. " +
+  "Stop there and do not build yet.";
+
 export function rowFor(mode: Mode): Row {
   return ROWS.find((r) => r.mode === mode) ?? ROWS[0];
 }
@@ -109,6 +124,8 @@ export interface Chosen {
   // for a branch that has none, which is made when it is opened.
   branch: string;
   at: string;
+  // terminal is a session run in the agent's own terminal.
+  terminal: boolean;
 }
 
 // Doc is one document the Design row offers. ship marks one that is here and
@@ -160,6 +177,7 @@ export const fresh: Chosen = {
   repos: [],
   branch: "",
   at: "",
+  terminal: false,
 };
 
 // home is where the agent runs, the session's root and where the document

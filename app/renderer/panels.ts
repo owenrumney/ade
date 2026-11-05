@@ -4,6 +4,7 @@ import { fresh, names, type Chosen } from "../pages/newsession/view";
 import { BODY as SETTINGS_BODY } from "../pages/settings/body";
 import { split } from "../pages/commit";
 import { byRepo, chosen, confirm, rows, told, type Sweep } from "../pages/purgepanel/view";
+import { newSeed, setLastAgent } from "./terminalmode";
 
 
 export interface Reach {
@@ -362,6 +363,15 @@ function from(id: string): (reach: Reach) => Panel {
 // picked is what the form chose, in the names `/api/open` and
 // `/api/scratch` take. Empty is a default, not a choice, so it is left out.
 function picked(want: Chosen, files?: unknown[]): Record<string, unknown> {
+  // The agent's own terminal: no model, role or machine, and never a container.
+  if (want.terminal) {
+    return {
+      agent: want.agent || undefined,
+      prompt: want.message.trim(),
+      sandbox: false,
+      terminal: true,
+    };
+  }
   return {
     agent: want.agent || undefined,
     model: want.model || undefined,
@@ -1115,6 +1125,7 @@ export function newSession(reach: Reach, seed: Partial<Chosen> = {}): Panel {
         chosen = (said.chosen ?? chosen) as Record<string, unknown>;
         const want = chosen as unknown as Chosen;
         const files = (said.files ?? []) as unknown[];
+        if (want.terminal) setLastAgent(want.agent);
         // Scratch is the one with nowhere to live yet, so it has no
         // repository to tick and its own route.
         if (want.mode === "scratch") {
@@ -1210,7 +1221,7 @@ export const WHICH: Record<string, (reach: Reach, at?: { base: string; token: st
   "ade.purgeWorktrees": from("purge"),
   "ade.disk": from("purge"),
   "ade.purgeDesigns": prune,
-  "ade.newSession": (reach) => newSession(reach),
+  "ade.newSession": (reach) => newSession(reach, newSeed()),
   "ade.quizMe": quiz,
   "ade.explainThis": explain,
 };

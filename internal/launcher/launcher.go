@@ -679,6 +679,8 @@ type openRequest struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Files go with that first message, as the chat's attachments do.
 	Files []chat.Incoming `json:"files,omitempty"`
+	// Terminal sends the prompt to the agent's own terminal rather than the chat.
+	Terminal bool `json:"terminal,omitempty"`
 	// Brief is a design document to write into the session, and whether to
 	// build from it. How a build reaches a machine that has no copy of it.
 	Brief *Brief `json:"brief,omitempty"`
@@ -756,7 +758,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), req.Prompt, req.Files,
+		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), opening{req.Prompt, req.Files, req.Terminal},
 			sessions.Work{Name: name, Ticket: ticket, Agent: req.Agent, Model: req.Model, Role: req.Role, Also: also, Sandbox: req.Sandbox},
 			req.Brief)
 		return
@@ -819,7 +821,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	// message answered without it is answered against an empty document.
 	briefErr := sendBrief(s.ctx, url, req.Brief)
 	if briefErr == nil {
-		sendFirstMessage(s.ctx, url, req.Prompt, req.Files)
+		opening{req.Prompt, req.Files, req.Terminal}.send(s.ctx, url)
 	}
 	// Opening it is looking at it, which is what stops it waiting on you.
 	if looked != "" {
@@ -866,7 +868,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 
 // openWorkspace is `ade create <name>` from the tree: the document, the
 // worktree on its branch, and the session, which is told what to start on.
-func (s *Server) openWorkspace(w http.ResponseWriter, dir, prompt string, files []chat.Incoming, work sessions.Work, brief *Brief) {
+func (s *Server) openWorkspace(w http.ResponseWriter, dir string, first opening, work sessions.Work, brief *Brief) {
 	agent, model, err := picked(work.Agent, work.Model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -886,7 +888,10 @@ func (s *Server) openWorkspace(w http.ResponseWriter, dir, prompt string, files 
 	// without the brief is answered against the skeleton create just wrote.
 	briefErr := sendBrief(s.ctx, url, brief)
 	if briefErr == nil {
-		sendFirstMessage(s.ctx, url, prompt, files)
+		if first.Terminal && strings.TrimSpace(first.Prompt) == "" && work.Ticket != "" {
+			first.Prompt = ticketPrompt(s.ctx, url, work.Ticket)
+		}
+		first.send(s.ctx, url)
 	}
 	s.hub.Broadcast("repos", nil)
 	s.notifyPorts()
@@ -914,6 +919,8 @@ type scratchRequest struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Files go with that first message, as the chat's attachments do.
 	Files []chat.Incoming `json:"files,omitempty"`
+	// Terminal is as /api/open has it.
+	Terminal bool `json:"terminal,omitempty"`
 	// Mounts and Env go into the scratch checkout's sandbox file once it is
 	// made, which is the only repository it will ever be.
 	Mounts []sandbox.Path    `json:"mounts,omitempty"`
@@ -958,7 +965,7 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Before the proxy rewrite: the session answers on its own address.
-	sendFirstMessage(s.ctx, url, req.Prompt, req.Files)
+	opening{req.Prompt, req.Files, req.Terminal}.send(s.ctx, url)
 	if httpx.Wide() {
 		via, ok := s.proxyURL(r, s.announcedFor(dir))
 		if !ok {

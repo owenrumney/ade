@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 )
 
@@ -227,4 +228,68 @@ func TestAFailedBuildStillSaysWhereTheSessionIs(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.NotEmpty(t, got.URL, "a session was opened, so the reply names it")
 	assert.Contains(t, got.Error, "start the build")
+}
+
+// A terminal session's first message starts the agent's own interface on it.
+// Sent to the chat as well it would be answered twice, by two processes.
+func TestATerminalSessionsFirstMessageGoesToTheAgentsTerminal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "code", "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o750))
+	require.NoError(t, settings.Save(settings.Settings{ScanDirs: []string{filepath.Join(home, "code")}}))
+
+	s := newTestLauncher(t)
+	s.open = func(context.Context, string, string, string, string) (string, error) {
+		return "http://127.0.0.1:1234/?t=abc", nil
+	}
+	wasChat, wasPrompt := sendFirst, sendPrompt
+	var chatted, prompted string
+	sendFirst = func(_ context.Context, _, body string) error {
+		chatted = body
+		return nil
+	}
+	sendPrompt = func(_ context.Context, url, body string) error {
+		prompted = body
+		assert.Contains(t, url, "t=abc", "the session's own token")
+		return nil
+	}
+	t.Cleanup(func() { sendFirst, sendPrompt = wasChat, wasPrompt })
+
+	rec := do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+dir+`","fresh":true,"terminal":true,"prompt":"  fix the failing checks "}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"prompt":"fix the failing checks"}`, prompted)
+	assert.Empty(t, chatted)
+}
+
+func TestATicketIsATerminalSessionsFirstMessageWhenNoneWasWritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "code", "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o750))
+	require.NoError(t, settings.Save(settings.Settings{ScanDirs: []string{filepath.Join(home, "code")}}))
+
+	s := newTestLauncher(t)
+	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
+		return "http://127.0.0.1:1234/?t=abc", dir + "-fix-623", nil
+	}
+	wasPrompt, wasTicket := sendPrompt, ticketPrompt
+	var prompted []string
+	sendPrompt = func(_ context.Context, _, body string) error {
+		prompted = append(prompted, body)
+		return nil
+	}
+	ticketPrompt = func(_ context.Context, _, ticket string) string { return "read " + ticket }
+	t.Cleanup(func() { sendPrompt, ticketPrompt = wasPrompt, wasTicket })
+
+	rec := do(t, s, http.MethodPost, "/api/open", `{"dir":"`+dir+`","ticket":"FIX-623","terminal":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = do(t, s, http.MethodPost, "/api/open",
+		`{"dir":"`+dir+`","ticket":"FIX-623","terminal":true,"prompt":"only the tests"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	require.Len(t, prompted, 2)
+	assert.JSONEq(t, `{"prompt":"read FIX-623"}`, prompted[0])
+	assert.JSONEq(t, `{"prompt":"only the tests"}`, prompted[1], "what was written wins")
 }

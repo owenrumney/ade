@@ -25,6 +25,7 @@ import { needFor, Sources } from "./fresh";
 import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
 import { frame, pushTo, shown, stirred, tell } from "./panel";
 import {
+  AGENT,
   dismissable,
   groupOf,
   held,
@@ -42,11 +43,13 @@ import {
   startIn,
   sweeping,
   trimmed,
+  withAgent,
   type Group,
   type Layout,
   type Sweep,
   type Tab,
 } from "./tabs";
+import { lastAgent, newSeed, setLastAgent, setTerminalMode, terminalMode } from "./terminalmode";
 import { isChat, sideWidth } from "./dock";
 import { menu, type Row as MenuRow } from "./menu";
 import { edits, focusEditor, mount, mountDiff, reaching, saved, selected } from "./code";
@@ -200,6 +203,8 @@ class Ade {
   // The chat dock: its own width, and shut only because you shut it.
   private chatWidth = Number(localStorage.getItem("ade.chat")) || 400;
   private chatShut = localStorage.getItem("ade.chat.shut") === "1";
+  // The agent's own terminal holds the conversation, and there is no chat.
+  private terminal = terminalMode();
   // What the sidebar last drew as, so an unchanged poll leaves it alone.
   private sidebarHTML = "";
   // Expanded: the chat takes the editor area, out to the sidebar.
@@ -537,7 +542,7 @@ class Ade {
     this.wants = id;
     this.picked.set("sessions", id);
     if (!this.servedAt(id)) this.serving = "starting";
-    if (this.landingFor === "chat") this.run("ade.openChat");
+    if (this.landingFor === "chat") this.run(this.terminal ? "ade.openAgent" : "ade.openChat");
     else this.place = "review";
     this.landingFor = "review";
     return "";
@@ -698,7 +703,14 @@ class Ade {
         return;
       }
       if (what.verb === "terminal") {
-        return this.show({ kind: "term", title: "Terminal" }, "Terminal", "code");
+        return this.show({ kind: "term", title: "Shell" }, "Shell", "code");
+      }
+      if (what.verb === "agent") {
+        return this.show({ kind: "agent", title: "Agent" }, "Agent", "session");
+      }
+      if (what.verb === "terminal-mode") {
+        setTerminalMode(!this.terminal);
+        return location.reload();
       }
       if (what.verb === "sidebar") return this.shutSide(!this.sideShut);
       if (what.place) {
@@ -861,10 +873,12 @@ class Ade {
   private drawDock(): void {
     if (!this.shell) return;
     const { dock, dockHead, dockBody, chatGrip } = this.shell;
-    dock.hidden = this.chatShut;
-    chatGrip.hidden = this.chatShut || this.chatWide;
-    this.root.classList.toggle("chatwide", !this.chatShut && this.chatWide);
-    if (this.chatShut) return;
+    const shut = this.chatShut || this.terminal;
+    dock.hidden = shut;
+    chatGrip.hidden = shut || this.chatWide;
+    this.root.classList.toggle("chatwide", !shut && this.chatWide);
+    this.root.classList.toggle("terminal", this.terminal);
+    if (shut) return;
     dockHead.replaceChildren(...this.dockHead());
     const wait = this.waiting(CHAT_TAB);
     if (wait) {
@@ -1558,6 +1572,8 @@ class Ade {
     const link = await this.omnibox.type("Paste a pull request link", "");
     this.omnibox.close();
     if (!link?.trim()) return;
+    const agent = this.terminal ? await this.whichAgent() : "";
+    if (this.terminal && !agent) return;
     this.say(`checking out ${link.trim()}; cloning first if you do not have it…`, true);
     const got = await window.ade!
       .act("launcher", "/api/reviews/open", { link: link.trim() })
@@ -1566,11 +1582,32 @@ class Ade {
     if (back.error) return this.say(back.error);
     const path = (back.body as { path?: string } | undefined)?.path ?? "";
     if (!path) return this.say("it was opened, but nothing said where");
+    if (agent) await this.seatAgent(path, agent);
     this.landing = path;
     this.landingFor = "review";
     this.landingSince = Date.now();
     this.say(`checked out in ${path}`);
     await this.read();
+  }
+
+  // whichAgent asks which CLI a session runs, the last one used first.
+  private async whichAgent(): Promise<string> {
+    const rows = ["claude", "codex"].map((one) => ({ label: one, value: one }));
+    if (lastAgent() === "codex") rows.reverse();
+    const picked = await this.omnibox.ask("Which agent?", rows);
+    this.omnibox.close();
+    if (typeof picked !== "string") return "";
+    setLastAgent(picked);
+    return picked;
+  }
+
+  // seatAgent puts an open checkout on the picked CLI; a running agent keeps its own.
+  private async seatAgent(dir: string, agent: string): Promise<void> {
+    const got = await window.ade!
+      .act("launcher", "/api/open", { dir, fresh: true, direct: true, agent, terminal: true, sandbox: false })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) this.say(back.error);
   }
 
   // giveVerdict is the omnibox's Approve, Request changes and Merge. They
@@ -1723,7 +1760,7 @@ class Ade {
   // waiting is why a panel tab cannot draw its page yet, or empty when
   // it can: a page built now would fetch the proxy's 404 and print it.
   private waiting(tab: Tab): string {
-    if (!("panel" in tab.what)) return "";
+    if (!("panel" in tab.what) && tab.what.kind !== "agent") return "";
     if (!this.sessionAt()) return this.session ? "Waiting for ade…" : "Pick a session.";
     return this.serving === "starting" ? "Starting ade for this checkout…" : "";
   }
@@ -1826,7 +1863,7 @@ class Ade {
     if (this.only || this.tabs.length > 0) return;
     const kept = this.keptTabs.get(this.tabsFor);
     const right = kept?.right ?? [];
-    if (!kept || kept.tabs.length + right.length === 0) return;
+    if (!kept || kept.tabs.length + right.length === 0) return this.seat();
     // Replaying a file tab moves the sidebar to Code, which is how
     // openFile knows what it is opening. Where you were is not its to change.
     const was = this.place;
@@ -1846,6 +1883,7 @@ class Ade {
       }
     }
     this.place = was;
+    this.seat();
     for (const id of right) this.tabs = moved(this.tabs, id, 1);
     if (kept.at) {
       this.splitAt = kept.at;
@@ -1857,6 +1895,13 @@ class Ade {
     this.settle();
     this.remember();
     this.draw();
+  }
+
+  // seat gives a terminal session its agent, first in the strip.
+  private seat(): void {
+    if (!this.terminal || !this.session || this.only) return;
+    this.tabs = withAgent(this.tabs);
+    if (!this.actives[0]) this.actives[0] = AGENT;
   }
 
   // written is what the last run left: the place it was in, and the
@@ -1940,6 +1985,7 @@ class Ade {
       this.panes.get(id)?.node.remove();
       this.panes.delete(id);
       if (id === "term") closeTerm();
+      if (id === AGENT) closeTerm(AGENT);
     }
   }
 
@@ -3166,9 +3212,9 @@ class Ade {
       const make = doc
         ? (reach: Reach, at?: { base: string; token: string }) => written(reach, at, doc)
         : fromTodo
-          ? (reach: Reach) => newSession(reach, { message: todo })
+          ? (reach: Reach) => newSession(reach, { ...newSeed(), message: todo })
           : inDir
-            ? (reach: Reach) => newSession(reach, { mode: "work", repos: [inDir] })
+            ? (reach: Reach) => newSession(reach, { ...newSeed(), mode: "work", repos: [inDir] })
             : WHICH[which];
       if (!make) return el("div", "nothing", `no panel called ${which}`);
       // The chat reaches the session's own server, so it is given that
@@ -3182,6 +3228,12 @@ class Ade {
     }
     const view = tab.what;
     if (view.kind === "term") return openTerm(this.session, (why) => this.say(why));
+    if (view.kind === "agent") {
+      // Opening its pane is what starts the agent, so not before ade is up.
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      return openTerm(this.session, (why) => this.say(why), AGENT);
+    }
     // Code is monaco: one instance, moved into the tab that is showing
     // a file. Moving a div is free; each file keeps its own model.
     if (view.kind === "code") {

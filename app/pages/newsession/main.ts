@@ -3,7 +3,7 @@ import { control } from "../mounts/control";
 import { added } from "../mounts/view";
 import { plan } from "./plan";
 import {
-  ROWS,
+  GRILL,
   fresh,
   held,
   home,
@@ -11,6 +11,7 @@ import {
   missing,
   onto,
   rowFor,
+  rowsFor,
   summary,
   tick,
   type Chosen,
@@ -99,7 +100,7 @@ function set(part: Partial<Chosen>): void {
 
 function modes(): HTMLElement {
   const box = el("nav", "modes");
-  for (const row of ROWS) {
+  for (const row of rowsFor(state.chosen.terminal)) {
     const one = el("button", row.mode === state.chosen.mode ? "mode on" : "mode");
     one.append(el("span", "mode-label", row.label));
     one.append(el("span", "mode-detail", row.detail));
@@ -138,6 +139,12 @@ function choice(
 function defaults(): HTMLElement {
   const { chosen, offer } = state;
   const box = el("section", "defaults");
+  // The CLI has its own model switch, and a terminal session has no
+  // machine, role or sandbox to choose.
+  if (chosen.terminal) {
+    box.append(field("Agent", choice(offer.agents, chosen.agent, (agent) => set({ agent }))));
+    return box;
+  }
   box.append(
     field(
       "Machine",
@@ -290,13 +297,18 @@ function willMake(): HTMLElement {
   } else if (plan.branch) {
     box.append(el("p", "sub", `Branch ${plan.branch} in each.`));
     const where = plan.makes[0]?.repo ?? "";
-    box.append(el("p", "sub", designLine(plan, where)));
+    if (!chosen.terminal) box.append(el("p", "sub", designLine(plan, where)));
   } else if (issue) {
     box.append(
-      el("p", "sub", `Branch and document named after issue #${issue} once it is read.`),
+      el(
+        "p",
+        "sub",
+        `Branch ${chosen.terminal ? "" : "and document "}named after issue #${issue} once it is read.`,
+      ),
     );
   }
-  if (!chosen.sandbox) box.append(el("p", "sub", "Not sandboxed: the agent runs on this host."));
+  if (!chosen.sandbox && !chosen.terminal)
+    box.append(el("p", "sub", "Not sandboxed: the agent runs on this host."));
   return box;
 }
 
@@ -330,7 +342,15 @@ function asked(): HTMLElement {
       root.querySelector(".will")?.replaceWith(willMake());
     });
     box.append(field("Ticket", ticket));
-    box.append(el("p", "sub", "Read before anything is built, and drafted into the design."));
+    box.append(
+      el(
+        "p",
+        "sub",
+        chosen.terminal
+          ? "Its title and text are the first message unless you write one."
+          : "Read before anything is built, and drafted into the design.",
+      ),
+    );
   }
 
   if (row.names === "branch") {
@@ -367,19 +387,32 @@ function asked(): HTMLElement {
   const message = document.createElement("textarea");
   message.className = "message";
   message.rows = 4;
-  message.placeholder = "What do you want done? Paste an image to send it too.";
+  message.placeholder = chosen.terminal
+    ? "What do you want done?"
+    : "What do you want done? Paste an image to send it too.";
   message.value = chosen.message;
   message.addEventListener("input", () => {
     state.chosen = { ...state.chosen, message: message.value };
   });
   message.addEventListener("paste", (event) => {
+    // The agent's terminal takes a picture itself, once it is running.
+    if (state.chosen.terminal) return;
     const files = pasted((event as ClipboardEvent).clipboardData?.items);
     if (files.length === 0) return;
     event.preventDefault();
     void take(files);
   });
   box.append(field("First message", message));
-  box.append(tray());
+  if (chosen.terminal) {
+    const presets = el("div", "recent");
+    const grill = el("button", "chip", "Grill me");
+    grill.title = GRILL;
+    grill.addEventListener("click", () => set({ message: GRILL }));
+    presets.append(grill);
+    box.append(presets);
+  } else {
+    box.append(tray());
+  }
 
   if (offer.recent.length > 0) {
     const recent = el("div", "recent");
@@ -560,7 +593,7 @@ function draw(): void {
   right.append(willMake());
   grid.append(left, right);
   root.append(grid);
-  if (state.chosen.sandbox) root.append(mounts());
+  if (state.chosen.sandbox && !state.chosen.terminal) root.append(mounts());
   root.append(foot());
 }
 

@@ -1045,6 +1045,15 @@ describe("the New session panel's Design row", () => {
     expect(got.chosen.mode).toBe("direct");
     expect(got.chosen.repos).toEqual([]);
   });
+
+  it("starts a terminal session on the agent alone, never in a container", async () => {
+    const opened: Record<string, unknown>[] = [];
+    const chosen = { ...typed("cancel"), terminal: true, agent: "codex", model: "opus", role: "staff", message: " go " };
+    await newSession(reachWith({ designs: [] }, opened), {}).onMessage({ kind: "start", chosen });
+    expect(opened[0]).toMatchObject({ path: "/api/open", agent: "codex", terminal: true, sandbox: false, prompt: "go" });
+    expect(opened[0].model).toBeUndefined();
+    expect(opened[0].role).toBeUndefined();
+  });
 });
 
 // Remove used to post the page's own message to /api/prune, which names no

@@ -41,6 +41,8 @@ export type Verb =
   | "dictate"
   | "history"
   | "terminal"
+  | "agent"
+  | "terminal-mode"
   | "sidebar"
   | "float"
   | "review-draft"
@@ -364,6 +366,9 @@ export const WIRED: Record<string, Doing> = {
   "ade.exposePort": L("/api/ports/expose", {}, type("port", "Which port?")),
   // xterm in the window, over the session server's own shell.
   "ade.openTerminal": W(undefined, "terminal"),
+  // The agent's own interface, and the switch back to ade's chat.
+  "ade.openAgent": W(undefined, "agent"),
+  "ade.terminalMode": W(undefined, "terminal-mode"),
   "ade.toggleSidebar": W(undefined, "sidebar"),
   "ade.diagnose": S("/api/diagnose/net"),
 

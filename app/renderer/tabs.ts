@@ -40,6 +40,18 @@ export function settled(tabs: Tab[]): { tabs: Tab[]; split: boolean } {
   return { tabs: tabs.map((t) => ({ ...t, group: 0 as Group })), split: false };
 }
 
+// The agent's tab, and the pane the server runs its interface in.
+export const AGENT = "agent";
+
+export function agentTab(): Tab {
+  return { id: AGENT, title: "Agent", icon: "session", what: { kind: "agent", title: "Agent" } };
+}
+
+// withAgent puts the agent first in a session's tabs when it is not there.
+export function withAgent(tabs: Tab[]): Tab[] {
+  return tabs.some((t) => t.id === AGENT) ? tabs : [agentTab(), ...tabs];
+}
+
 // The panel ids that hold the New session screen, seeded or not.
 export function newSessionPanel(panel: string): boolean {
   return panel === "ade.newSession" || panel.startsWith("todo:") || panel.startsWith("in:");
@@ -62,6 +74,8 @@ export function idOf(what: Tab["what"]): string {
       return `hunks:${what.file.path}`;
     case "term":
       return "term";
+    case "agent":
+      return AGENT;
     case "rules":
       return "rules";
     case "space":
@@ -135,14 +149,14 @@ export function held(tabs: Tab[], active: string): Tab | undefined {
 // A tab holds a live thing when moving it would break it: an iframe
 // reloads, a terminal reconnects. Those are hidden, not rebuilt.
 export function live(tab: Tab): boolean {
-  return "panel" in tab.what || tab.what.kind === "term";
+  return "panel" in tab.what || tab.what.kind === "term" || tab.what.kind === "agent";
 }
 
 // Whether Escape closes this tab. A panel closes itself, and a terminal
 // reads the key: vim, less and fzf all want it.
 export function dismissable(tab: Tab | undefined): boolean {
   if (!tab || "panel" in tab.what) return false;
-  return tab.what.kind !== "term";
+  return tab.what.kind !== "term" && tab.what.kind !== "agent";
 }
 
 // Pane is a built tab. `waiting` is one that could only say why it
@@ -188,7 +202,10 @@ export function keepable(tabs: Tab[]): string[] {
     .filter((t) =>
       "panel" in t.what
         ? !isChat(t.what.panel)
-        : t.what.kind === "term" || t.what.kind === "code" || t.what.kind === "hunks",
+        : t.what.kind === "term" ||
+          t.what.kind === "agent" ||
+          t.what.kind === "code" ||
+          t.what.kind === "hunks",
     )
     .map((t) => t.id);
 }

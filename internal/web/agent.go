@@ -165,8 +165,10 @@ type agentRunner struct {
 	// takenOver is the agent's own TUI holding the conversation instead of
 	// the bridge. One process on a transcript at a time.
 	takenOver bool
-	cancel    context.CancelFunc
-	state     RunState
+	// tuiID is the conversation a TUI started here was told to call itself.
+	tuiID  string
+	cancel context.CancelFunc
+	state  RunState
 
 	// lastEvent is when the agent last said anything, which is what the
 	// watchdog measures, and spoken is whether it ever has. stopped is why we

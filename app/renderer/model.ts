@@ -84,6 +84,8 @@ export type View =
   // A repository kept open: its sessions, its designs and its numbers.
   | { kind: "space"; title: string; seen: Seen }
   | { kind: "term"; title: string }
+  // The agent's own interface, running in the session's checkout.
+  | { kind: "agent"; title: string }
   | { kind: "none" };
 
 export interface Place {

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  AGENT,
+  agentTab,
   dismissable,
   newSessionPanel,
   held,
@@ -18,6 +20,7 @@ import {
   startIn,
   sweeping,
   trimmed,
+  withAgent,
   type Tab,
 } from "./tabs";
 
@@ -309,5 +312,22 @@ describe("a tab drag outlives a redraw", () => {
 
   it("holds the strip still while a tab is being carried", () => {
     expect(src).toContain("if (!this.dragging) head.replaceChildren(...this.head())");
+  });
+});
+
+describe("the agent's tab", () => {
+  it("is put first in a layout that has none", () => {
+    expect(withAgent([tab("a")]).map((t) => t.id)).toEqual([AGENT, "a"]);
+  });
+
+  it("is not added twice", () => {
+    const tabs = [tab("a"), agentTab()];
+    expect(withAgent(tabs)).toBe(tabs);
+  });
+
+  it("is kept and cannot be dismissed, as a shell is", () => {
+    expect(idOf(agentTab().what)).toBe(AGENT);
+    expect(live(agentTab())).toBe(true);
+    expect(dismissable(agentTab())).toBe(false);
   });
 });

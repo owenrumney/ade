@@ -67,9 +67,13 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var session *term.Session
-	if key == "editor" {
+	switch key {
+	case "editor":
 		session, err = s.editor()
-	} else {
+	case paneKeyFor(takeoverPane):
+		// Never a bare shell under the agent's name: opening it starts the agent.
+		session, err = s.agentPane(r.Context(), "")
+	default:
 		session, err = s.pane(key)
 	}
 	if err != nil {

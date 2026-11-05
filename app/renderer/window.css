@@ -402,3 +402,24 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
    The main pane keeps its iframes, at no width. */
 .window.chatwide .dock { flex: 1 1 auto; width: auto; }
 .window.chatwide .main { display: none; }
+
+/* Terminal mode: the pane is a bordered card with its tabs along the bottom,
+   and the chat's toggle goes with the chat. */
+.window.terminal .main { background: var(--bg-chrome); padding: 8px 10px 0 4px; }
+.window.terminal .main .sheet {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.window.terminal .main .head { order: 2; height: 36px; border-bottom: 0; }
+.window.terminal .main .head .tab {
+  margin: 6px 4px 6px 0; padding: 0 10px;
+  border-right: 0; border-radius: 6px;
+}
+.window.terminal .main .head .tab.on { background: var(--accent-soft); box-shadow: none; }
+.window.terminal .main .head.two .strip.left { border-right: 0; }
+.window.terminal .main .head.two .strip:not(.focus) .tab.on { box-shadow: none; background: var(--hover); }
+.window.terminal .main .head .chattoggle { display: none; }
+.window.terminal .sidebar .row { margin: 0 6px; border-radius: 6px; }
+.window.terminal .sidebar .row.on { box-shadow: none; }

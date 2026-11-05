@@ -17,6 +17,58 @@ import (
 // is not waited for — only that the session took the message.
 const firstMessageWait = 15 * time.Second
 
+// opening is what a new session is told first, in the agent's terminal or ade's chat.
+type opening struct {
+	Prompt   string
+	Files    []chat.Incoming
+	Terminal bool
+}
+
+func (o opening) send(ctx context.Context, sessionURL string) {
+	if o.Terminal {
+		sendFirstPrompt(ctx, sessionURL, o.Prompt)
+		return
+	}
+	sendFirstMessage(ctx, sessionURL, o.Prompt, o.Files)
+}
+
+// sendFirstPrompt starts the agent's terminal on the task. With nothing to
+// say it is left alone: the window starts it when its tab is opened.
+func sendFirstPrompt(ctx context.Context, sessionURL, prompt string) {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" || sessionURL == "" {
+		return
+	}
+	body, err := json.Marshal(map[string]string{"prompt": prompt})
+	if err != nil {
+		return
+	}
+	if err := sendPrompt(ctx, sessionURL, string(body)); err != nil {
+		slog.Warn("could not start the agent's terminal on its first message", "err", err)
+	}
+}
+
+var sendPrompt = func(ctx context.Context, sessionURL, body string) error {
+	_, err := sessions.AskFor(ctx, sessionURL, http.MethodPost, "/api/agent/terminal", body, firstMessageWait)
+	return err
+}
+
+// ticketPrompt is the ticket as create wrote it down in the design document.
+var ticketPrompt = func(ctx context.Context, sessionURL, ticket string) string {
+	start := "Start on ticket " + ticket + "."
+	out, err := sessions.AskFor(ctx, sessionURL, http.MethodGet, "/api/design", "", firstMessageWait)
+	if err != nil {
+		return start
+	}
+	var doc struct {
+		Raw string `json:"raw"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil || strings.TrimSpace(doc.Raw) == "" {
+		return start
+	}
+	return start + " This is what it says:\n\n" + strings.TrimSpace(doc.Raw)
+}
+
 // sendFirstMessage gives a new session the task it was started for. A failure
 // is logged, not returned: the session is open either way.
 func sendFirstMessage(ctx context.Context, sessionURL, prompt string, files []chat.Incoming) {

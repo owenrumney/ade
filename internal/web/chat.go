@@ -532,6 +532,9 @@ func (s *Server) handleChatResume(w http.ResponseWriter, r *http.Request) {
 	// One server per checkout, so `ade --session none` in a served checkout
 	// arrives here. It used to resolve to no transcript and do nothing.
 	if id == sessions.None {
+		if !s.yieldAgentPane(w) {
+			return
+		}
 		// Held, not checked: startFresh resets provider, session and pending
 		// conversation, and a turn could start between a check and the reset.
 		if _, ok := s.agent.begin(s.ctx, kindChat); !ok {
@@ -549,6 +552,9 @@ func (s *Server) handleChatResume(w http.ResponseWriter, r *http.Request) {
 	// rail under, which before the first turn is this server's pending one.
 	if id == s.railID() {
 		writeJSON(w, http.StatusOK, map[string]any{"session": id})
+		return
+	}
+	if !s.yieldAgentPane(w) {
 		return
 	}
 	// Only a transcript that is actually here: --resume on a missing id fails

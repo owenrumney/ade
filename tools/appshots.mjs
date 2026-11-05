@@ -74,7 +74,7 @@ const VIEWS = [
   },
   { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
   { name: "app-review-viewed", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .seen input", settle: 300 },
-  { name: "app-chat-wide", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
+  { name: "app-chat-wide", chat: true, place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
   { name: "app-todo-start", place: "Todos", hover: ".sidebar .row", tap: ".sidebar .row .act", settle: 900 },
   { name: "app-todo-menu", place: "Todos", right: ".sidebar .row" },
   { name: "app-side-folded", place: "Todos", tap: ".activity button.fold", settle: 300 },
@@ -111,6 +111,7 @@ const VIEWS = [
   { name: "app-my-day", place: "Jobs", row: "my-day" },
   {
     name: "app-chat",
+    chat: true,
     place: "Sessions",
     row: "Rethink the workflow and the window",
   },
@@ -196,7 +197,11 @@ await page.setBypassCSP(true);
 await page.evaluateOnNewDocument(shell());
 // Each view starts from the same window: the real one remembers where
 // it was, and a picture of where the last shot left it is not a view.
-await page.evaluateOnNewDocument(() => localStorage.clear());
+await page.evaluateOnNewDocument(() => {
+  localStorage.clear();
+  // A view of the chat asks for it: the agent's terminal is the default.
+  if (location.search === "?chat") localStorage.setItem("ade.terminal", "0");
+});
 page.on("console", (m) => m.type() === "error" && console.error("page:", m.text()));
 page.on("pageerror", (e) => console.error("page threw:", e.message));
 
@@ -219,7 +224,7 @@ async function clicked(what, selector, text) {
 
 // Naming one shoots one: the rest cost ten seconds nobody asked for.
 for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) : VIEWS) {
-  await page.goto(page1, { waitUntil: "load" });
+  await page.goto(view.chat ? `${page1}?chat` : page1, { waitUntil: "load" });
   // A tree place draws twigs and a list draws rows; the window may
   // have come up on either, since it remembers where it was.
   await page.waitForSelector(".sidebar .row, .sidebar .twig, .sidebar .empty");

@@ -153,6 +153,26 @@ func (s *Session) Resize(cols, rows uint16) error {
 	return nil
 }
 
+// Started is whether the command has run here at all, alive or not.
+func (s *Session) Started() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sh != nil
+}
+
+// Alive is whether it is running now.
+func (s *Session) Alive() bool {
+	s.mu.Lock()
+	sh := s.sh
+	s.mu.Unlock()
+	if sh == nil {
+		return false
+	}
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	return sh.alive
+}
+
 // Close kills the shell and everything it started. Called when ade shuts down.
 func (s *Session) Close() {
 	s.mu.Lock()
