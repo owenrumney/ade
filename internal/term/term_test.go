@@ -285,3 +285,20 @@ func TestASessionSaysWhetherItStartedAndWhetherItStillRuns(t *testing.T) {
 	assert.True(t, s.Started(), "it ran, which is what a resume needs to know")
 	assert.False(t, s.Alive())
 }
+
+func TestACommandIsGivenItsOwnEnvironmentAndSaysHowLongItHasBeenQuiet(t *testing.T) {
+	s := NewCommand(t.TempDir(), "/bin/sh", "-c", `echo "GOT:$ADE_TEST_ONLY"; exec cat`)
+	s.Setenv("ADE_TEST_ONLY=here")
+	t.Cleanup(s.Close)
+	assert.Zero(t, s.Quiet(), "nothing has run")
+
+	_, replay, out, err := s.Attach()
+	require.NoError(t, err)
+	got := string(replay)
+	for !strings.Contains(got, "GOT:here") {
+		chunk, ok := <-out
+		require.True(t, ok, "closed before it printed, saw %q", got)
+		got += string(chunk)
+	}
+	require.Eventually(t, func() bool { return s.Quiet() > 20*time.Millisecond }, 5*time.Second, 10*time.Millisecond)
+}
