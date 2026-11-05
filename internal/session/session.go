@@ -81,6 +81,8 @@ type AgentHealth struct {
 	Stacked []AgentQueued `json:"stacked,omitempty"`
 	// Sandbox is whether the agent runs in a container.
 	Sandbox bool `json:"sandbox,omitempty"`
+	// Terminal is what the agent's own terminal is doing, when it has one.
+	Terminal string `json:"terminal,omitempty"`
 }
 
 // AgentQueued is one turn waiting behind the run. No prompt: a row needs

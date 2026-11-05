@@ -57,3 +57,10 @@ func TestHowLongItHasBeenQuiet(t *testing.T) {
 	assert.True(t, ok)
 	assert.Zero(t, ahead)
 }
+
+func TestAnAgentInItsOwnTerminalIsReadFromItsBadge(t *testing.T) {
+	assert.Equal(t, Working, State(&session.AgentHealth{Terminal: "working"}))
+	assert.Equal(t, Asking, State(&session.AgentHealth{Terminal: "needs"}))
+	assert.Equal(t, Idle, State(&session.AgentHealth{Terminal: "idle"}))
+	assert.Equal(t, Idle, State(&session.AgentHealth{Terminal: "ended"}))
+}

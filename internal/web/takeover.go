@@ -51,11 +51,12 @@ func (s *Server) handleAgentTerminal(w http.ResponseWriter, r *http.Request) {
 // agentPane starts the agent's own interface, or types prompt into one already up.
 func (s *Server) agentPane(ctx context.Context, prompt string) (*term.Session, error) {
 	key := paneKeyFor(takeoverPane)
-	s.termMu.Lock()
-	held := s.terms[key]
-	s.termMu.Unlock()
+	held := s.agentTerm()
 
 	if held != nil && held.Alive() {
+		if strings.TrimSpace(prompt) != "" && s.agent.setBadge(badgeWorking) {
+			s.badgeChanged()
+		}
 		return held, typed(held, prompt)
 	}
 	// Made and not yet attached to: its argv already says how it starts.
@@ -80,8 +81,20 @@ func (s *Server) agentPane(ctx context.Context, prompt string) (*term.Session, e
 		s.agent.endTakeover()
 		return nil, err
 	}
+	sess.Setenv(s.agent.badgeEnv()...)
+	s.agent.freshBadge(strings.TrimSpace(prompt) != "")
+	if s.agent.isCodex() {
+		s.agent.codexDenies()
+	}
 	s.hub.Broadcast("state", nil)
 	return sess, nil
+}
+
+// agentTerm is the pane the agent's own interface runs in, if it has one.
+func (s *Server) agentTerm() *term.Session {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	return s.terms[paneKeyFor(takeoverPane)]
 }
 
 // typed pastes text at the agent's prompt and sends it, newlines and all.
@@ -179,7 +192,7 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 		resume = a.session
 	}
 	if bin == "codex" {
-		argv = codexArgv(resume, started)
+		argv = codexArgv(resume, started, !boxed)
 	} else {
 		argv = a.claudeArgv(resume, started)
 	}
@@ -198,14 +211,18 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 
 // codexArgv resumes by subcommand. Codex names its own conversations, so one
 // started here and not yet read back is the last in this directory.
-func codexArgv(resume string, started bool) []string {
+func codexArgv(resume string, started, told bool) []string {
+	argv := []string{"codex"}
+	if notify := codexNotify(); told && notify != "" {
+		argv = append(argv, "-c", notify)
+	}
 	switch {
 	case resume != "":
-		return []string{"codex", "resume", resume}
+		return append(argv, "resume", resume)
 	case started:
-		return []string{"codex", "resume", "--last"}
+		return append(argv, "resume", "--last")
 	}
-	return []string{"codex"}
+	return argv
 }
 
 // claudeArgv names a new conversation up front, so the id is known before
@@ -228,12 +245,17 @@ func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	if a.model != "" {
 		argv = append(argv, "--model", a.model)
 	}
+	settings := map[string]any{}
 	// Deny rules hold in every permission mode, which an allow rule does not.
 	if deny := denyRules(a.rules); len(deny) > 0 {
-		settings, err := json.Marshal(map[string]any{"permissions": map[string]any{"deny": deny}})
-		if err == nil {
-			argv = append(argv, "--settings", string(settings))
-		}
+		settings["permissions"] = map[string]any{"deny": deny}
+	}
+	// A boxed one cannot reach this binary, so it reports nothing.
+	if hooks := badgeHooks(); hooks != nil && !a.sandbox {
+		settings["hooks"] = hooks
+	}
+	if encoded, err := json.Marshal(settings); err == nil && len(settings) > 0 {
+		argv = append(argv, "--settings", string(encoded))
 	}
 	return argv
 }

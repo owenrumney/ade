@@ -642,6 +642,7 @@ func (s *Server) agentState() RunState {
 	out.SideRuns = s.sideRuns()
 	out.Welded = s.weldedID()
 	out.Children = s.children.snapshot()
+	out.Terminal = s.agentBadge()
 	return out
 }
 

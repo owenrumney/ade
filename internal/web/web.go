@@ -968,6 +968,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/terminal/close", s.guard(s.handleTerminalClose))
 	mux.HandleFunc("POST /api/agent/terminal", s.guard(s.handleAgentTerminal))
 	mux.HandleFunc("POST /api/agent/terminal/close", s.guard(s.handleAgentTerminalClose))
+	mux.HandleFunc("POST /api/agent/seen", s.guard(s.handleAgentSeen))
+	mux.HandleFunc("POST "+BadgePath, s.handleAgentBadge)
 	mux.HandleFunc("GET /api/agents", s.guard(s.handleAgents))
 	mux.HandleFunc("GET /api/internal/delegate/agents", s.handlePiAgents)
 	mux.HandleFunc("POST /api/internal/delegate", s.handlePiDelegate)
@@ -1205,6 +1207,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			Running: state.Running, Kind: state.Kind, Model: state.Model, Session: state.Session,
 			StartedAt: state.StartedAt, Queued: state.Queued, Error: state.Error, Sandbox: state.Sandbox,
 			LastEventAt: state.LastEventAt, Activity: state.Activity, Asking: len(state.Asking),
+			Terminal: state.Terminal,
 		}
 		for _, side := range state.SideRuns {
 			agent.SideRuns = append(agent.SideRuns, side.Name)
@@ -1715,7 +1718,7 @@ func (s *Server) watchIdle(ctx context.Context, stop context.CancelFunc) {
 
 		// An agent run can outlast a closed tab, and killing the server out from
 		// under one would strand it mid-build.
-		if s.hub.Clients() > 0 || s.agent.State().Running {
+		if s.hub.Clients() > 0 || s.agent.State().Running || s.agentAlive() {
 			quiet = 0
 			continue
 		}

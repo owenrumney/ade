@@ -39,6 +39,7 @@ var viewSafe = map[string]string{
 	"POST /api/terminal/close":              "the shell is the machine's, not the diff's",
 	"POST /api/agent/terminal":              "the agent's own interface opens in the session's checkout, as the shell does",
 	"POST /api/agent/terminal/close":        "gives the conversation back; touches no checkout",
+	"POST /api/agent/seen":                  "clears the agent's badge; touches no checkout",
 	"POST /api/resolve":                     "a one-shot, and its run takes the diff's root",
 	"POST /api/review":                      "reads only, and its run takes the diff's root",
 	"POST /api/explain":                     "reads only, and its run takes the diff's root",

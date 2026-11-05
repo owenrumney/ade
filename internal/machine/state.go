@@ -24,9 +24,9 @@ func State(a *session.AgentHealth) string {
 		return Failed
 	case !a.Running && a.Queued > 0:
 		return Wedged
-	case a.Asking > 0:
+	case a.Asking > 0 || a.Terminal == "needs":
 		return Asking
-	case a.Running:
+	case a.Running || a.Terminal == "working":
 		return Working
 	default:
 		return Idle

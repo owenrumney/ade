@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,4 +93,27 @@ func decided(t *testing.T, out []byte) Decision {
 	require.NoError(t, json.Unmarshal(out, &decision), "the gate printed something Claude Code cannot read")
 	assert.Equal(t, "PreToolUse", decision.Output.HookEventName)
 	return decision
+}
+
+func TestABadgeReportGoesToTheSessionWithItsToken(t *testing.T) {
+	var got, auth []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got, auth = append(got, string(body)), append(auth, r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	t.Setenv(BadgeURLVar, server.URL)
+	t.Setenv(TokenVar, "tok")
+
+	require.NoError(t, Badge(t.Context(), strings.NewReader(`{"hook_event_name":"Stop"}`), nil))
+	require.NoError(t, Badge(t.Context(), strings.NewReader(""), []string{`{"type":"agent-turn-complete"}`}))
+
+	assert.Equal(t, []string{`{"hook_event_name":"Stop"}`, `{"type":"agent-turn-complete"}`}, got)
+	assert.Equal(t, []string{"Bearer tok", "Bearer tok"}, auth)
+}
+
+func TestABadgeOutsideAdeSaysNothingAndFailsNothing(t *testing.T) {
+	t.Setenv(BadgeURLVar, "")
+	assert.NoError(t, Badge(t.Context(), strings.NewReader("{}"), nil))
 }

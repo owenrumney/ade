@@ -319,6 +319,7 @@ The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
 	cmd.AddCommand(newLaunchCommand(&noOpen, &foreground, &idle))
 	cmd.AddCommand(newStartCommand(&foreground, &idle))
 	cmd.AddCommand(newHookCommand())
+	cmd.AddCommand(newBadgeCommand())
 	cmd.AddCommand(newScratchCommand(&noOpen))
 	cmd.AddCommand(newPortCommand(&noOpen))
 	cmd.AddCommand(newStopCommand())

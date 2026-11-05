@@ -166,7 +166,9 @@ type agentRunner struct {
 	// the bridge. One process on a transcript at a time.
 	takenOver bool
 	// tuiID is the conversation a TUI started here was told to call itself.
-	tuiID  string
+	tuiID string
+	// badge is what the agent's own hooks last said its terminal is doing.
+	badge  string
 	cancel context.CancelFunc
 	state  RunState
 
@@ -286,6 +288,8 @@ type RunState struct {
 	// TakenOver is the agent's own interface holding the conversation, which
 	// is why no turn can start here until it is given back.
 	TakenOver bool `json:"takenOver,omitempty"`
+	// Terminal is what the agent's own terminal is doing: working, needs, idle or ended.
+	Terminal string `json:"terminal,omitempty"`
 
 	// SideRuns is the named agents at work beside the main one.
 	SideRuns []SideRun `json:"sideRuns,omitempty"`
@@ -427,7 +431,7 @@ func denyRules(rules *permissions.Store) []string {
 	}
 	file, _ := rules.Rules()
 	var out []string
-	for _, rule := range file.Deny {
+	for _, rule := range permissions.Wrapped(file.Deny) {
 		if rule.Valid() {
 			out = append(out, string(rule))
 		}

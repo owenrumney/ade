@@ -67,12 +67,21 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var session *term.Session
+	var keyed func([]byte)
 	switch key {
 	case "editor":
 		session, err = s.editor()
 	case paneKeyFor(takeoverPane):
 		// Never a bare shell under the agent's name: opening it starts the agent.
+		// One that has ended is resumed by asking, never by a socket coming back.
+		if held := s.agentTerm(); held != nil && held.Started() && !held.Alive() {
+			_ = conn.Close(websocket.StatusNormalClosure, "the agent has ended")
+			return
+		}
 		session, err = s.agentPane(r.Context(), "")
+		keyed = s.keyed
+		// Its exit is news to every page, and nothing else says so.
+		defer s.badgeChanged()
 	default:
 		session, err = s.pane(key)
 	}
@@ -87,6 +96,9 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer session.Detach(id)
+	if keyed != nil {
+		s.badgeChanged()
+	}
 
 	ctx, stop := context.WithCancel(r.Context())
 	defer stop()
@@ -100,11 +112,11 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go s.termWrite(ctx, stop, conn, out)
-	s.termRead(ctx, conn, session)
+	s.termRead(ctx, conn, session, keyed)
 }
 
 // termRead feeds the shell until the browser goes away.
-func (s *Server) termRead(ctx context.Context, conn *websocket.Conn, session *term.Session) {
+func (s *Server) termRead(ctx context.Context, conn *websocket.Conn, session *term.Session, keyed func([]byte)) {
 	for {
 		kind, data, err := conn.Read(ctx)
 		if err != nil {
@@ -112,6 +124,9 @@ func (s *Server) termRead(ctx context.Context, conn *websocket.Conn, session *te
 		}
 
 		if kind == websocket.MessageBinary {
+			if keyed != nil {
+				keyed(data)
+			}
 			if err := session.Write(data); err != nil {
 				return
 			}

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -192,7 +193,7 @@ func TestTheFirstMessageIsTheLastArgument(t *testing.T) {
 func fakeAgent(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\necho \"ARGS:$*\"\nexec cat\n"
+	script := "#!/bin/sh\necho \"ARGS:$*\"\necho \"BADGE:$ADE_BADGE_URL\"\nexec cat\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin:/usr/bin")
 }
@@ -305,4 +306,139 @@ func TestARunningAgentTerminalIsNotMovedOffItsConversation(t *testing.T) {
 	quit(t, pane)
 	assert.True(t, s.yieldAgentPane(httptest.NewRecorder()), "one that has exited is only in the way")
 	assert.False(t, s.agent.TakenOver())
+}
+
+func TestAnAgentOnThisMachineIsToldToReportWhatItIsDoing(t *testing.T) {
+	a := &agentRunner{provider: "claude"}
+	argv := a.claudeArgv("", false)
+	require.Equal(t, "--settings", argv[len(argv)-2])
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(argv[len(argv)-1]), &settings))
+	for _, event := range badgeEvents {
+		require.Len(t, settings.Hooks[event], 1, event)
+		assert.Equal(t, "command", settings.Hooks[event][0].Hooks[0].Type)
+		assert.Regexp(t, `^'.+' badge$`, settings.Hooks[event][0].Hooks[0].Command)
+	}
+
+	codex := codexArgv("thread-1", false, true)
+	require.Len(t, codex, 5)
+	assert.Equal(t, "-c", codex[1])
+	assert.Regexp(t, `^notify=\[".+","badge"\]$`, codex[2])
+	assert.Equal(t, []string{"resume", "thread-1"}, codex[3:], "the override goes before the subcommand")
+}
+
+func TestHookReportsBecomeTheBadge(t *testing.T) {
+	for name, tc := range map[string]struct {
+		said string
+		want string
+	}{
+		"a message sent":           {`{"hook_event_name":"UserPromptSubmit"}`, badgeWorking},
+		"a tool finished":          {`{"hook_event_name":"PostToolUse"}`, badgeWorking},
+		"a turn finished":          {`{"hook_event_name":"Stop"}`, badgeNeeds},
+		"a permission asked for":   {`{"hook_event_name":"PermissionRequest"}`, badgeBlocked},
+		"a permission notice":      {`{"hook_event_name":"Notification","notification_type":"permission_prompt"}`, badgeBlocked},
+		"an idle notice":           {`{"hook_event_name":"Notification","notification_type":"idle_prompt"}`, ""},
+		"a session starting":       {`{"hook_event_name":"SessionStart","session_id":"abc"}`, ""},
+		"codex finishing its turn": {`{"type":"agent-turn-complete","thread-id":"0199-abcd"}`, badgeNeeds},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var said hookSaid
+			require.NoError(t, json.Unmarshal([]byte(tc.said), &said))
+			assert.Equal(t, tc.want, said.badge())
+		})
+	}
+	assert.Equal(t, "0199-abcd", hookSaid{Thread: "0199-abcd"}.session())
+	assert.Empty(t, hookSaid{Session: "--dangerously-skip"}.session(), "an id is never a flag")
+}
+
+func TestABadgeClearsWhenLookedAtUnlessTheAgentIsBlocked(t *testing.T) {
+	a := &agentRunner{}
+	assert.Equal(t, badgeIdle, a.badgeAfter(0), "nothing said yet is idle")
+
+	require.True(t, a.setBadge(badgeNeeds))
+	assert.False(t, a.setBadge(badgeNeeds), "said twice is not a change")
+	assert.True(t, a.seen())
+	assert.Equal(t, badgeIdle, a.badgeAfter(0))
+
+	require.True(t, a.setBadge(badgeBlocked))
+	assert.False(t, a.seen(), "a prompt still open is still yours")
+	assert.Equal(t, badgeNeeds, a.badgeAfter(0))
+
+	require.True(t, a.setBadge(badgeWorking))
+	assert.Equal(t, badgeWorking, a.badgeAfter(quietAfter-time.Second))
+	assert.Equal(t, badgeIdle, a.badgeAfter(quietAfter+time.Second), "an interrupted turn says nothing, so silence ends it")
+}
+
+func TestTheAgentsOwnHooksMoveItsBadge(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeAgent(t)
+	s := newTestServer(t)
+	srv := live(t, s)
+	s.hookToken = "hook-token"
+	s.agent.setHook(srv.URL, s.hookToken)
+
+	pane, err := s.agentPane(t.Context(), "")
+	require.NoError(t, err)
+	assert.Empty(t, s.agentBadge(), "nothing runs until its pane is opened")
+	assert.Contains(t, seen(t, pane, "BADGE:http"), "BADGE:"+srv.URL+BadgePath, "the CLI's hooks know where to report")
+	assert.Equal(t, badgeIdle, s.agentBadge())
+	assert.True(t, s.agentAlive(), "which is what keeps the server up with no window")
+
+	post := func(path, bearer, body string) int {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+path, strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("X-Ade-Token", s.token)
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = res.Body.Close() }()
+		return res.StatusCode
+	}
+	assert.Equal(t, http.StatusForbidden, post(BadgePath, "wrong", `{"hook_event_name":"Stop"}`))
+	assert.Equal(t, badgeIdle, s.agentBadge())
+
+	assert.Equal(t, http.StatusNoContent,
+		post(BadgePath, "hook-token", `{"hook_event_name":"Stop","session_id":"0199aaaa-bbbb"}`))
+	assert.Equal(t, badgeNeeds, s.agentState().Terminal)
+	assert.Equal(t, "0199aaaa-bbbb", s.agent.Current(), "the CLI's own name for the conversation is what resumes it")
+
+	assert.Equal(t, http.StatusNoContent, post("/api/agent/seen", "", ""))
+	assert.Equal(t, badgeIdle, s.agentBadge(), "looked at")
+
+	quit(t, pane)
+	assert.Equal(t, badgeEnded, s.agentBadge())
+	assert.False(t, s.agentAlive())
+}
+
+// A socket coming back is not a person asking: only Resume restarts an agent.
+func TestAnEndedAgentIsNotRestartedByItsSocketAlone(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeAgent(t)
+	s := newTestServer(t)
+	srv := live(t, s)
+
+	pane, err := s.agentPane(t.Context(), "")
+	require.NoError(t, err)
+	seen(t, pane, "ARGS:")
+	quit(t, pane)
+
+	ws := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.Dial(t.Context(), ws+"/api/terminal?pane=agent&t="+url.QueryEscape(s.token), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	_, _, err = conn.Read(t.Context())
+	assert.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
+	assert.Equal(t, badgeEnded, s.agentBadge(), "still ended")
+
+	back, err := s.agentPane(t.Context(), "")
+	require.NoError(t, err)
+	seen(t, back, "ARGS:")
+	assert.Equal(t, badgeIdle, s.agentBadge(), "asked for, it comes back")
 }
