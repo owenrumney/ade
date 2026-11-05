@@ -1477,3 +1477,44 @@ describe("My Day, behind the calendar icon", () => {
     expect(real.myDayTitle(undefined, now)).toBe("My Day");
   });
 });
+
+describe("a live session's badge", () => {
+  const repos = [
+    {
+      name: "ade",
+      path: "/r/ade",
+      checkouts: [
+        {
+          name: "ade",
+          path: "/r/ade",
+          sessions: [
+            { id: "busy", name: "busy", live: true },
+            { id: "stuck", name: "stuck", live: true },
+            { id: "calm", name: "calm", live: true },
+            { id: "gone", name: "gone", live: true },
+          ],
+        },
+      ],
+    },
+  ] as unknown as real.Repo[];
+  const active = [
+    { id: "busy", dir: "/r/ade", name: "busy", agent: { terminal: "working" } },
+    { id: "stuck", dir: "/r/ade", name: "stuck", agent: { terminal: "needs" } },
+    { id: "calm", dir: "/r/ade", name: "calm", agent: { terminal: "idle" } },
+    { id: "gone", dir: "/r/ade", name: "gone", agent: { terminal: "ended" } },
+  ];
+
+  it("is amber at work, red when it is your turn, green when idle", () => {
+    const rows = real.sessions(repos, "", Date.now(), [], active).rows;
+    const by = (id: string) => rows.find((row) => row.id === id);
+    expect(by("busy")).toMatchObject({ icon: "play", tone: "warn" });
+    expect(by("stuck")).toMatchObject({ icon: "bell", tone: "bad" });
+    expect(by("calm")).toMatchObject({ icon: "play", tone: "good" });
+    expect(by("gone")?.icon).toBe("history");
+    expect(by("gone")?.tone).toBeUndefined();
+  });
+
+  it("is green for one that has said nothing about itself", () => {
+    expect(real.badge(undefined)).toEqual({ icon: "play", tone: "good" });
+  });
+});

@@ -53,7 +53,7 @@ import { lastAgent, newSeed, setLastAgent, setTerminalMode, terminalMode } from 
 import { isChat, sideWidth } from "./dock";
 import { menu, type Row as MenuRow } from "./menu";
 import { edits, focusEditor, mount, mountDiff, reaching, saved, selected } from "./code";
-import { close as closeTerm, open as openTerm } from "./term";
+import { close as closeTerm, lost as termLost, open as openTerm } from "./term";
 import { newSession, written, WHICH, type Reach, type Written } from "./panels";
 import { page as prPage } from "../pages/prpage";
 import { prActs, type PrActId } from "./prpage";
@@ -150,6 +150,10 @@ class Ade {
   // Every announced session as of the last reading: how the window
   // knows whether a session it is about to show is served.
   private announced: real.Active[] = [];
+  // Sessions whose agent has ended, and those whose agent needs you, as last read.
+  private endedIn = new Set<string>();
+  private needing: Set<string> | undefined;
+  private resumed = "";
   private todoList: real.Todo[] = [];
   private jobs: real.Job[] = [];
   // Every read the window keeps, by age. See fresh.ts.
@@ -255,6 +259,8 @@ class Ade {
     );
     // Arrows are not chords, so the shell does not carry them.
     document.addEventListener("keydown", (e) => this.key(e));
+    // Coming back to the window is looking at it, which is what clears a badge.
+    window.addEventListener("focus", () => void this.read());
     if (window.ade) {
       window.ade.onCommand((command) => this.run(command));
       window.ade.onEvent((name) => {
@@ -351,6 +357,7 @@ class Ade {
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
+    this.badged(doing, got.active ?? []);
     // A pass while nothing serves the session shows what was last read.
     const starting = this.serving === "starting";
     const [changes, files] = starting
@@ -1745,6 +1752,9 @@ class Ade {
   // paneKey is what a pane was built with: a session and an address for a
   // live one, and for a diff everything it draws beyond the diff itself.
   private paneKey(tab: Tab): string {
+    if (!("panel" in tab.what) && tab.what.kind === "agent") {
+      return `${this.session}:${this.launcher?.base ?? ""}:${this.agentEnded() ? "ended" : "up"}`;
+    }
     if (live(tab)) return `${this.session}:${this.launcher?.base ?? ""}`;
     const view = tab.what;
     if ("panel" in view) return "";
@@ -1895,6 +1905,72 @@ class Ade {
     this.settle();
     this.remember();
     this.draw();
+  }
+
+  // badged follows the agents' terminals: one looked at is seen, and one
+  // that needs you while you are elsewhere says so.
+  private badged(doing: real.Doing, active: real.Active[]): void {
+    const looking = this.terminal && document.hasFocus() && this.actives.includes(AGENT);
+    const needing = new Set<string>();
+    this.endedIn.clear();
+    for (const one of active) {
+      const at = one.id === this.session ? doing.terminal : (one.agent?.terminal ?? "");
+      if (at === "ended") this.endedIn.add(one.id);
+      if (at !== "needs") continue;
+      needing.add(one.id);
+      const here = one.id === this.session && looking;
+      if (this.needing && !this.needing.has(one.id) && !here) this.notify(one);
+    }
+    if (doing.terminal === "ended") this.endedIn.add(this.session);
+    if (!this.endedIn.has(this.session)) this.resumed = "";
+    this.needing = needing;
+    if (doing.terminal === "needs" && looking) {
+      void window.ade?.act("session", "/api/agent/seen", {}, this.session).catch(() => undefined);
+    }
+    // A socket the server dropped under a living agent is picked up again.
+    const up = doing.terminal !== "" && doing.terminal !== "ended";
+    if (up && this.panes.has(AGENT) && termLost(AGENT)) {
+      openTerm(this.session, (why) => this.say(why), AGENT);
+    }
+  }
+
+  private notify(one: real.Active): void {
+    try {
+      const note = new Notification(one.name || one.branch || "ade", { body: "The agent needs you." });
+      note.onclick = () => {
+        window.focus();
+        this.goTo(one.id);
+        this.wants = one.id;
+        this.picked.set("sessions", one.id);
+        this.run("ade.openAgent");
+        void this.read();
+      };
+    } catch {
+      // A window that cannot notify still shows the badge.
+    }
+  }
+
+  private agentEnded(): boolean {
+    return this.endedIn.has(this.session) && this.resumed !== this.session;
+  }
+
+  private async resumeAgent(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/terminal", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.resumed = this.session;
+    this.draw();
+  }
+
+  // endedCard stands where an agent that exited was: resuming is asked for.
+  private endedCard(): HTMLElement {
+    const card = el("div", "nothing");
+    const again = el("span", "btn", "Resume");
+    again.addEventListener("click", () => void this.resumeAgent());
+    card.append(el("p", "", "The agent in this session has ended."), again);
+    return card;
   }
 
   // seat gives a terminal session its agent, first in the strip.
@@ -3232,6 +3308,7 @@ class Ade {
       // Opening its pane is what starts the agent, so not before ade is up.
       const wait = this.waiting(tab);
       if (wait) return el("div", "nothing", wait);
+      if (this.agentEnded()) return this.endedCard();
       return openTerm(this.session, (why) => this.say(why), AGENT);
     }
     // Code is monaco: one instance, moved into the tab that is showing

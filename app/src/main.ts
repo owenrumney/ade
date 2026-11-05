@@ -371,9 +371,13 @@ void app.whenReady().then(async () => {
     ws.on("message", (data: Buffer | string) => {
       e.sender.send("term", pane, typeof data === "string" ? data : decoder.write(data));
     });
-    ws.on("error", (why: Error) => e.sender.send("term.closed", pane, why.message));
+    // Only the socket the pane is on: one replaced by a newer says nothing.
+    ws.on("error", (why: Error) => {
+      if (terms.get(pane) === ws) e.sender.send("term.closed", pane, why.message);
+    });
     ws.on("close", () => {
-      if (terms.get(pane) === ws) terms.delete(pane);
+      if (terms.get(pane) !== ws) return;
+      terms.delete(pane);
       e.sender.send("term.closed", pane, "");
     });
     return { ok: true };

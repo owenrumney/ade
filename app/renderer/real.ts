@@ -260,6 +260,15 @@ export interface Machine {
   repos?: Repo[] | null;
 }
 
+// badge is a live row's icon and tone: red when it is your turn, amber at work.
+export function badge(agent: Active["agent"]): { icon: string; tone: Row["tone"] } {
+  if (agent?.terminal === "ended") return { tone: undefined, icon: "history" };
+  const state = stateFrom(agent);
+  if (yourTurn(state)) return { tone: "bad", icon: "bell" };
+  const tone = state === "working" ? "warn" : "good";
+  return { tone, icon: "play" };
+}
+
 // RUNNING is the group every conversation that is up appears in, above
 // the repositories: what is open is what you are coming back to.
 const RUNNING = "Running";
@@ -290,8 +299,9 @@ export function sessions(
         (live ? up : found).push({ at: when(session.lastUsed), row: {
           id: session.id,
           group: live ? RUNNING : name,
-          icon: live ? "play" : "history",
-          tone: live ? ("good" as const) : undefined,
+          ...(live
+            ? badge(active.find((a) => !a.machine && a.id === session.id)?.agent)
+            : { tone: undefined, icon: "history" }),
           name: session.title || session.branch || session.name,
           // The worktree names itself now the heading does not, and the
           // branch only when it differs, or `fix` on `fix` says it twice.
@@ -325,8 +335,7 @@ export function sessions(
       up.push({ at: now, row: {
         id: serving.id,
         group: RUNNING,
-        icon: "play",
-        tone: "good" as const,
+        ...badge(serving.agent),
         name: serving.branch || checkout.name,
         // Whenever it is not already the heading. `ade create` names a
         // worktree for its branch, and the repeat pushed the rest out.
@@ -382,8 +391,10 @@ export function sessions(
 // The tree, the states and the ordering are `app/pages/agents.ts`:
 // one answer for both windows. Renamed, as waiting() is taken here.
 import {
+  attention as yourTurn,
   detail,
   queues,
+  stateOf as stateFrom,
   tree,
   waiting as wantingYou,
 } from "../pages/agents";
@@ -908,6 +919,8 @@ export function offline(why: string): World {
 // agent running beside it.
 export interface Doing {
   running: boolean;
+  // terminal is what the agent's own terminal is doing, or empty with none.
+  terminal: string;
   kind: string;
   model: string;
   sandbox: boolean;
@@ -931,6 +944,7 @@ export interface Doing {
 
 export const NOTHING: Doing = {
   running: false,
+  terminal: "",
   kind: "",
   model: "",
   sandbox: false,
@@ -952,6 +966,7 @@ export function doingIn(got: unknown): Doing {
     sandbox?: boolean;
     sideRuns?: { id: string; name: string }[] | null;
     queued?: number;
+    terminal?: string;
   };
   const chat = ((got as { chat?: { session?: string } })?.chat ?? {}) as { session?: string };
   const branchPr = (got as { branchPr?: { number?: number } })?.branchPr;
@@ -962,6 +977,7 @@ export function doingIn(got: unknown): Doing {
   };
   return {
     running: Boolean(agent.running),
+    terminal: agent.terminal ?? "",
     kind: agent.kind ?? "",
     model: agent.model ?? "",
     sandbox: Boolean(agent.sandbox),

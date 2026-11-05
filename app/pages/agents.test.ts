@@ -45,6 +45,13 @@ describe("what a server's agent is doing", () => {
     expect(stateOf({ running: true })).toBe("working");
   });
 
+  it("reads an agent in its own terminal from its badge", () => {
+    expect(stateOf({ terminal: "working" })).toBe("working");
+    expect(stateOf({ terminal: "needs" })).toBe("asking");
+    expect(stateOf({ terminal: "idle" })).toBe("idle");
+    expect(stateOf({ terminal: "ended" })).toBe("idle");
+  });
+
   it("calls a turn yours only when it is, so a long run stays quiet", () => {
     expect(attention("failed")).toBe(true);
     expect(attention("wedged")).toBe(true);

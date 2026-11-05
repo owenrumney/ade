@@ -48,6 +48,11 @@ export function open(
   return it.host;
 }
 
+// lost is a pane whose socket the server closed.
+export function lost(id: string): boolean {
+  return panes.get(id)?.on === "";
+}
+
 // The tab went, so its socket goes with it.
 export function close(id: string = pane()): void {
   const it = panes.get(id);
@@ -130,6 +135,13 @@ function build(id: string): Pane {
   term.open(host);
   const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
   term.onData((data) => window.ade?.termSend(id, data));
+  // Shift+Enter is a new line: it sends what Option+Enter does.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.key !== "Enter" || !e.shiftKey) return true;
+    e.preventDefault();
+    if (e.type === "keydown") window.ade?.termSend(id, "\x1b\r");
+    return false;
+  });
   new ResizeObserver(() => resize(it)).observe(host);
   return it;
 }

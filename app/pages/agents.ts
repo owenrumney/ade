@@ -12,6 +12,8 @@ export interface Health {
   children?: { kind?: string; name: string; doing?: string }[] | null;
   stacked?: { id: string; kind: string; what?: string }[] | null;
   lastEventAt?: string;
+  // terminal is what the agent's own terminal is doing, when it runs in one.
+  terminal?: string;
 }
 
 // Active is one announced session, as /api/serving lists it.
@@ -33,8 +35,8 @@ export function stateOf(agent: Health | null | undefined): State {
   if (!agent) return "idle";
   if (agent.error) return "failed";
   if (!agent.running && (agent.queued ?? 0) > 0) return "wedged";
-  if ((agent.asking ?? 0) > 0) return "asking";
-  return agent.running ? "working" : "idle";
+  if ((agent.asking ?? 0) > 0 || agent.terminal === "needs") return "asking";
+  return agent.running || agent.terminal === "working" ? "working" : "idle";
 }
 
 // attention is whether a state is your turn, which is what turns the

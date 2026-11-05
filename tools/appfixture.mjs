@@ -166,6 +166,7 @@ export const WORLD = {
       name: "infra-pr-1535",
       repo: "infra",
       branch: "feat/inspector-ec2-scanning",
+      agent: { terminal: "needs" },
     },
     {
       id: "ade",
