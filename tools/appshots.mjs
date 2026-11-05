@@ -217,7 +217,10 @@ async function clicked(what, selector, text) {
     text,
   );
   const node = found.asElement();
-  if (!node) throw new Error(`no ${what} called ${text}`);
+  if (!node) {
+    const saw = await page.$$eval(selector, (all) => all.slice(0, 12).map((n) => (n.textContent ?? "").trim()));
+    throw new Error(`no ${what} called ${text}; saw ${saw.length ? saw.join(", ") : "none"}`);
+  }
   await node.click();
   await new Promise((done) => setTimeout(done, 120));
 }

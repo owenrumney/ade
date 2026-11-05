@@ -77,7 +77,7 @@ export type View =
   | { kind: "rules"; title: string; rules: Rules }
   // A document the window drew: read-only. Anything you write goes
   // through the editor instead — see `written()` in panels.ts.
-  | { kind: "doc"; title: string; body: string }
+  | { kind: "doc"; title: string; body: string; again?: "idle" | "busy" }
   // A conversation with one person on agentbus, and the box to say more.
   | { kind: "person"; title: string; who: string; body: string; count: number }
   | { kind: "pr"; title: string; body: string; acts: PrAct[]; busy?: PrActId }

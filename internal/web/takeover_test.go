@@ -442,3 +442,20 @@ func TestAnEndedAgentIsNotRestartedByItsSocketAlone(t *testing.T) {
 	seen(t, back, "ARGS:")
 	assert.Equal(t, badgeIdle, s.agentBadge(), "asked for, it comes back")
 }
+
+// A terminal agent holds the conversation for as long as its pane lives, so a
+// run that waited for it would wait for good.
+func TestAColdRunDoesNotWaitForTheAgentsTerminal(t *testing.T) {
+	a := &agentRunner{}
+	a.releaseForTakeover()
+
+	_, ok := a.begin(t.Context(), kindChat)
+	assert.False(t, ok, "a turn would be a second process on the transcript")
+
+	for _, kind := range []string{kindReview, kindCommitMessage} {
+		_, ok := a.begin(t.Context(), kind)
+		require.True(t, ok, kind)
+		a.finish(nil)
+	}
+	assert.True(t, a.TakenOver(), "the terminal still holds the conversation afterwards")
+}

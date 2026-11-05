@@ -800,6 +800,7 @@ export interface Job {
   lastFired?: string;
   paused?: boolean;
   failing?: boolean;
+  running?: boolean;
   outcomes?: Outcome[];
 }
 
@@ -817,6 +818,15 @@ export const MY_DAY = "my-day";
 
 export function myDay(jobs: Job[]): Job | undefined {
   return jobs.find((job) => job.name === MY_DAY);
+}
+
+// myDayDue is whether opening the window builds the report: a weekday with
+// nothing fired today. A paused job, or one already running, is left alone.
+export function myDayDue(job: Job | undefined, now: Date): boolean {
+  if (!job || job.paused || job.running) return false;
+  if (now.getDay() === 0 || now.getDay() === 6) return false;
+  const last = job.outcomes?.[0]?.firedAt ?? job.lastFired;
+  return !last || new Date(last).toDateString() !== now.toDateString();
 }
 
 // myDayReport is the newest fire on its own. The Jobs place keeps the run of

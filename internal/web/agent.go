@@ -1035,8 +1035,8 @@ func contextWindow(provider, model string) int {
 func (a *agentRunner) begin(parent context.Context, kind string) (context.Context, bool) {
 	a.mu.Lock()
 	// A takeover holds the transcript, so a turn here would be a second
-	// process writing it.
-	if a.running || a.takenOver {
+	// process writing it. A cold run has a transcript of its own.
+	if a.running || (a.takenOver && !cold(kind)) {
 		a.mu.Unlock()
 		return nil, false
 	}
@@ -1058,6 +1058,9 @@ func (a *agentRunner) begin(parent context.Context, kind string) (context.Contex
 	go a.watchSpawn(ctx, cancel)
 	return ctx, true
 }
+
+// cold is a run that never joins the conversation: a review, a commit message.
+func cold(kind string) bool { return kind == kindReview || kind == kindCommitMessage }
 
 // holdIdle runs fn unless a run is in flight, holding the runner's lock across
 // it so one cannot begin while it runs. fn must not call back into the runner.

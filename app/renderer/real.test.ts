@@ -1518,3 +1518,29 @@ describe("a live session's badge", () => {
     expect(real.badge(undefined)).toEqual({ icon: "play", tone: "good" });
   });
 });
+
+describe("when opening the window builds My Day", () => {
+  const thursday = new Date(2026, 10, 5, 9, 30);
+  const job = (over: Partial<real.Job> = {}): real.Job => ({ name: real.MY_DAY, schedule: "", ...over });
+  const fired = (at: Date): real.Job => job({ outcomes: [{ firedAt: at.toISOString(), millis: 1 }] });
+
+  it("builds on a weekday with nothing fired today", () => {
+    expect(real.myDayDue(job(), thursday)).toBe(true);
+    expect(real.myDayDue(fired(new Date(2026, 10, 4, 8, 0)), thursday)).toBe(true);
+  });
+
+  it("leaves a report already built today alone", () => {
+    expect(real.myDayDue(fired(new Date(2026, 10, 5, 8, 0)), thursday)).toBe(false);
+  });
+
+  it("does nothing at the weekend", () => {
+    expect(real.myDayDue(job(), new Date(2026, 10, 7, 9, 30))).toBe(false);
+    expect(real.myDayDue(job(), new Date(2026, 10, 8, 9, 30))).toBe(false);
+  });
+
+  it("leaves a paused job, a running one and a machine without one alone", () => {
+    expect(real.myDayDue(job({ paused: true }), thursday)).toBe(false);
+    expect(real.myDayDue(job({ running: true }), thursday)).toBe(false);
+    expect(real.myDayDue(undefined, thursday)).toBe(false);
+  });
+});

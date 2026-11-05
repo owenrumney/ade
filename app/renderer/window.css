@@ -423,3 +423,29 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 .window.terminal .main .head .chattoggle { display: none; }
 .window.terminal .sidebar .row { margin: 0 6px; border-radius: 6px; }
 .window.terminal .sidebar .row.on { box-shadow: none; }
+
+/* The commit box under the Diff list. Built once, so it is never redrawn. */
+.sidebar .commitbox {
+  flex: none; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 12px 10px 16px; border-top: 1px solid var(--line);
+  font: 12px/1.5 var(--ui);
+}
+.sidebar .commitbox[hidden] { display: none; }
+.sidebar .commitbox.busy { opacity: .6; pointer-events: none; }
+.sidebar .commitbox .top { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-dim); font-size: 11px; }
+.sidebar .commitbox .link { cursor: pointer; color: var(--accent); }
+.sidebar .commitbox .link[hidden] { display: none; }
+.sidebar .commitbox .title, .sidebar .commitbox .body {
+  width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 6px;
+  border: 1px solid var(--line-strong); background: var(--bg-raised); color: var(--ink);
+  font: inherit; resize: vertical;
+}
+.sidebar .commitbox .title::placeholder, .sidebar .commitbox .body::placeholder { color: var(--placeholder); }
+.sidebar .commitbox .title:focus, .sidebar .commitbox .body:focus { outline: none; border-color: var(--accent); }
+.sidebar .commitbox .row { display: flex; gap: 6px; }
+.sidebar .commitbox .btn {
+  padding: 2px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+  background: var(--accent); color: var(--accent-ink);
+}
+.sidebar .commitbox .btn.quiet { background: var(--bg-raised); color: var(--ink); }
+.sidebar .commitbox .btn.off { opacity: .45; }

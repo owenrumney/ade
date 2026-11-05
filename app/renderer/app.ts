@@ -21,6 +21,7 @@ import { build, flatten, squashed, toggled, type Node, type Shown } from "./tree
 import { fill, owed, wired, type Ask, type Doing } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
 import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
+import { CommitBox, NOTHING as NO_COMMIT, standingIn, type Does } from "./commitbox";
 import { needFor, Sources } from "./fresh";
 import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
 import { frame, pushTo, shown, stirred, tell } from "./panel";
@@ -125,6 +126,10 @@ class Ade {
   private openSpaces: Space[] = [];
   private changes: Change[] = [];
   private threads: Thread[] = [];
+  private commit = new CommitBox(this.commitDoes(), (text) => this.say(text));
+  // My Day: the day this window last built it unasked, and a build in flight.
+  private myDayAsked = "";
+  private myDayBuilding = false;
   private mine: real.Listed[] = [];
   private bus?: real.Bus;
   private pr?: { number: number; title: string; body: string };
@@ -353,6 +358,7 @@ class Ade {
     this.announced = got.active ?? [];
     this.todoList = got.todos ?? [];
     this.jobs = got.jobs ?? [];
+    if (real.myDayDue(real.myDay(this.jobs), new Date())) void this.buildMyDay(false);
     this.refreshMyDay();
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
@@ -494,6 +500,7 @@ class Ade {
     if (!window.ade || !this.session) {
       this.threads = [];
       this.mine = [];
+      this.commit.show(NO_COMMIT);
       return real.NOTHING;
     }
     const got = (await window.ade
@@ -519,6 +526,7 @@ class Ade {
     this.mine = ((got as { openPrs?: real.Listed[] | null })?.openPrs ?? []).filter((p) => p.number);
     this.bus = (got as { bus?: real.Bus })?.bus;
     this.threads = ((got as { threads?: Thread[] | null })?.threads ?? []).filter((t) => t.id);
+    this.commit.show(standingIn(got));
     this.diffNow = String((got as { diffVersion?: string }).diffVersion ?? "");
     // The version makes the diff stale, not the event that brought it.
     const at = `${this.session}:${this.diffNow}`;
@@ -1674,6 +1682,7 @@ class Ade {
     if (!this.shell) this.shell = this.build();
     const { titlebar, activity, sidebar, head, sheet, statusbar, sideGrip } = this.shell;
     sidebar.hidden = this.sideShut;
+    this.commit.el.hidden = !(this.terminal && this.place === "review" && this.session);
     sideGrip.hidden = this.sideShut;
     this.drawDock();
     titlebar.replaceChildren(...this.titlebar());
@@ -1690,7 +1699,9 @@ class Ade {
     const moved = drawn.innerHTML !== this.sidebarHTML;
     if (moved) {
       this.sidebarHTML = drawn.innerHTML;
-      sidebar.replaceChildren(...drawn.childNodes);
+      // The commit box stays where it is: moving it would take its focus.
+      for (const old of [...sidebar.children]) if (old !== this.commit.el) old.remove();
+      this.commit.el.before(...drawn.childNodes);
     }
     const list = sidebar.querySelector(".list");
     if (moved && list && read) list.scrollTop = read;
@@ -1761,6 +1772,7 @@ class Ade {
     // A space is its documents and its conversations, which move while the
     // page is open: archiving one is the whole point of the Archive on it.
     if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
+    if (view.kind === "doc" && view.again) return `${view.again}:${view.body}`;
     if (view.kind !== "hunks") return "";
     if (view.editing) return `editing:${view.file.path}`;
     const how = this.split ? "split" : "unified";
@@ -1851,6 +1863,7 @@ class Ade {
   // left, so it is written down and closed, and that one's comes back.
   private goTo(session: string): void {
     if (session === this.session) return;
+    this.commit.reset();
     if (this.only) {
       this.session = session;
       return;
@@ -1964,6 +1977,38 @@ class Ade {
     this.draw();
   }
 
+  // sendFindings hands the open comments to the session's agent, then shows it.
+  private async sendFindings(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/findings", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(`sent ${(back.body as { sent?: number })?.sent ?? 0} findings to the agent`);
+    this.run("ade.openAgent");
+  }
+
+  // commitDoes is the commit box's reach into the picked session.
+  private commitDoes(): Does {
+    const post = async (path: string, body: Record<string, unknown>, said: (back: Record<string, unknown>) => string) => {
+      const got = await window.ade
+        ?.act("session", path, body, this.session)
+        .catch((e: Error) => ({ error: e.message }));
+      const back = real.answered(got as real.Answer);
+      if (back.error) return back.error;
+      const text = said((back.body ?? {}) as Record<string, unknown>);
+      if (text) this.say(text);
+      void this.read();
+      return "";
+    };
+    return {
+      write: () => post("/api/commit-message", {}, () => "writing a commit message"),
+      commit: (title, body) => post("/api/commit", { title, body }, (back) => `committed ${String(back.sha ?? "")}`),
+      push: () => post("/api/push", {}, (back) => `pushed to ${String(back.upstream || "the remote")}`),
+      stageAll: () => post("/api/stage", { all: true, staged: true }, () => ""),
+    };
+  }
+
   // endedCard stands where an agent that exited was: resuming is asked for.
   private endedCard(): HTMLElement {
     const card = el("div", "nothing");
@@ -2074,6 +2119,7 @@ class Ade {
     const titlebar = el("div", "titlebar");
     const activity = el("div", "activity");
     const sidebar = el("div", "sidebar");
+    sidebar.append(this.commit.el);
     const head = el("div", "head");
     const sheet = el("div", "sheet");
     const statusbar = el("div", "statusbar");
@@ -2156,9 +2202,11 @@ class Ade {
   // In place rather than through show(), which would pull focus to it.
   private refreshMyDay(): void {
     const body = real.myDayReport(real.myDay(this.jobs));
+    const again = this.myDayAgain();
     this.tabs = this.tabs.map((tab) =>
-      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc" && tab.what.body !== body
-        ? { ...tab, what: { ...tab.what, body } }
+      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc" &&
+      (tab.what.body !== body || tab.what.again !== again)
+        ? { ...tab, what: { ...tab.what, body, again } }
         : tab,
     );
   }
@@ -2167,8 +2215,35 @@ class Ade {
   // the same every day so the tab is reused; the report dates its own heading.
   private openMyDay(): void {
     const job = real.myDay(this.jobs);
-    this.show({ kind: "doc", title: "My Day", body: real.myDayReport(job) }, "My Day", "calendar");
+    const view = { kind: "doc" as const, title: "My Day", body: real.myDayReport(job), again: this.myDayAgain() };
+    this.show(view, "My Day", "calendar");
     if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
+  }
+
+  private myDayAgain(): "idle" | "busy" {
+    return this.myDayBuilding || real.myDay(this.jobs)?.running ? "busy" : "idle";
+  }
+
+  // buildMyDay runs the report now. Unasked is the first open of a weekday,
+  // once a day from this window, and says nothing if it cannot.
+  private async buildMyDay(asked: boolean): Promise<void> {
+    const today = new Date().toDateString();
+    if (this.myDayBuilding || (!asked && this.myDayAsked === today)) return;
+    this.myDayAsked = today;
+    this.myDayBuilding = true;
+    // Unasked is called from inside a read, which draws when it is done.
+    if (asked) {
+      this.refreshMyDay();
+      this.draw();
+    }
+    const got = await window.ade
+      ?.act("launcher", "/api/jobs/run", { name: real.MY_DAY })
+      .catch((e: Error) => ({ error: e.message }));
+    this.myDayBuilding = false;
+    const back = real.answered(got as real.Answer);
+    if (!asked) return this.soon(300);
+    if (back.error) this.say(back.error);
+    await this.read();
   }
 
   private foldButton(): HTMLElement {
@@ -2357,6 +2432,13 @@ class Ade {
       up.title = "Stash, rebase onto the base, bring your work back, settle what conflicts";
       up.addEventListener("click", () => void this.catchUp());
       bar.append(up);
+    }
+    const open = listed(this.threads).length;
+    if (this.terminal && open > 0) {
+      const send = el("span", "btn quiet", `Send ${open} to the agent`);
+      send.title = "Writes the open comments to a file and asks the agent to work through it.";
+      send.addEventListener("click", () => void this.sendFindings());
+      bar.append(send);
     }
     if (this.draft.ready > 0) {
       const add = el("span", this.adding ? "btn quiet add off" : "btn quiet add", `Add ${this.draft.ready} to the review`);
@@ -3346,6 +3428,7 @@ class Ade {
       },
       (who, text) => void this.askPerson(who, text),
       (did) => void this.spaceAct(did),
+      () => void this.buildMyDay(true),
     );
   }
 

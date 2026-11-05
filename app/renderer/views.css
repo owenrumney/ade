@@ -417,3 +417,12 @@
 .diff.split .src { white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff.split .pair > .ln + .ln { border-left: 1px solid var(--line); }
 .diff.split .pair > .gap { background: var(--bg-raised); }
+
+/* A report that can be rebuilt carries its own Refresh above it. */
+.doc-acts { display: flex; justify-content: flex-end; margin: 8px 0 4px; }
+.doc-acts button {
+  padding: 3px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+  background: var(--bg-raised); color: var(--ink); border: 1px solid var(--line-strong);
+}
+.doc-acts button:hover:not(:disabled) { border-color: var(--accent); }
+.doc-acts button:disabled { opacity: .5; cursor: default; }

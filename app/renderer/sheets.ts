@@ -25,6 +25,7 @@ export function sheet(
   review: Review = { hasPR: false, open: new Set() },
   ask: (who: string, text: string) => void = () => {},
   space: (did: SpaceAct) => void = () => {},
+  again: () => void = () => {},
 ): HTMLElement {
   switch (view.kind) {
     case "rules":
@@ -34,7 +35,7 @@ export function sheet(
     case "code":
       return code(view.source, picked, view.line);
     case "doc":
-      return doc(view.body);
+      return doc(view.body, view.again, again);
     case "pr":
       return pr(view.body, view.acts, act, view.busy);
     case "person":
@@ -60,8 +61,17 @@ function nothing(): HTMLElement {
 
 // doc is a document the window drew and nobody edits. Anything written
 // goes through `written()` in panels.ts.
-function doc(body: string): HTMLElement {
+// again is the report's own Refresh: drawn only for one that can be rebuilt.
+function doc(body: string, again?: "idle" | "busy", refresh: () => void = () => {}): HTMLElement {
   const out = el("div", "doc");
+  if (again) {
+    const bar = el("div", "doc-acts");
+    const button = el("button", "", again === "busy" ? "building…" : "Refresh");
+    (button as HTMLButtonElement).disabled = again === "busy";
+    button.addEventListener("click", refresh);
+    bar.append(button);
+    out.append(bar);
+  }
   const page = el("div", "rendered");
   page.innerHTML = html(body);
   out.append(page);

@@ -969,6 +969,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/agent/terminal", s.guard(s.handleAgentTerminal))
 	mux.HandleFunc("POST /api/agent/terminal/close", s.guard(s.handleAgentTerminalClose))
 	mux.HandleFunc("POST /api/agent/seen", s.guard(s.handleAgentSeen))
+	mux.HandleFunc("POST /api/agent/findings", s.guard(s.handleSendFindings))
 	mux.HandleFunc("POST "+BadgePath, s.handleAgentBadge)
 	mux.HandleFunc("GET /api/agents", s.guard(s.handleAgents))
 	mux.HandleFunc("GET /api/internal/delegate/agents", s.handlePiAgents)
