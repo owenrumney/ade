@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/owenrumney/ade/internal/agentbus"
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/settings"
 )
 
@@ -63,7 +62,7 @@ func (a *agentRunner) codexBus() []string {
 func (a *agentRunner) busEnv() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.sandbox || a.busEntry() == nil {
+	if a.busEntry() == nil {
 		return nil
 	}
 	return []string{agentbus.EnvInstance + "=" + busInstanceID(), busTokenVar + "=" + a.delegateToken}
@@ -77,13 +76,13 @@ func (s *Server) answered(ctx context.Context, line string) {
 			return
 		}
 	}
-	s.say(ChatMessage{Kind: chat.KindNote, Body: line})
+	slog.Warn("an answer from the bus found no agent terminal to go to", "answer", line)
 }
 
 // busStanding is what the bus is told of a run: a terminal agent is working
 // or waiting on its human by its badge, since it has no turn of ade's.
 func busStanding(run RunState) (running bool, asking int) {
-	asking = len(run.Asking)
+
 	if run.Terminal == badgeNeeds {
 		asking++
 	}

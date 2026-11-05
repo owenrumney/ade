@@ -27,21 +27,15 @@
   cursor: text;
 }
 .titlebar .box:hover { border-color: var(--accent); }
-.titlebar .bell { -webkit-app-region: no-drag; position: relative; display: flex; }
-.titlebar .bell .count {
-  position: absolute; top: -5px; right: -9px;
-  background: var(--accent); color: var(--accent-ink);
-  border-radius: 9px; font-size: 10px; padding: 0 5px; font-weight: 600;
-}
 
 .body { flex: 1; display: flex; min-height: 0; }
 
-/* Activity bar: one button per thing, each carrying its own count. */
+/* The bar on the right: a button opens its list beside it, and closes it again. */
 .activity {
   width: var(--activity-w);
   flex: none;
   background: var(--bg-chrome);
-  border-right: 1px solid var(--edge);
+  border-left: 1px solid var(--edge);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -68,9 +62,6 @@
   border-radius: 9px; font-size: 10px; padding: 0 4px; font-weight: 600;
   min-width: 15px; text-align: center;
 }
-.activity .gap { flex: 1; }
-/* The fold arrows sit under the last icon, half the height of one. */
-.activity button.fold { height: 28px; color: var(--ink-dim); }
 
 .sidebar {
   width: var(--sidebar-w);
@@ -135,7 +126,6 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
   cursor: pointer;
 }
 .row:hover { background: var(--hover); }
-.row.under { padding-left: 34px; }
 .row.on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .row .ico { flex: none; width: 15px; display: flex; justify-content: center; color: var(--ink-dim); }
 .row .ico.good { color: var(--good); }
@@ -163,7 +153,7 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 .tag.here { background: var(--tint-info); color: var(--info); }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-/* The tab strip. Every open thing is a tab, the chat included. */
+/* The tab strip. Every open thing is a tab. */
 .main .head {
   height: 34px; flex: none;
   border-bottom: 1px solid var(--line);
@@ -197,43 +187,10 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 .main .head .tab:hover .x, .main .head .tab.on .x { color: var(--ink-dim); }
 .main .head .tab .x:hover { color: var(--ink-bright); }
 
-/* The chat's toggle sits at the end of the strip, away from the tabs. */
-.main .head .chattoggle {
-  margin-left: auto; flex: none;
-  display: flex; align-items: center;
-  padding: 0 12px; cursor: pointer;
-  border-left: 1px solid var(--line);
-}
-.main .head .chattoggle:hover { background: var(--hover); }
-.main .head .chattoggle.on { color: var(--ink-bright); }
-
-/* The chat: a dock on the right, its width dragged and kept. It holds
-   its minimum as the window narrows — the editor area gives up the room. */
-.dock {
-  width: var(--chat-w);
-  min-width: 280px;
-  flex: none;
-  display: flex; flex-direction: column;
-  min-height: 0;
-  background: var(--bg-chrome);
-  border-left: 1px solid var(--edge);
-}
-.dock[hidden] { display: none; }
-.dock .dockhead {
-  height: 34px; flex: none;
-  display: flex; align-items: center; gap: 4px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink-dim); font-size: 12px;
-}
-.dock .dockhead .nm { flex: 1; color: var(--ink-bright); }
-.dock .dockhead .x { display: flex; padding: 2px 4px; cursor: pointer; font-size: 10px; }
-.dock .dockhead .x:hover { color: var(--ink-bright); }
-.dock .dockbody { flex: 1; min-height: 0; overflow: hidden; }
-/* The grip the dock is dragged by, on its left edge and over the border. */
 .grip[hidden] { display: none; }
 
-.main .sheet { flex: 1; min-height: 0; position: relative; }
+.main .work { flex: 1; min-height: 0; display: flex; }
+.main .sheet { flex: 1; min-width: 0; min-height: 0; position: relative; }
 /* Every open tab keeps its pane; only the active one is shown. */
 .main .sheet .pane { position: absolute; inset: 0; overflow: auto; }
 .main .sheet .pane[hidden] { display: none; }
@@ -275,10 +232,7 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
   padding: 0 10px; height: 100%; cursor: pointer;
 }
 .statusbar .item:hover { background: var(--hover); color: var(--ink); }
-.statusbar .item.boxed { background: var(--tint-warn); color: var(--warn); }
-.statusbar .item.boxed:hover { background: var(--tint-warn); color: var(--ink-bright); }
 .statusbar .gap { flex: 1; }
-.statusbar .blame { color: var(--ink-dim); font-family: var(--mono); }
 
 /* What the window last said: a line in the status bar rather than a
    toast, so it is where you already look and never covers a row. */
@@ -294,20 +248,11 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 
-/* The checkout's ade is in another conversation than the row picked.
-   Click to move it; the chat shows the server's, not the window's. */
-.statusbar .elsewhere { color: var(--warn); cursor: pointer; }
-.statusbar .elsewhere:hover { color: var(--ink-bright); }
 
 /* The terminal fills the sheet; xterm scrolls itself. */
 .term { width: 100%; height: 100%; padding: 6px 0 0 8px; }
 
-/* A float: one panel, no chrome, and the panel fills it. */
-.window.only { padding: 0; }
-.window.only .panel-wrap { height: 100vh; }
 
-/* A conversation on another machine, named by the machine it is on. */
-.tag.where { background: var(--tint-info); color: var(--info); }
 
 /* The scrollbars. Chromium draws a light one by default, which on this
    background is a white stripe down the side of every list. One rule
@@ -398,31 +343,25 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 .sidebar .comments .sev.medium { color: var(--warn); }
 .sidebar .comments .sev.low { color: var(--ink-dim); }
 
-/* Expanded: the dock takes what the editor area had, out to the sidebar.
-   The main pane keeps its iframes, at no width. */
-.window.chatwide .dock { flex: 1 1 auto; width: auto; }
-.window.chatwide .main { display: none; }
 
-/* Terminal mode: the pane is a bordered card with its tabs along the bottom,
-   and the chat's toggle goes with the chat. */
-.window.terminal .main { background: var(--bg-chrome); padding: 8px 10px 0 4px; }
-.window.terminal .main .sheet {
+/* The pane is a bordered card with its tabs along the bottom: Agent, Diff, Shell. */
+.main { background: var(--bg-chrome); padding: 8px 4px 0 4px; }
+.main .work {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg);
 }
-.window.terminal .main .head { order: 2; height: 36px; border-bottom: 0; }
-.window.terminal .main .head .tab {
+.main .head { order: 2; height: 36px; border-bottom: 0; }
+.main .head .tab {
   margin: 6px 4px 6px 0; padding: 0 10px;
   border-right: 0; border-radius: 6px;
 }
-.window.terminal .main .head .tab.on { background: var(--accent-soft); box-shadow: none; }
-.window.terminal .main .head.two .strip.left { border-right: 0; }
-.window.terminal .main .head.two .strip:not(.focus) .tab.on { box-shadow: none; background: var(--hover); }
-.window.terminal .main .head .chattoggle { display: none; }
-.window.terminal .sidebar .row { margin: 0 6px; border-radius: 6px; }
-.window.terminal .sidebar .row.on { box-shadow: none; }
+.main .head .tab.on { background: var(--accent-soft); box-shadow: none; }
+.main .head.two .strip.left { border-right: 0; }
+.main .head.two .strip:not(.focus) .tab.on { box-shadow: none; background: var(--hover); }
+.sidebar .row { margin: 0 6px; border-radius: 6px; }
+.sidebar .row.on { box-shadow: none; }
 
 /* The commit box under the Diff list. Built once, so it is never redrawn. */
 .sidebar .commitbox {
@@ -449,3 +388,56 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 }
 .sidebar .commitbox .btn.quiet { background: var(--bg-raised); color: var(--ink); }
 .sidebar .commitbox .btn.off { opacity: .45; }
+
+/* The Diff's files beside the diff, and the list a bar button opens. */
+.sidebar.files { width: var(--files-w); background: var(--bg); }
+.sidebar.side { width: var(--side-w); border-right: 0; border-left: 1px solid var(--edge); }
+
+/* A session's tags: its ticket, its brief, and the ones typed by hand. */
+.row .tags { flex: none; display: flex; gap: 4px; }
+.row .tags .tag { margin-left: 0; }
+.tag.ticket { background: var(--tint-info); color: var(--info); }
+.tag.brief { background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+.tag.brief:hover { color: var(--ink-bright); }
+/* The three tabs every session has carry no close. */
+.main .head .tab.standing { padding-right: 12px; }
+
+/* A session is two lines: its name, then its tags and what is said of it. */
+.row.session { flex-wrap: wrap; height: auto; padding-top: 4px; padding-bottom: 5px; row-gap: 1px; }
+.row.session .name { flex: 1 1 0; }
+.row.session .more {
+  flex: 0 0 100%; min-width: 0;
+  display: flex; align-items: center; gap: 6px; padding-left: 22px;
+}
+.row.session .more .meta { flex: 0 1 auto; }
+
+/* A review by named agents as it goes: each reviewer, then the stage. */
+.sidebar .review-run {
+  border-top: 1px solid var(--line); margin-top: 8px; padding: 8px 0;
+  font: 12px/1.6 var(--ui); max-height: 40%; overflow-y: auto; flex: none;
+}
+.sidebar .review-run:empty { display: none; }
+.sidebar .review-run .head {
+  display: flex; align-items: center; padding: 0 8px 4px 16px; font: 600 11px/1.6 var(--ui);
+  text-transform: uppercase; letter-spacing: .04em; color: var(--ink-dim);
+}
+.sidebar .review-run .shut {
+  margin-left: auto; padding: 0 6px; border: 0; border-radius: 4px; cursor: pointer;
+  background: none; color: var(--ink-dim); font: 14px/1 var(--ui);
+}
+.sidebar .review-run .shut:hover { background: var(--hover); color: var(--ink); }
+.sidebar .review-run .who {
+  display: flex; align-items: center; gap: 6px; padding: 1px 12px 1px 16px;
+  white-space: nowrap; overflow: hidden;
+}
+.sidebar .review-run .dot {
+  flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-dim);
+}
+.sidebar .review-run .running .dot { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.sidebar .review-run .done .dot { background: var(--good); }
+.sidebar .review-run .failed .dot { background: var(--bad); }
+.sidebar .review-run .name { flex: none; color: var(--ink); }
+.sidebar .review-run .note { overflow: hidden; text-overflow: ellipsis; color: var(--ink-dim); }
+.sidebar .review-run .failed .note { color: var(--bad); }
+.sidebar .review-run .stage, .sidebar .review-run .summary { padding: 4px 12px 0 16px; color: var(--ink); }
+.sidebar .review-run .stage { color: var(--accent); }

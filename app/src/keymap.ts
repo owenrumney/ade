@@ -28,26 +28,16 @@ export interface Binding {
 // never a hunt. ~/.ade/keys.json is laid over this.
 export const DEFAULTS: Binding[] = [
   { keys: "mod+k", command: "omnibox" },
-  { keys: "mod+p", command: "omnibox.files" },
-  { keys: "mod+shift+p", command: "omnibox.commands" },
   { keys: "mod+n", command: "ade.newSession" },
-  { keys: "mod+shift+l", command: "chat.focus" },
-  // The digits follow the activity bar, top to bottom, or they lie about
-  // where they go. Review and Code sit under it and take the last two.
+  // The digits follow the bar on the right, top to bottom, or they lie
+  // about where they go. The Diff takes the last.
   { keys: "mod+1", command: "place.waiting" },
-  { keys: "mod+2", command: "place.spaces" },
-  { keys: "mod+3", command: "place.sessions" },
-  { keys: "mod+4", command: "place.designs" },
-  { keys: "mod+5", command: "place.prs" },
-  { keys: "mod+6", command: "place.agents" },
-  { keys: "mod+7", command: "place.issues" },
-  { keys: "mod+8", command: "place.todos" },
-  { keys: "mod+9", command: "place.jobs" },
+  { keys: "mod+2", command: "place.prs" },
+  { keys: "mod+3", command: "place.inbox" },
+  { keys: "mod+4", command: "place.team" },
   { keys: "mod+0", command: "place.review" },
-  { keys: "mod+shift+0", command: "place.code" },
   { keys: "mod+b", command: "sidebar.toggle" },
   { keys: "mod+s", command: "save" },
-  { keys: "mod+shift+b", command: "branch.switch" },
   { keys: "escape", command: "dismiss" },
 ];
 

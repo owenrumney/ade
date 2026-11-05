@@ -42,21 +42,12 @@ const MY_DAY = {
 export const WORLD = {
   jobs: [
     MY_DAY,
-    { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z", project: "ade" },
-    { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
-    { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
-  ],
-  todos: [
-    { id: "1", text: "Send the review replies on #412", due: "2026-10-21T09:00:00Z" },
-    { id: "2", text: "Bump the VSCodium pin", from: "editor-bump", note: "monthly job" },
-    { id: "3", text: "Look at the sandbox image size", started: "ade" },
   ],
   spaces: [
     { repo: "owenrumney/ade", owner: "owenrumney", name: "ade", path: "/Users/owen/code/owenrumney/ade",
-      branch: "main", sessions: 13, here: true,
-      designs: ["spaces.md", "terminal-turns.md", "quiz-me.md"] },
+      branch: "main", sessions: 13, here: true },
     { repo: "infracost/coast", owner: "infracost", name: "coast", path: "/Users/owen/code/infracost/coast",
-      branch: "main", sessions: 19, here: true, designs: ["pricing-rework.md", "usage-tiles.md"] },
+      branch: "main", sessions: 19, here: true },
     { repo: "infracost/docs", owner: "infracost", name: "docs", sessions: 0, here: false },
     { repo: "infracost/infra", owner: "infracost", name: "infra", path: "/Users/owen/code/infracost/infra",
       branch: "master", sessions: 2, here: true },
@@ -133,32 +124,6 @@ export const WORLD = {
       "ADE-211": { dir: "/Users/owen/code/owenrumney/ade-211", branch: "ade-211-spaces", session: "ade" },
     },
   },
-  designs: [
-    {
-      name: "rethink-workflow-and-uk",
-      dir: "/Users/owen/code/owenrumney/ade/.git/ade/docs",
-      file: "rethink-workflow-and-uk.md",
-      meta: { repos: ["owenrumney/ade"], title: "Rethink the workflow and the window" },
-      repo: "owenrumney/ade",
-    },
-    {
-      name: "agentbus-harness",
-      dir: "/Users/owen/code/owenrumney/ade/.git/ade/docs",
-      file: "agentbus-harness.md",
-      meta: { repos: ["owenrumney/ade"] },
-      repo: "owenrumney/ade",
-    },
-  ],
-  limits: {
-    claude: {
-      provider: "claude",
-      checkedAt: "2026-10-23T12:30:00Z",
-      windows: [
-        { name: "5h", percent: 62, resetsAt: "2026-10-23T16:10:00Z" },
-        { name: "7d", percent: 84, resetsAt: "2026-10-27T09:00:00Z" },
-      ],
-    },
-  },
   active: [
     {
       id: "pending-0d210b89",
@@ -176,16 +141,6 @@ export const WORLD = {
       branch: "rethink-workflow-and-uk",
       agent: {
         running: true,
-        model: "opus",
-        sideRuns: ["security"],
-        stacked: [
-          { id: "q1", kind: "message", what: "look at the sandbox image size" },
-          { id: "q2", kind: "review" },
-        ],
-        children: [
-          { kind: "agent", name: "tester", doing: "reading app/renderer/real.test.ts" },
-          { kind: "task", name: "go test ./internal/web", doing: "ok 112.4s" },
-        ],
       },
     },
     {
@@ -196,48 +151,8 @@ export const WORLD = {
       branch: "fix/entropy",
       agent: {
         running: true,
-        model: "sonnet",
         asking: 1,
-        stacked: [{ id: "q3", kind: "message", what: "rerun the entropy tests" }],
       },
-    },
-    {
-      id: "lsp",
-      dir: "/Users/owen/code/owenrumney/go-lsp",
-      name: "go-lsp",
-      repo: "go-lsp",
-      branch: "main",
-      machine: "mini",
-      agent: { running: false },
-    },
-  ],
-  hosts: [
-    {
-      machine: "mini",
-      label: "the mini",
-      repos: [
-        {
-          name: "go-lsp",
-          path: "/Users/owen/code/owenrumney/go-lsp",
-          checkouts: [
-            {
-              name: "go-lsp",
-              path: "/Users/owen/code/owenrumney/go-lsp",
-              branch: "main",
-              sessions: [
-                {
-                  id: "lsp",
-                  name: "lsp",
-                  title: "New client code, full codebase",
-                  branch: "main",
-                  dir: "/Users/owen/code/owenrumney/go-lsp",
-                  lastUsed: "2026-10-22T07:00:00Z",
-                },
-              ],
-            },
-          ],
-        },
-      ],
     },
   ],
   repos: [
@@ -289,6 +204,10 @@ export const WORLD = {
               branch: "rethink-workflow-and-uk",
               dir: "/Users/owen/code/owenrumney/ade",
               live: true,
+              agent: "claude",
+              ticket: "ADE-211",
+              tags: ["layout"],
+              brief: "/Users/owen/code/owenrumney/ade/.git/ade/docs/lean-terminal-host.md",
               lastUsed: "2026-10-22T10:30:00Z",
             },
             {
@@ -313,6 +232,8 @@ export const WORLD = {
               title: "Webview for the sandbox",
               branch: "webview-for-sandbox",
               dir: "/Users/owen/code/owenrumney/ade-webview-for-sandbox",
+              agent: "codex",
+              tags: ["parked", "spike"],
               lastUsed: "2026-10-22T08:10:00Z",
             },
           ],
@@ -399,96 +320,37 @@ const DIFF = {
 };
 
 // A walkthrough of the diff above, as the agent would have written it.
-const WALK = {
-  files: 2,
-  base: "main",
-  scope: "branch",
-  stale: false,
-  flow: {
-    nodes: [
-      { id: "verb", label: "A verb in the omnibox" },
-      { id: "ask", label: "What it asks for" },
-      { id: "sources", label: "Where the answers come from" },
-      { id: "server", label: "POST /api/review" },
-    ],
-    edges: [
-      { from: "verb", to: "ask", label: "needs an answer" },
-      { from: "ask", to: "sources", label: "which list" },
-      { from: "sources", to: "server", label: "the picked agents" },
-    ],
-  },
-  steps: [
-    {
-      ref: "S1",
-      title: "Reviewing with named agents stops being a promise",
-      file: "app/renderer/doing.ts",
-      line: 63,
-      endLine: 64,
-      node: "verb",
-      body:
-        "The verb used to resolve to soon(), which draws it in the omnibox and refuses when pressed. It now posts to the review route like every other wired verb. Everything after this step exists because the verb needs an answer before it can post.",
-      excerpt: [
-        { n: 61, text: "export const WIRED: Record<string, From> = {" },
-        { n: 62, text: "  // ── Review ──" },
-        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },', in: true },
-        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),', in: true },
-        { n: 65, text: '  "ade.resolveAll": S("/api/resolve", { all: true }),' },
-      ],
-    },
-    {
-      ref: "S2",
-      title: "A verb may now ask for more than one thing",
-      file: "app/renderer/doing.ts",
-      line: 64,
-      endLine: 64,
-      node: "ask",
-      body:
-        "many() is the multi-select form of the pick() the other verbs use. The omnibox already knew how to put one question; what it did not have was a question whose answer is a list, which is the whole reason this verb was never wired.",
-      excerpt: [
-        { n: 62, text: "  // ── Review ──" },
-        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },' },
-        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),', in: true },
-        { n: 65, text: '  "ade.resolveAll": S("/api/resolve", { all: true }),' },
-      ],
-    },
-    {
-      ref: "S3",
-      title: "The rows a question offers are listed in one place",
-      file: "app/renderer/sources.ts",
-      line: 3,
-      endLine: 5,
-      node: "sources",
-      body:
-        "Every question names a source rather than carrying its own fetch. The window reads it at the moment the question goes up, so the agent list is whatever the machine has installed and not what was true when the page loaded.",
-      excerpt: [
-        { n: 1, text: 'import type { From } from "./doing";' },
-        { n: 2, text: "" },
-        { n: 3, text: "export const SOURCES: Record<Choice, Source> = {", in: true },
-        { n: 4, text: '  model: { at: "launcher", path: "/api/models", rows: (got) => [] },', in: true },
-        { n: 5, text: "};", in: true },
-      ],
-    },
-    {
-      ref: "S4",
-      title: "What the server gets is the same shape as before",
-      file: "app/renderer/doing.ts",
-      line: 63,
-      endLine: 63,
-      node: "server",
-      body:
-        "The picked agents go in the body the review route already took, so nothing on the server changed for this. A review asked for from the omnibox and one asked for from the panel arrive the same way.",
-      excerpt: [
-        { n: 62, text: "  // ── Review ──" },
-        { n: 63, text: '  "ade.reviewWithAgents": S("/api/review", { level: "" },', in: true },
-        { n: 64, text: '    many("reviewer", "agents", "Which agents should review?")),' },
-      ],
-    },
-  ],
-};
-
 function cell(line, kind, content) {
   return { line, kind, content };
 }
+
+// A review by named agents, by the session it runs in: one under way, one over.
+const since = (s) => new Date(Date.now() - s * 1000).toISOString();
+const REVIEWS = {
+  "ade-older": {
+    running: true,
+    startedAt: since(94),
+    endedAt: "0001-01-01T00:00:00Z",
+    stage: "1 of 3 reviewers finished",
+    summary: "",
+    reviewers: [
+      { name: "security", state: "done", doing: "", why: "", found: 3, endedAt: since(22) },
+      { name: "staff-reviewer", state: "running", doing: "Read internal/web/rebuttal.go", why: "", found: 0, endedAt: "0001-01-01T00:00:00Z" },
+      { name: "tester", state: "failed", doing: "", why: "claude exited with status 1", found: 0, endedAt: since(80) },
+    ],
+  },
+  wfs: {
+    running: false,
+    startedAt: since(600),
+    endedAt: since(465),
+    stage: "",
+    summary: "5 finding(s) from 2 reviewer(s) → 4 point(s). 4 being put in your words, ready to send to GitHub.",
+    reviewers: [
+      { name: "security", state: "done", doing: "", why: "", found: 2, endedAt: since(540) },
+      { name: "staff-reviewer", state: "done", doing: "", why: "", found: 3, endedAt: since(522) },
+    ],
+  },
+};
 
 const STATE = {
   threads: [
@@ -591,71 +453,6 @@ const STATE = {
   },
 };
 
-// A year of commits for the space page's heatmap, worked out rather
-// than typed: 365 days of hand-written JSON is not a fixture.
-function year() {
-  const out = [];
-  const start = Date.parse("2025-10-26T00:00:00Z");
-  for (let i = 0; i < 364; i++) {
-    const at = new Date(start + i * 86_400_000);
-    const weekend = at.getUTCDay() === 0 || at.getUTCDay() === 6;
-    const commits = weekend ? (i % 9 === 0 ? 2 : 0) : (i * 7) % 11;
-    out.push({ date: at.toISOString().slice(0, 10), commits });
-  }
-  return out;
-}
-
-const REPO = {
-  repo: "ade",
-  dir: "/Users/owen/code/owenrumney/ade",
-  branch: "rethink-workflow-and-uk",
-  upstream: "origin/rethink-workflow-and-uk",
-  ahead: 2,
-  behind: 0,
-  dirty: 7,
-  lines: 184_320,
-  files: 612,
-  languages: [
-    { name: "Go", lines: 121_400, files: 388 },
-    { name: "TypeScript", lines: 48_900, files: 164 },
-    { name: "CSS", lines: 7_200, files: 14 },
-    { name: "Markdown", lines: 5_100, files: 38 },
-    { name: "Shell", lines: 1_720, files: 8 },
-  ],
-  days: year(),
-  commits: 1_284,
-  busiestDay: "Tuesday",
-  contributors: [
-    { name: "Owen Rumney", commits: 1_190 },
-    { name: "dependabot", commits: 61 },
-    { name: "kim", commits: 33 },
-  ],
-  last: {
-    sha: "5927858",
-    subject: "rethink workflow and uk (#20)",
-    author: "Owen Rumney",
-    at: "2026-10-22T18:04:00Z",
-  },
-  agent: {
-    cost: 184.52,
-    turns: 926,
-    sessions: 13,
-    tokens: { input: 1_900_000, output: 410_000, cacheRead: 48_000_000, cacheWrite: 2_300_000, reasoning: 120_000 },
-    byDay: Array.from({ length: 30 }, (_, i) => ({
-      key: new Date(Date.parse("2026-09-24T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
-      cost: Math.round(((i * 13) % 17) * 1.4 * 100) / 100,
-      tokens: 0,
-      sessions: 1,
-    })),
-    tools: [
-      { key: "Bash", cost: 0, tokens: 0, sessions: 412 },
-      { key: "Edit", cost: 0, tokens: 0, sessions: 268 },
-      { key: "Read", cost: 0, tokens: 0, sessions: 211 },
-    ],
-    models: [],
-  },
-};
-
 const READS = {
   // offered is what is not open yet, which is the whole of the Open a space pick.
   "/api/spaces": {
@@ -686,84 +483,36 @@ const READS = {
       { name: "feat/import-a-session", at: "last week" },
     ],
   },
-  // The Ship page: two repositories, each at a different step.
-  "/api/ship": {
-    home: "/Users/owen/code/owenrumney/ade",
-    view: "",
-    draft: { title: "feat(ship): one page for where a change stands", body: "" },
-    projects: [
-      {
-        root: "/Users/owen/code/owenrumney/ade",
-        name: "ade",
-        branch: "ship",
-        home: true,
-        base: "origin/main",
-        files: 3,
-        staged: 3,
-        upstream: "origin/ship",
-        ahead: 2,
-        behind: 0,
-        unpushed: [
-          { sha: "9c1", subject: "feat(ship): the gate rail" },
-          { sha: "4ad", subject: "feat(ship): a column per repository" },
-        ],
-        pr: {
-          number: 42,
-          title: "Ship: where a change stands",
-          url: "https://github.com/owenrumney/ade/pull/42",
-          state: "OPEN",
-          baseRef: "main",
-          failing: 1,
-          failLine: "test (ci): internal/web took 2m01s and timed out",
-          checks: [
-            { name: "test", workflow: "ci", bucket: "fail" },
-            { name: "lint", bucket: "pass" },
-          ],
-          mergeBlocked: "its branch protection rules are not satisfied yet",
-        },
-      },
-      {
-        root: "/Users/owen/code/owenrumney/squealer",
-        name: "squealer",
-        branch: "ship-gates",
-        base: "origin/main",
-        files: 1,
-        staged: 0,
-        ahead: 0,
-        behind: 2,
-        unpushed: [{ sha: "77b", subject: "feat: report the gate rail" }],
-      },
-    ],
-    gates: [
-      { name: "Threads resolved", state: "fail", note: "2 threads unresolved on the diff", button: { label: "Resolve them", do: "threads" } },
-      { name: "Tests ran", state: "warn", note: "the checks have not run this session", button: { label: "Run them", do: "tests" } },
-      { name: "Design approved", state: "pass", note: "every note on ship.md is resolved" },
-    ],
-  },
-  // A design the store holds, so the Design tab draws a real document.
-  "/api/designs/read": {
+  // The session's brief: the newest file under its design docs.
+  "/api/brief": {
+    path: "/Users/owen/code/owenrumney/ade/.git/ade/docs/lean-terminal-host.md",
     body: [
-      "# Rethink the workflow and the window",
+      "# ade becomes a lean host of terminals",
       "",
-      "One window over the launcher, with the editor's panels framed as pages.",
+      "## Goal",
       "",
-      "## Problem",
+      "One tab per session on the left. Each runs the claude or codex CLI in a terminal.",
       "",
-      "- The fork carried a whole editor to draw four panels.",
-      "- A session is picked in one place and acted on in another.",
+      "## Decisions",
       "",
-      "## Shape",
+      "- Bottom tabs are Agent, Diff and Shell. Review lives inside Diff.",
+      "- The bar is on the right with five buttons.",
       "",
-      "- `app/renderer` is the window: tabs, the sidebar, the diff, the chat dock.",
-      "- A panel is an iframe over `app/pages`, talking to its host by postMessage.",
+      "## Progress",
       "",
+      "Step 4 of 5 done: agents on the bus. Next: the layout.",
     ].join("\n"),
   },
   "/api/diff": DIFF,
   "/api/state": STATE,
-  "/api/repo": REPO,
-  "/api/models": { models: [{ id: "opus", label: "Opus 5.5" }, { id: "sonnet", label: "Sonnet 5.5" }] },
-  "/api/roles": { roles: [{ name: "oss", about: "open-source maintainer" }] },
+  "/api/conversations": {
+    conversations: [
+      { id: "7fea93ea-06ff-4930-85cd-83f21e2e85be", title: "Lean terminal host with PR review", dir: "/Users/owen/code/owenrumney/ade", used: new Date(Date.now() - 4 * 60_000).toISOString(), running: true, here: false, checkout: true },
+      { id: "c41d7a0e-52b6-4f0e-9d1a-6b1f2a3c4d5e", title: "Lambda scanning for the inspector module", dir: "/Users/owen/code/infracost/infra", used: new Date(Date.now() - 50 * 60_000).toISOString(), running: true, here: true, checkout: true },
+      { id: "feae2ed8-9d59-4995-9e80-a2602b60fcbe", title: "Garmin token expiry in health-mcp", dir: "/Users/owen/code/owenrumney/health-mcp", used: new Date(Date.now() - 26 * 3_600_000).toISOString(), running: false, here: false, checkout: true },
+      { id: "82cdb767-1c1e-4f0b-9a57-0f6a4c9d2b11", title: "mattpocock-skills usage advice", dir: "/Users/owen", used: new Date(Date.now() - 9 * 86_400_000).toISOString(), running: false, here: false, checkout: false },
+    ],
+  },
   "/api/agents": {
     agents: [
       { name: "security", description: "trust boundaries and injection", reviews: true, scope: "user" },
@@ -771,31 +520,13 @@ const READS = {
       { name: "tester", description: "the cases the tests miss", reviews: true, scope: "user" },
     ],
   },
-  "/api/hosts": { hosts: [{ name: "mini", label: "the mini", local: false }] },
   "/api/jobs": {
     jobs: [
       MY_DAY,
-      { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z", project: "ade" },
-      { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
-      { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
     ],
-  },
-  "/api/worktrees/switch": {
-    here: "/Users/owen/code/owenrumney/ade",
-    worktrees: [
-      { name: "ade", path: "/Users/owen/code/owenrumney/ade", branch: "main" },
-      { name: "ade-fix-623", path: "/Users/owen/code/owenrumney/ade-fix-623", branch: "fix-623-cancel-the-running-process" },
-      { name: "ade-editor-bump", path: "/Users/owen/code/owenrumney/ade-editor-bump", branch: "editor-bump" },
-    ],
-  },
-  "/api/tree": {
-    files: ["app/renderer/app.ts", "app/renderer/sources.ts", "internal/web/web.go", "README.md"],
   },
   "/api/permissions": {
-    allow: ["Bash(go test:*)", "Bash(git status)", "Read(**)", "Edit(internal/**)"],
     deny: ["Bash(rm -rf:*)", "WebFetch"],
-    session: ["Bash(gh pr view:*)"],
-    free: false,
     file: "/Users/owen/.claude/settings.json",
   },
 };
@@ -806,33 +537,17 @@ export function shell() {
   return `
     const WORLD = ${JSON.stringify(WORLD)};
     const READS = ${JSON.stringify(READS)};
-    const WALK = ${JSON.stringify(WALK)};
+    const REVIEWS = ${JSON.stringify(REVIEWS)};
     // The real shell takes the keystroke before the page sees it. Chromium
     // cannot, so the stub listens instead: the command names are the same.
     window.ade = {
       watch: async () => ({ ok: true }),
       listen: async () => ({ ok: true }),
-      note() {},
-      audit: async () => ({
-        days: ["2026-10-27"],
-        entries: [
-          { at: "2026-10-27T20:59:31.000Z", kind: "command", what: "ade.commitPanel", where: "todos", trace: "a1" },
-          { at: "2026-10-27T20:59:31.420Z", kind: "http", what: "GET /api/state", trace: "a1", ok: true, ms: 42 },
-          { at: "2026-10-27T21:00:02.000Z", kind: "verb", what: "todo-start 001fa1d4239d", where: "todos" },
-          { at: "2026-10-27T21:00:14.000Z", kind: "command", what: "ade.push", where: "review", trace: "b2" },
-          { at: "2026-10-27T21:00:14.900Z", kind: "http", what: "POST /api/push", trace: "b2", ok: false, why: "the remote has the branch at a commit this push would drop", ms: 870 },
-          { at: "2026-10-27T21:01:40.000Z", kind: "command", what: "ade.openSettings", where: "sessions", trace: "c3" },
-          { at: "2026-10-27T21:01:41.000Z", kind: "http", what: "PUT /api/settings", trace: "c3", ok: true, ms: 1100, fields: ["dashboardToken", "previewOff"] },
-          { at: "2026-10-27T21:02:10.000Z", kind: "command", what: "ade.todos", where: "todos", trace: "d4" },
-          { at: "2026-10-27T21:02:20.000Z", kind: "http", what: "GET /api/todos", trace: "d4", ok: false, why: "The operation was aborted due to timeout", ms: 10000 },
-        ],
-      }),
       term: async () => ({ ok: true }),
       termSend() {},
       termResize() {},
       onTerm() {},
       onTermClosed() {},
-      history: async () => ({ commits: [{ sha: "a1b2c3d", author: "owen", date: "2026-10-21", subject: "Thread the picked session through" }] }),
       onEvent() {},
       onStream() {},
       onCommand(then) {
@@ -849,23 +564,6 @@ export function shell() {
       opened: async () => "",
       spaces: async () => WORLD.spaces,
       world: async () => WORLD,
-      pr: async (repo, number) => ({
-        pr: {
-          number,
-          title: "Add usage tiles to the desk",
-          author: "owenrumney",
-          url: "https://github.com/" + repo + "/pull/" + number,
-          state: "OPEN",
-          baseRef: "main",
-          headRef: "desk-usage",
-          body: "Usage tiles on the desk, one per model.",
-          reviews: [{ author: "kim", state: "COMMENTED" }],
-        },
-        checks: [
-          { name: "test", bucket: "fail" },
-          { name: "lint", bucket: "pass" },
-        ],
-      }),
       // Opening a space moves it from offered to open, so the window can be
       // driven through the whole verb rather than only up to the pick.
       act: async (at, path, body) => {
@@ -873,13 +571,12 @@ export function shell() {
         // button disabled while it runs is for.
         if (path.split("?")[0] === "/api/review/draft")
           return new Promise((done) => setTimeout(() => done({ added: 1 }), 2000));
-        if (path.split("?")[0] === "/api/walkthrough") return { walkthrough: WALK };
         if (path.split("?")[0] !== "/api/spaces") return {};
         const reads = READS["/api/spaces"];
         const want = reads.offered.find((one) => one.repo === body.repo);
         if (!want) return {};
         reads.offered = reads.offered.filter((one) => one !== want);
-        reads.spaces.push({ ...want, path: "/Users/owen/code/" + want.repo, here: true, designs: [] });
+        reads.spaces.push({ ...want, path: "/Users/owen/code/" + want.repo, here: true });
         WORLD.spaces = reads.spaces;
         return {};
       },
@@ -889,17 +586,9 @@ export function shell() {
           ? { status: 200, ok: true, text: "// internal/web/web.go\\npackage web\\n\\nfunc serve() {\\n}\\n" }
           : { status: 404, ok: false, text: "" },
       link: async () => ({}),
-      tree: async () => ({ files: ["app/renderer/app.ts", "app/renderer/sources.ts", "internal/web/web.go", "README.md"] }),
-      file: async (dir, name) => ({ source: "// " + name + "\\npackage web\\n\\nfunc serve() error {\\n  return nil\\n}\\n" }),
-      read: async (at, path) => {
+      read: async (at, path, session) => {
         if (path.startsWith("/api/source"))
           return { source: "// internal/web/web.go\\npackage web\\n\\nfunc serve() error {\\n  return nil\\n}\\n" };
-        if (path.startsWith("/api/history"))
-          return {
-            commits: [
-              { sha: "a1b2c3d4", author: "owen", at: "2026-10-21T09:00:00Z", subject: "Thread the picked session through" },
-            ],
-          };
         if (path.split("?")[0] === "/api/bus/history")
           return {
             with: "kim",
@@ -914,6 +603,8 @@ export function shell() {
           };
         if (path.split("?")[0] === "/api/review/draft")
           return { pr: 412, review: "REVIEW1", inDraft: 1, ready: 1, notGoing: 1 };
+        if (path.split("?")[0] === "/api/state" && REVIEWS[session])
+          return { ...READS["/api/state"], reviewRun: REVIEWS[session] };
         return READS[path.split("?")[0]] ?? {};
       },
       // A panel here is the real skeleton with its scheme pointed at the

@@ -3,7 +3,6 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/lsp"
 	"github.com/owenrumney/ade/internal/safepath"
 )
 
@@ -164,119 +162,4 @@ func replace(path string, body []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
-}
-
-// A file's history is `/api/history`, which was already here.
-
-// handleDocFile serves a file beside the design documents. The editor
-// resolves `![](thing.png)` against it, so it is a directory url.
-func (s *Server) handleDocFile(w http.ResponseWriter, r *http.Request) {
-	dir, _ := s.designPlace()
-	name := r.PathValue("name")
-	if dir == "" || name == "" {
-		http.NotFound(w, r)
-		return
-	}
-	path, err := safepath.Inside(dir, name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	// Lstat before the open, so a link planted in the docs directory is
-	// refused rather than followed out of it.
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
-	}
-	http.ServeFile(w, r, path)
-}
-
-// handleHover is what a language server says about the symbol under the
-// cursor. The pool is this checkout's, started on the first ask.
-func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
-	root := s.space().homeRoot
-	name := strings.TrimSpace(r.URL.Query().Get("path"))
-	if root == "" || name == "" {
-		writeError(w, http.StatusBadRequest, "path is a file in this checkout")
-		return
-	}
-	if _, err := safepath.Inside(root, name); err != nil {
-		writeError(w, http.StatusBadRequest, "that is not a file in this checkout")
-		return
-	}
-	line, _ := strconv.Atoi(r.URL.Query().Get("line"))
-	col, _ := strconv.Atoi(r.URL.Query().Get("col"))
-	said, err := s.language(root).Hover(r.Context(), name, line, col)
-	if errors.Is(err, lsp.ErrNoServer) {
-		// Not a failure: most files have no server, and the window asks
-		// before it knows which do.
-		writeJSON(w, http.StatusOK, map[string]any{"hover": ""})
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"hover": said})
-}
-
-// handleDefinition is where the symbol under the cursor is defined, as
-// a path in this checkout. Nothing found answers with nothing.
-func (s *Server) handleDefinition(w http.ResponseWriter, r *http.Request) {
-	root, name, line, col, ok := s.spotAsked(w, r)
-	if !ok {
-		return
-	}
-	found, err := s.language(root).Definition(r.Context(), name, line, col)
-	if errors.Is(err, lsp.ErrNoServer) || found == nil {
-		writeJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, found)
-}
-
-// handleReferences is every use of the symbol under the cursor.
-func (s *Server) handleReferences(w http.ResponseWriter, r *http.Request) {
-	root, name, line, col, ok := s.spotAsked(w, r)
-	if !ok {
-		return
-	}
-	found, err := s.language(root).References(r.Context(), name, line, col)
-	if errors.Is(err, lsp.ErrNoServer) {
-		writeJSON(w, http.StatusOK, map[string]any{"spots": []lsp.Spot{}})
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"spots": found})
-}
-
-// spotAsked reads the file and position every language route takes, and
-// answers the caller itself when they do not make sense.
-func (s *Server) spotAsked(w http.ResponseWriter, r *http.Request) (root, name string, line, col int, ok bool) {
-	root = s.space().homeRoot
-	name = strings.TrimSpace(r.URL.Query().Get("path"))
-	if root == "" || name == "" {
-		writeError(w, http.StatusBadRequest, "path is a file in this checkout")
-		return "", "", 0, 0, false
-	}
-	if _, err := safepath.Inside(root, name); err != nil {
-		writeError(w, http.StatusBadRequest, "that is not a file in this checkout")
-		return "", "", 0, 0, false
-	}
-	line, _ = strconv.Atoi(r.URL.Query().Get("line"))
-	col, _ = strconv.Atoi(r.URL.Query().Get("col"))
-	return root, name, line, col, true
-}
-
-// language is the checkout's pool of language servers, made once.
-func (s *Server) language(root string) *lsp.Pool {
-	s.lspOnce.Do(func() { s.lsp = lsp.New(root) })
-	return s.lsp
 }

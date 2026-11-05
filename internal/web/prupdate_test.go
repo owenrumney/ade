@@ -4,37 +4,12 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func TestEditPRNeedsAPullRequest(t *testing.T) {
-	s := newTestServer(t)
-
-	rec := do(t, s, "PUT", "/api/pr", `{"title":"new","body":"b"}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "no pull request")
-}
-
-func TestEditPRNeedsATitle(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 7, State: "OPEN", Title: "before"})
-
-	rec := do(t, s, "PUT", "/api/pr", `{"title":"   ","body":"b"}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "needs a title")
-}
-
-func TestEditPRRefusesAClosedPullRequest(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 7, State: "MERGED", Title: "before"})
-
-	rec := do(t, s, "PUT", "/api/pr", `{"title":"after","body":"b"}`)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "merged")
-}
 
 func TestMergeNeedsAPullRequest(t *testing.T) {
 	s := newTestServer(t)

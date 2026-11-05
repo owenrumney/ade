@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { plan } from "./plan";
-import { fresh, missing, names, ref, rowsFor, ROWS, summary, type Chosen } from "./view";
+import { fresh, missing, names, ref, ROWS, summary, type Chosen } from "./view";
 
 const onTicket = (ticket: string): Chosen => ({
   ...fresh,
@@ -49,13 +49,8 @@ describe("what the Ticket row says it would make", () => {
 });
 
 describe("the rows a session can start from", () => {
-  it("is all seven for ade's chat", () => {
-    expect(rowsFor(false)).toBe(ROWS);
-  });
-
-  it("drops the two that write a document for a terminal session", () => {
-    const rows = rowsFor(true);
-    expect(rows.map((row) => row.mode)).toEqual(["work", "ticket", "branch", "direct", "scratch"]);
-    expect(rows[0].detail).not.toContain("design");
+  it("is the five that need no document written first", () => {
+    expect(ROWS.map((row) => row.mode)).toEqual(["work", "ticket", "branch", "direct", "scratch"]);
+    expect(ROWS[0].detail).not.toContain("design");
   });
 });

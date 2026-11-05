@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/review"
 )
@@ -90,9 +89,8 @@ func TestThreeReviewersOnOnePointBecomeOneComment(t *testing.T) {
 	assert.Contains(t, got.Comments[0].Body, "Found by @alice · @bob · @carol.")
 	assert.Len(t, got.Comments, 3, "the other two wordings are replies, not rows on the diff")
 
-	notes := messagesOfKind(s.conversation(), chat.KindNote)
-	require.NotEmpty(t, notes)
-	assert.Equal(t, "3 finding(s) from 3 reviewer(s) → 1 point(s).", notes[len(notes)-1].Body)
+	assert.Equal(t, "3 finding(s) from 3 reviewer(s) → 1 point(s).", lastSaid(s))
+
 }
 
 func TestFindingsBeyondTheWindowStayApart(t *testing.T) {
@@ -136,9 +134,8 @@ func TestSettleBatchFlagsADisputeAndFilesTheObjectionAsAReply(t *testing.T) {
 	assert.Equal(t, "bob", got.Comments[1].Author)
 	assert.Equal(t, "the check is above the deref", got.Comments[1].Body)
 
-	notes := messagesOfKind(s.conversation(), chat.KindNote)
-	require.NotEmpty(t, notes)
-	assert.Contains(t, notes[len(notes)-1].Body, "1 disputed: the objection is a reply on the comment.")
+	assert.Contains(t, lastSaid(s), "1 disputed: the objection is a reply on the comment.")
+
 }
 
 // The change in one line: the round decides what exists, not what is annotated.
@@ -162,8 +159,8 @@ func TestSettleBatchNeverFilesWhatEveryOtherReviewerDisputes(t *testing.T) {
 	assert.True(t, got.Disputed)
 	assert.False(t, got.Withdrawn, "one reviewer defended it")
 
-	notes := messagesOfKind(s.conversation(), chat.KindNote)
-	body := notes[len(notes)-1].Body
+	body := lastSaid(s)
+
 	assert.Contains(t, body, "2 finding(s) from 3 reviewer(s) → 1 point(s).")
 	assert.Contains(t, body, "1 dropped: one reviewer, objected by the others.")
 	assert.Contains(t, body, "objected by @bob · @carol")
@@ -252,8 +249,8 @@ func TestSettleBatchSaysWhatItFiledEvenWhenNoOneObjected(t *testing.T) {
 	assert.False(t, got.Withdrawn)
 	assert.Len(t, got.Comments, 1)
 
-	notes := messagesOfKind(s.conversation(), chat.KindNote)
-	assert.Equal(t, "1 finding(s) from 2 reviewer(s) → 1 point(s).", notes[len(notes)-1].Body)
+	assert.Equal(t, "1 finding(s) from 2 reviewer(s) → 1 point(s).", lastSaid(s))
+
 }
 
 func TestABatchDrainsIntoOneRebuttalRoundAndThenSettles(t *testing.T) {
@@ -365,8 +362,8 @@ func TestAFailedComparisonStillFilesTheFindings(t *testing.T) {
 	s.settleBatch(b)
 
 	assert.Len(t, s.space().store.List(), 1)
-	notes := messagesOfKind(s.conversation(), chat.KindNote)
-	assert.Contains(t, notes[len(notes)-1].Body, "2 file(s) grouped by position only")
+	assert.Contains(t, lastSaid(s), "2 file(s) grouped by position only")
+
 }
 
 // Three phases through one mechanism: reviewers, the round, the comparison.
@@ -383,4 +380,11 @@ func TestEachPhaseWithNothingToRunIsSkipped(t *testing.T) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	assert.Nil(t, s.batches[batch], "it settled rather than waiting on a phase with no work")
+}
+
+// lastSaid is the last line a run put on the status line.
+func lastSaid(s *Server) string {
+	s.agent.mu.Lock()
+	defer s.agent.mu.Unlock()
+	return s.agent.doing
 }

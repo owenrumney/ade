@@ -7,14 +7,11 @@ describe("what a place's refresh asks", () => {
     expect(refreshFor("team")).toMatchObject({ say: "asking agentbus…", path: "/api/bus/refresh" });
     expect(refreshFor("inbox")).toMatchObject({ say: "asking GitHub…", path: "/api/dash/refresh?only=notifications" });
     expect(refreshFor("prs")).toMatchObject({ say: "asking GitHub…", path: "/api/dash/refresh?only=reviews" });
-  });
-
-  it("pushes and pulls the designs store, which nothing else does", () => {
-    expect(refreshFor("designs")).toMatchObject({ say: "syncing designs…", path: "/api/designs/sync" });
+    expect(refreshFor("waiting")).toMatchObject({ say: "asking GitHub…", path: "/api/dash/refresh?only=reviews" });
   });
 
   it("asks nothing for a place ade answers itself", () => {
-    for (const place of ["sessions", "todos", "jobs", "code"]) {
+    for (const place of ["sessions", "spaces", "review"]) {
       expect(refreshFor(place)).toEqual({ say: "reading…" });
     }
   });

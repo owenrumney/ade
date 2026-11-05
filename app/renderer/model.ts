@@ -1,7 +1,6 @@
 import { wired } from "./doing";
 import { VOCABULARY } from "./verbs";
 import type { At, Change, Thread } from "./changes";
-import type { PrAct, PrActId } from "./prpage";
 import type { Seen } from "./spacepage";
 
 
@@ -12,10 +11,9 @@ export interface Row {
   icon: string;
   tone?: "good" | "warn" | "bad";
   tag?: { text: string; kind: string };
+  // A session's tags: its ticket, its brief, and the ones typed by hand.
+  tags?: { text: string; kind: string }[];
   group?: string;
-  // How far in the row sits. The agents place is the one tree of rows:
-  // a session's own agent at 0, what it called at 1.
-  depth?: number;
   // Where this row is, when it is somewhere other than ade: a
   // notification and an issue both live on a website.
   url?: string;
@@ -27,37 +25,31 @@ export interface Row {
   acts?: { label: string; what: Act; name: string; on?: string; menu?: true }[];
 }
 
-
-// What /api/permissions answers with: the rules that outlive the
-// session, the ones only this one has, and where they are kept.
+// What /api/permissions answers with: what ade refuses, and where it is kept.
 export interface Rules {
-  allow: string[];
   deny: string[];
-  session: string[];
-  free: boolean;
   file: string;
 }
 
 export type { At } from "./changes";
 
 export type Act =
-  | "design-start"
-  | "design-again"
-  | "queue-first"
   | "session-end"
-  | "job-run"
-  | "job-pause"
-  | "todo-start"
-  | "todo-done"
-  | "todo-drop"
+  | "session-tags"
+  | "brief-open"
+  | "brief-send"
   | "space-close"
   | "space-clone"
+  | "pr-web"
+  | "pr-mute"
+  | "pr-unmute"
   | "bus-dismiss"
   | "bus-claim"
   | "bus-answer";
 
 export type View =
-  | { kind: "diff"; title: string; patch: string }
+  // The Diff tab with no file picked yet.
+  | { kind: "diff"; title: string }
   // One file of the diff, with the threads anchored in it drawn under
   // the lines they are about.
   // editing swaps the drawn diff for the file over its left side in the
@@ -73,17 +65,14 @@ export type View =
       source?: string;
       sum?: string;
     }
-  | { kind: "code"; title: string; source: string; line?: number; sum?: string }
-  // The session's permission rules, drawn here rather than framed from
+  // What ade refuses an agent, drawn here rather than framed from
   // the server's own page: a frame wears its own stylesheet.
   | { kind: "rules"; title: string; rules: Rules }
-  // A document the window drew: read-only. Anything you write goes
-  // through the editor instead — see `written()` in panels.ts.
-  | { kind: "doc"; title: string; body: string; again?: "idle" | "busy" }
+  // A document the window drew: read-only.
+  | { kind: "doc"; title: string; body: string; again?: "idle" | "busy"; brief?: true }
   // A conversation with one person on agentbus, and the box to say more.
   | { kind: "person"; title: string; who: string; body: string; count: number }
-  | { kind: "pr"; title: string; body: string; acts: PrAct[]; busy?: PrActId }
-  // A repository kept open: its sessions, its designs and its numbers.
+  // A repository kept open, and the sessions in it.
   | { kind: "space"; title: string; seen: Seen }
   | { kind: "term"; title: string }
   // The agent's own interface, running in the session's checkout.
@@ -95,8 +84,7 @@ export interface Place {
   title: string;
   icon: string;
   rows: Row[];
-  // files makes this place a tree rather than a list. Code and Review are
-  // the two: everything else reads better flat.
+  // files makes this place a tree rather than a list. The Diff is the one.
   files?: { path: string; status?: "added" | "changed" | "removed" }[];
 
   count?: number;
@@ -112,17 +100,11 @@ export interface Place {
 
 export interface Status {
   branch: string;
-  repo: string;
-  sandboxed: boolean;
   checks: string;
   waiting: number;
-  model: string;
   // What the picked session is doing right now, named: "@security,
   // @tester" rather than a spinner.
   doing?: string;
-  // The conversation the checkout's server is in, when that is not the
-  // one picked. The chat shows the server's, so the window says so.
-  elsewhere?: string;
   // Which view of the diff Review is showing.
   scope?: string;
   // The pull request this branch has, when it has one: nothing can be said
@@ -135,7 +117,6 @@ export interface Status {
 export interface World {
   places: Place[];
   status: Status;
-  blame: string;
 }
 
 export function grouped(rows: Row[]): { name: string; rows: Row[] }[] {
@@ -163,15 +144,12 @@ export interface Verb {
 // The group each command sits under decides its icon: the table in
 // menu.ts carries the meaning, and this only dresses it.
 const ICONS: Record<string, string> = {
-  Conversation: "session",
   Sessions: "session",
-  Diff: "code",
-  Review: "diff",
+  Diff: "diff",
+  Review: "review",
   "Commit and pull request": "pr",
-  "Design and jobs": "design",
-  "Issues and pull requests": "issue",
-  Team: "inbox",
-  "Machines and ports": "branch",
+  "Lists": "inbox",
+  Team: "people",
   "ade itself": "shield",
   Other: "dot",
 };
@@ -188,30 +166,19 @@ export const VERBS: Verb[] = VOCABULARY.flatMap(({ group, verbs }) =>
   })),
 );
 
-// BAR is the activity bar, top to bottom. One list, because the order is
-// also what ⌘1…⌘9 mean, and two lists drift.
-export const BAR = [
-  "waiting",
-  "spaces",
-  "sessions",
-  "designs",
-  "prs",
-  "agents",
-  "issues",
-  "todos",
-  "jobs",
-  "inbox",
-  "team",
-  "review",
-  "code",
-];
+// BAR is the bar on the right, top to bottom: a button each, My Day between
+// the first two. SIDE is every list its panel can show, the unbuttoned included.
+export const BAR = ["waiting", "prs", "inbox", "team"];
+export const SIDE = [...BAR, "issues", "spaces"];
+
+const ORDER = ["sessions", ...SIDE, "review"];
 
 // inBarOrder puts the places in the bar's order, whatever order they were
 // built in. One the bar does not name goes last, rather than vanishing.
 export function inBarOrder(places: Place[]): Place[] {
   const at = (p: Place) => {
-    const i = BAR.indexOf(p.id);
-    return i < 0 ? BAR.length : i;
+    const i = ORDER.indexOf(p.id);
+    return i < 0 ? ORDER.length : i;
   };
   return [...places].sort((a, b) => at(a) - at(b));
 }
@@ -251,7 +218,7 @@ export function hits(places: Place[], query: string): Hit[] {
   }
 
   return all
-    .map((hit) => ({ hit, at: rank(hitName(hit), hitWhere(hit), want) }))
+    .map((hit) => ({ hit, at: rank(hitName(hit), sought(hit), want) }))
     .filter((s) => s.at >= 0)
     .sort((a, b) => a.at - b.at)
     .slice(0, 12)
@@ -276,4 +243,16 @@ export function counted(place: Place): number {
   if (place.count !== undefined) return place.count;
   return place.rows.filter((row) => row.tone === "warn" || row.tone === "bad")
     .length;
+}
+
+// matches is a list's filter: the name, what is said beside it, and its tags.
+export function matches(row: Row, want: string): boolean {
+  const tags = (row.tags ?? []).map((t) => t.text).join(" ");
+  return `${row.name} ${row.meta ?? ""} ${tags}`.toLowerCase().includes(want.toLowerCase());
+}
+
+// sought is what a hit is found by besides its name: a session's tags count.
+function sought(hit: Hit): string {
+  if (hit.kind !== "row") return hitWhere(hit);
+  return [hit.where, ...(hit.row.tags ?? []).map((t) => t.text)].join(" ");
 }

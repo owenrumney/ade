@@ -18,36 +18,22 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/owenrumney/ade/internal/browse"
 	"github.com/owenrumney/ade/internal/httpx"
-	"github.com/owenrumney/ade/internal/netcheck"
 
-	"github.com/owenrumney/ade/internal/archive"
 	"github.com/owenrumney/ade/internal/bushistory"
-	"github.com/owenrumney/ade/internal/chat"
-	"github.com/owenrumney/ade/internal/concierge"
 	"github.com/owenrumney/ade/internal/dash"
-	"github.com/owenrumney/ade/internal/designs"
-	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/hub"
-	"github.com/owenrumney/ade/internal/jobs"
-	"github.com/owenrumney/ade/internal/limits"
 	"github.com/owenrumney/ade/internal/models"
-	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/reviewer"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/settingsapi"
-	"github.com/owenrumney/ade/internal/todo"
 	"github.com/owenrumney/ade/internal/ui"
-	"github.com/owenrumney/ade/internal/wiki"
-	"github.com/owenrumney/ade/internal/worktrees"
 )
 
 // idleCheck is how often an unattended launcher notices it has been left.
@@ -67,12 +53,6 @@ type Server struct {
 	open func(ctx context.Context, dir, agent, model, sessionID string) (string, error)
 	// create stands in for `ade create <name>`, as open does for a plain start.
 	create func(ctx context.Context, dir string, work sessions.Work) (string, string, error)
-	// look reads one checkout's design state for the prune panel. nil is
-	// archive.Look; a test stands one in so no `gh` is run.
-	look func(ctx context.Context, target jobs.ArchiveTarget) (archive.State, error)
-	// archiving is the archive gate, one deep: the prune panel and the
-	// design-archive job must not take the same document at once.
-	archiving chan struct{}
 	// locate resolves a session id to the checkout and port serving it, for
 	// the proxy. nil is the real scan.
 	locate func(ctx context.Context, id string) (string, int, bool)
@@ -82,10 +62,6 @@ type Server struct {
 
 	// version is shown in the launcher and included in diagnostics.
 	version string
-	// connectTo is a host to bring up as soon as this launcher is serving,
-	// for `ade launch --host`.
-	connectTo string
-
 	// every is how often the idle check runs, and liveEvery how often what is
 	// running is swept. Fields so a test does not have to wait one out.
 	every     time.Duration
@@ -94,26 +70,6 @@ type Server struct {
 	// board is what is waiting on you across every repository. The launcher
 	// serves it because none of it belongs to a checkout.
 	board *dash.Board
-
-	// limits is the plan usage. The launcher is where the question is asked —
-	// what to start next — so it holds a reading whether or not a ade is up.
-	limits *limits.Cache
-
-	// spend is the last breakdown of where the short window went.
-	spend *spendCache
-
-	// stats is the last machine-wide transcript summary.
-	stats     *statsCache
-	repoPages *repoCache
-
-	// disk is the last reading of what ade has left on disk.
-	disk *diskCache
-
-	// sweep is the last machine-wide worktree scan, for the purge panel.
-	sweep *sweepCache
-
-	// load is the last reading of what the connected machines are using.
-	load *loadCache
 
 	// jobs is the scheduler: the clock nothing else in ade holds.
 	jobs *jobsClock
@@ -133,25 +89,6 @@ type Server struct {
 
 	// wait is the last reading of what is waiting on you.
 	wait *waitingCache
-	wiki *wiki.Store
-	// designs is the one store every machine shares. See the design doc.
-	designs *designs.Store
-	todos   *todo.Shared
-	// wikiSyncing keeps the background refresh to one worker.
-	wikiSyncing atomic.Bool
-	// designsSyncing does the same for the designs store.
-	designsSyncing atomic.Bool
-
-	// quiet is one pending distillation per repository, armed by a session
-	// going idle or leaving. quietMu holds it. See distillquiet.go.
-	quiet   map[string]*time.Timer
-	quietMu sync.Mutex
-
-	// cards are what the concierge proposed and nobody pressed. In memory
-	// only: see cards.go.
-	cards  map[string]Card
-	cardMu sync.Mutex
-
 	// announced is which sessions were waiting at the last sweep, so only a
 	// new one is notified about. Nil until the first sweep.
 	announced   map[string]bool
@@ -162,41 +99,13 @@ type Server struct {
 	mu   sync.Mutex
 	used time.Time
 	port int
-	// hosts are the dialled ssh masters, by name, and watchers the open port
-	// streams to wake when a server starts.
-	hosts    map[string]*conn
-	watchers map[chan struct{}]struct{}
 	// served is what each checkout's ade says it is serving, by session id.
-	served  map[string]Serving
-	exposed map[int]bool
+	served map[string]Serving
 	// active is the last answer /api/serving gave, and when. activeMu holds a
 	// sweep to one at a time.
 	active   []ActiveSession
 	activeAt time.Time
 	activeMu sync.Mutex
-	// syncing is the repositories with a sync in flight, keyed by main checkout:
-	// two runs over one would rebase the same worktrees at once, and a run over
-	// another repository is no reason to refuse.
-	syncing map[string]bool
-	syncMu  sync.Mutex
-	// hostRows is the last sweep of the connected machines, and quietUntil when
-	// each may be asked again: one that did not answer is left alone for a while.
-	hostRows   []ActiveSession
-	hostRowsAt time.Time
-	quietUntil map[string]time.Time
-	// hostCheckouts is the last sweep of what those machines have checked out:
-	// a scan rather than a reading, so it is held longer.
-	hostCheckouts   []MachineRepos
-	hostCheckoutsAt time.Time
-	// hostErrors is what the last connect to each machine said, until it works.
-	hostErrors map[string]string
-	// editorLocks hold a machine's install-and-start to one window at a time.
-	editorLocks map[string]*sync.Mutex
-
-	// Both outlive the request that started the work.
-	workMu     sync.Mutex
-	hostWork   map[string]string
-	workFailed map[string]string
 }
 
 // Home is ade's own state directory, which is where the launcher records
@@ -226,20 +135,12 @@ func New(idle time.Duration, version string) (*Server, error) {
 	}
 	s := &Server{
 		token:     newToken(),
-		archiving: make(chan struct{}, 1),
 		home:      home,
 		idle:      idle,
 		every:     idleCheck,
 		liveEvery: liveInterval,
 		version:   version,
 		ctx:       context.Background(),
-		limits:    limits.NewCache(),
-		spend:     &spendCache{},
-		stats:     &statsCache{},
-		repoPages: &repoCache{},
-		disk:      &diskCache{},
-		sweep:     &sweepCache{},
-		load:      &loadCache{},
 		jobs:      &jobsClock{},
 		wait:      &waitingCache{},
 		bus:       newBusnode(),
@@ -247,22 +148,7 @@ func New(idle time.Duration, version string) (*Server, error) {
 		reviewer:  reviewer.New(),
 		used:      time.Now(),
 		hub:       httpx.NewHub(),
-		hosts:     map[string]*conn{},
-		watchers:  map[chan struct{}]struct{}{},
 		served:    map[string]Serving{},
-		exposed:   map[int]bool{},
-		syncing:   map[string]bool{},
-
-		quietUntil:  map[string]time.Time{},
-		hostErrors:  map[string]string{},
-		editorLocks: map[string]*sync.Mutex{},
-		hostWork:    map[string]string{},
-		workFailed:  map[string]string{},
-	}
-	if config, err := settings.Load(); err == nil {
-		s.wiki = wiki.New(home, config.WikiRemote)
-		s.designs = designs.New(filepath.Join(home, "designs"), config.DesignsRemote)
-		s.todos = todo.NewShared(filepath.Join(home, "todos"), config.WikiRemote)
 	}
 	s.recall()
 	// No Dir: gh runs wherever this process is. The launcher serves no
@@ -291,18 +177,10 @@ func (s *Server) listen() (net.Listener, string, error) {
 	return httpx.ListenOn(s.wantPort)
 }
 
-// ConnectTo names a host to bring up once this launcher is serving. The
-// browser is then pointed at that machine's launcher rather than this one,
-// which stays up only to hold the tunnel.
-func (s *Server) ConnectTo(name string) { s.connectTo = name }
-
 // Run serves until the context is cancelled or the launcher is left alone for
 // long enough.
 func (s *Server) Run(ctx context.Context) error {
 	s.ctx = ctx
-	if s.wiki != nil && s.wiki.Enabled() {
-		go func() { _ = s.wiki.Sync(ctx) }()
-	}
 	go s.keepHub(ctx)
 
 	ln, base, err := s.listen()
@@ -316,8 +194,6 @@ func (s *Server) Run(ctx context.Context) error {
 	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
 		s.setPort(addr.Port)
 	}
-	// The tunnels are this process's; nothing else holds them open.
-	defer s.closeHosts()
 
 	// Recorded under the config directory rather than a git dir, which is what
 	// makes a second `ade launch` hand you this one instead of a rival.
@@ -341,35 +217,17 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.watchIdle(ctx, stopIdle)
 	go s.watchDash(ctx)
 	go s.watchLive(ctx)
-	go s.watchLimits(ctx)
-	go s.watchDashboard(ctx)
 	go s.watchWaiting(ctx)
-	go s.watchJobs(ctx)
-	go s.watchDesigns(ctx)
-	go s.watchMachine(ctx)
 	go s.watchBus(ctx)
-	go s.warmStats(ctx)
 	defer s.hub.Close()
 	go func() {
 		<-ctx.Done()
-		s.stopDistilling()
 		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
 
-	// What is printed and opened is the far side's launcher when one was
-	// asked for: this process is then only the thing holding the tunnel.
-	target := url
-	if s.connectTo != "" {
-		remoteURL, err := s.Connect(ctx, s.connectTo)
-		if err != nil {
-			return err
-		}
-		target = remoteURL
-	}
-
-	fmt.Println(target)
+	fmt.Println(url)
 
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -382,77 +240,35 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /icon.svg", handleIcon)
 	mux.HandleFunc("GET /api/session", s.handleSession)
-	mux.HandleFunc("GET /api/wiki/search", s.guard(s.handleWikiSearch))
-	mux.HandleFunc("GET /api/wiki/page/{path...}", s.guard(s.handleWikiPage))
 	s.mountProxy(mux)
 	mux.HandleFunc("GET /api/repos", s.guard(s.handleRepos))
-	mux.HandleFunc("GET /api/graph", s.guard(s.handleGraph))
-	mux.HandleFunc("POST /api/graph/cancel", s.guard(s.handleGraphCancel))
+	mux.HandleFunc("GET /api/sessions", s.guard(s.handleRepos))
 	mux.HandleFunc("POST /api/graph/stop", s.guard(s.handleGraphStop))
 	mux.HandleFunc("POST /api/open", s.guard(s.handleOpen))
 	mux.HandleFunc("POST /api/scratch", s.guard(s.handleScratch))
-	mux.HandleFunc("POST /api/archive", s.guard(s.handleArchive))
-	mux.HandleFunc("POST /api/remember", s.guard(s.handleRemember))
 	mux.HandleFunc("POST /api/sessions/delete", s.guard(s.handleDeleteSessions))
 	mux.HandleFunc("POST /api/sessions/rename", s.guard(s.handleRenameSession))
-	mux.HandleFunc("POST /api/sessions/import", s.guard(s.handleSessionImport))
-	mux.HandleFunc("POST /api/sessions/combine", s.guard(s.handleCombineSessions))
-	mux.HandleFunc("POST /api/sessions/uncombine", s.guard(s.handleUncombineSessions))
-	mux.HandleFunc("POST /api/sessions/suggestion/dismiss", s.guard(s.handleDismissSessionSuggestion))
+	mux.HandleFunc("POST /api/session/tags", s.guard(s.handleSessionTags))
+	mux.HandleFunc("GET /api/conversations", s.guard(s.handleConversations))
+	mux.HandleFunc("POST /api/conversations/import", s.guard(s.handleImport))
 	mux.HandleFunc("GET /api/browse", s.guard(s.handleBrowse))
-	mux.HandleFunc("GET /api/worktrees", s.guard(s.handleWorktrees))
-	mux.HandleFunc("GET /api/worktrees/all", s.guard(s.handleWorktreesAll))
 	mux.HandleFunc("GET /api/branches", s.guard(s.handleBranches))
 	mux.HandleFunc("POST /api/branches/worktree", s.guard(s.handleBranchWorktree))
-	mux.HandleFunc("POST /api/prune", s.guard(s.handlePrune))
-	mux.HandleFunc("POST /api/sync", s.guard(s.handleSync))
 	mux.HandleFunc("GET /api/events", s.guard(s.hub.HandleSSE))
 	mux.HandleFunc("GET /api/dash", s.guard(s.handleDash))
-	mux.HandleFunc("GET /api/limits", s.guard(s.handleLimits))
-	mux.HandleFunc("GET /api/limits/window", s.guard(s.handleWindowSpend))
-	mux.HandleFunc("GET /api/stats", s.guard(s.handleStats))
-	mux.HandleFunc("GET /api/repo", s.guard(s.handleRepo))
 	mux.HandleFunc("GET /api/spaces", s.guard(s.handleSpaces))
 	mux.HandleFunc("POST /api/spaces", s.guard(s.handleSpaceOpen))
 	mux.HandleFunc("DELETE /api/spaces", s.guard(s.handleSpaceClose))
 	mux.HandleFunc("POST /api/spaces/clone", s.guard(s.handleSpaceClone))
-	mux.HandleFunc("GET /api/designs", s.guard(s.handleDesigns))
-	mux.HandleFunc("GET /api/design", s.guard(s.handleDesign))
-	mux.HandleFunc("PUT /api/design", s.guard(s.handleDesignSave))
-	mux.HandleFunc("GET /api/designs/all", s.guard(s.handleStoreDesigns))
-	mux.HandleFunc("GET /api/designs/read", s.guard(s.handleDesignRead))
-	mux.HandleFunc("PUT /api/designs/write", s.guard(s.handleDesignWrite))
-	mux.HandleFunc("POST /api/designs/sync", s.guard(s.handleDesignsSync))
-	mux.HandleFunc("POST /api/designs/import", s.guard(s.handleDesignImport))
-	mux.HandleFunc("POST /api/designs/start", s.guard(s.handleDesignStart))
-	mux.HandleFunc("GET /api/designs/repos", s.guard(s.handleDesignRepos))
-	mux.HandleFunc("GET /api/designs/prunable", s.guard(s.handleDesignsPrunable))
-	mux.HandleFunc("POST /api/designs/archive", s.guard(s.handleDesignArchive))
-	mux.HandleFunc("GET /api/disk", s.guard(s.handleDisk))
-	mux.HandleFunc("GET /api/disk/detail", s.guard(s.handleDiskDetail))
-	mux.HandleFunc("POST /api/disk/purge", s.guard(s.handleDiskPurge))
-	mux.HandleFunc("POST /api/concierge", s.guard(s.handleConcierge))
-	mux.HandleFunc("GET /api/concierge/cards", s.guard(s.handleCards))
-	mux.HandleFunc("POST /api/concierge/cards/{id}", s.guard(s.handleCard))
-	mux.HandleFunc("POST "+concierge.MCPPath, s.guard(s.handleConciergeMCP))
-	mux.HandleFunc("GET /api/todos", s.guard(s.handleTodos))
-	mux.HandleFunc("POST /api/todos", s.guard(s.handleAddTodo))
-	mux.HandleFunc("PATCH /api/todos/{id}", s.guard(s.handleEditTodo))
-	mux.HandleFunc("DELETE /api/todos/{id}", s.guard(s.handleDeleteTodo))
 	mux.HandleFunc("GET /api/jobs", s.guard(s.handleJobs))
 	mux.HandleFunc("POST /api/jobs/run", s.guard(s.handleJobRun))
-	mux.HandleFunc("POST /api/jobs/pause", s.guard(s.handleJobPause))
 	mux.HandleFunc("POST /api/jobs/seen", s.guard(s.handleJobSeen))
-	mux.HandleFunc("POST /api/jobs/save", s.guard(s.handleJobSave))
-	mux.HandleFunc("POST /api/jobs/delete", s.guard(s.handleJobDelete))
 	mux.HandleFunc("GET /api/waiting", s.guard(s.handleWaiting))
 	mux.HandleFunc("GET /api/watching", s.guard(s.handleWatching))
 	mux.HandleFunc("POST /api/reveal", s.guard(s.handleReveal))
 	mux.HandleFunc("GET /api/serving", s.guard(s.handleActive))
 	mux.HandleFunc("POST /api/serving", s.guard(s.handleServing))
-	mux.HandleFunc("POST /api/quiet", s.guard(s.handleQuiet))
 	mux.HandleFunc("POST /api/waiting/seen", s.guard(s.handleSeen))
-	mux.HandleFunc("POST /api/say", s.guard(s.handleSay))
 	mux.HandleFunc("GET /api/pr", s.guard(s.handlePR))
 	mux.HandleFunc("POST /api/reviews/open", s.guard(s.handleOpenReview))
 	mux.HandleFunc("POST /api/reviews/run", s.guard(s.handleRunReview))
@@ -473,29 +289,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/bus/reviewed", s.guard(s.handleBusReviewed))
 	mux.HandleFunc("POST /api/bus/dismiss", s.guard(s.handleBusDismiss))
 	mux.HandleFunc("POST /api/bus/refresh", s.guard(s.handleBusRefresh))
-	mux.HandleFunc("GET /api/ports", s.guard(s.handlePorts))
-	mux.HandleFunc("POST /api/ports/expose", s.guard(s.handleExposePort))
-	// The launcher is the process that reads Linear and GitHub; a dead network
-	// here is not answerable from a checkout's server.
-	mux.HandleFunc("POST /api/diagnose/net", s.guard(netcheck.Handler()))
-	mux.HandleFunc("GET /api/hosts", s.guard(s.handleHosts))
-	mux.HandleFunc("GET /api/hosts/repos", s.guard(s.handleHostRepos))
-	mux.HandleFunc("GET /api/hosts/load", s.guard(s.handleHostLoad))
-	mux.HandleFunc("POST /api/hosts", s.guard(s.handleAddHost))
-	mux.HandleFunc("PATCH /api/hosts/{name}", s.guard(s.handleLabelHost))
-	mux.HandleFunc("DELETE /api/hosts/{name}", s.guard(s.handleRemoveHost))
-	mux.HandleFunc("POST /api/connect", s.guard(s.handleConnect))
-	mux.HandleFunc("POST /api/disconnect", s.guard(s.handleDisconnect))
-	mux.HandleFunc("POST /api/worker/stop", s.guard(s.handleWorkerStop))
-	mux.HandleFunc("POST /api/worker/credentials", s.guard(s.handleWorkerCredentials))
-	mux.HandleFunc("POST /api/worker/update", s.guard(s.handleWorkerUpdate))
-	mux.HandleFunc("POST /api/target", s.guard(s.handleTarget))
-	mux.HandleFunc("POST /api/provision", s.guard(s.handleProvision))
 	// The same settings the checkout servers edit: one file, one set of
 	// handlers, and no reason the launcher should be the page you cannot.
 	(&settingsapi.API{
 		Tickets: func() { s.board.RefreshTickets(s.ctx) },
-		Synced:  func() { s.PushModels(s.ctx) },
 		Changed: func() {
 			s.board.RefreshTickets(s.ctx)
 			s.board.RefreshReviews(s.ctx)
@@ -607,12 +404,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
-	// ?all=1 is the search's read: the shortlist is where it already looked.
-	window := sessions.Recent()
-	if r.URL.Query().Get("all") != "" {
-		window = sessions.Everything()
-	}
-	repos, err := s.reposIn(window)
+	repos, err := s.repos()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -620,23 +412,17 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 	// The hub rides along on the list the page already fetches. It is
 	// machine-wide, like this launcher and unlike a checkout, which is why it
 	// is offered here rather than inside a repository window.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"repos": s.markRemembered(repos), "hub": hub.Detect(r.Context()),
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"repos": repos, "hub": hub.Detect(r.Context())})
 }
 
 // repos is the whole of what this launcher offers, and the whole of what it
 // will act on.
 func (s *Server) repos() ([]sessions.Repo, error) {
-	return s.reposIn(sessions.Recent())
-}
-
-func (s *Server) reposIn(window sessions.Window) ([]sessions.Repo, error) {
 	cfg, err := settings.Load()
 	if err != nil {
 		return nil, err
 	}
-	return sessions.ReposIn(cfg.Roots(), cfg.Ignored, window), nil
+	return sessions.Repos(cfg.Roots(), cfg.Ignored), nil
 }
 
 // openIn starts or reuses the ade serving a checkout. The real one unless a
@@ -666,8 +452,6 @@ type openRequest struct {
 	// Direct is the session's own address rather than this launcher's
 	// proxy. A browser wants one origin and does not send it.
 	Direct bool `json:"direct"`
-	// Machine is the launcher that can read that checkout's token.
-	Machine string `json:"machine"`
 	// Agent and Model are what a new session starts on. Both empty is the
 	// configured default, which is what every other door here asks for.
 	Agent string `json:"agent"`
@@ -677,13 +461,6 @@ type openRequest struct {
 	Fresh bool `json:"fresh,omitempty"`
 	// Prompt is the first message, sent once the session is serving.
 	Prompt string `json:"prompt,omitempty"`
-	// Files go with that first message, as the chat's attachments do.
-	Files []chat.Incoming `json:"files,omitempty"`
-	// Terminal sends the prompt to the agent's own terminal rather than the chat.
-	Terminal bool `json:"terminal,omitempty"`
-	// Brief is a design document to write into the session, and whether to
-	// build from it. How a build reaches a machine that has no copy of it.
-	Brief *Brief `json:"brief,omitempty"`
 	// Name makes a workspace for the session rather than using this
 	// checkout: a document, and a worktree on the branch it names.
 	Name string `json:"name,omitempty"`
@@ -692,15 +469,6 @@ type openRequest struct {
 	// Also are other checkouts the session works in, a worktree each on the
 	// same branch. Dir is home: the agent and the document go there.
 	Also []string `json:"also,omitempty"`
-	// Role is the prompt from ~/.ade/roles this session starts under.
-	Role string `json:"role,omitempty"`
-	// Sandbox, when sent, is the container said rather than whatever the
-	// checkout remembered. The screen shows the toggle, so it is said.
-	Sandbox *bool `json:"sandbox,omitempty"`
-	// Mounts and Env go into the repository's sandbox file before the session
-	// starts, over what it already allowed.
-	Mounts []sandbox.Path    `json:"mounts,omitempty"`
-	Env    map[string]string `json:"env,omitempty"`
 }
 
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
@@ -709,15 +477,6 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "could not read that request")
 		return
 	}
-	if req.Machine != "" {
-		if len(req.Also) > 0 {
-			writeError(w, http.StatusBadRequest, "a session on another machine works in one repository")
-			return
-		}
-		s.openOnHost(w, r, req)
-		return
-	}
-
 	// Only somewhere the scan actually found. The request names a directory to
 	// start a process in, so it has to be one that was offered.
 	all, err := s.repos()
@@ -737,12 +496,6 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		}
 		dir = found
 	}
-	// Before anything starts: a container is built with the mounts the file
-	// had when the turn began, so one written afterwards is a turn too late.
-	if err := writeSandbox(r.Context(), cmp.Or(dir.Main, dir.Path), req.Mounts, req.Env); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	name, ticket := strings.TrimSpace(req.Name), strings.TrimSpace(req.Ticket)
 	if ticket != "" {
 		// Before the worktree: a reference that is neither a Linear key nor an
@@ -758,9 +511,8 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), opening{req.Prompt, req.Files, req.Terminal},
-			sessions.Work{Name: name, Ticket: ticket, Agent: req.Agent, Model: req.Model, Role: req.Role, Also: also, Sandbox: req.Sandbox},
-			req.Brief)
+		work := sessions.Work{Name: name, Ticket: ticket, Agent: req.Agent, Model: req.Model, Also: also}
+		s.openWorkspace(w, cmp.Or(dir.Main, dir.Path), req.Prompt, work)
 		return
 	}
 	if len(req.Also) > 0 {
@@ -811,18 +563,13 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	// One server per checkout. ade itself finds the one already serving this
 	// directory and hands the session to it, so this is the same either way.
 	url, err := s.openWith(s.ctx, dir.Path, sessions.Start{
-		Agent: agent, Model: model, Session: id, Role: req.Role, Sandbox: req.Sandbox,
+		Agent: agent, Model: model, Session: id,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Before the first message: the brief is what the session is for, and a
-	// message answered without it is answered against an empty document.
-	briefErr := sendBrief(s.ctx, url, req.Brief)
-	if briefErr == nil {
-		opening{req.Prompt, req.Files, req.Terminal}.send(s.ctx, url)
-	}
+	sendFirstPrompt(s.ctx, url, req.Prompt)
 	// Opening it is looking at it, which is what stops it waiting on you.
 	if looked != "" {
 		if err := settings.MarkSeen(looked, time.Now()); err != nil {
@@ -854,21 +601,12 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Before the reply, not after. A ade watching this machine from another
-	// one has to have the forward up by the time the page navigates, and the
-	// page cannot navigate until it has read this response.
-	s.notifyPorts()
-	if briefErr != nil {
-		// The session is open either way, so the failure says where it is.
-		writeJSON(w, http.StatusBadGateway, map[string]any{"url": url, "error": briefErr.Error()})
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"url": url})
 }
 
 // openWorkspace is `ade create <name>` from the tree: the document, the
 // worktree on its branch, and the session, which is told what to start on.
-func (s *Server) openWorkspace(w http.ResponseWriter, dir string, first opening, work sessions.Work, brief *Brief) {
+func (s *Server) openWorkspace(w http.ResponseWriter, dir, prompt string, work sessions.Work) {
 	agent, model, err := picked(work.Agent, work.Model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -884,47 +622,24 @@ func (s *Server) openWorkspace(w http.ResponseWriter, dir string, first opening,
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Before the first message, as the plain open does: a message answered
-	// without the brief is answered against the skeleton create just wrote.
-	briefErr := sendBrief(s.ctx, url, brief)
-	if briefErr == nil {
-		if first.Terminal && strings.TrimSpace(first.Prompt) == "" && work.Ticket != "" {
-			first.Prompt = ticketPrompt(s.ctx, url, work.Ticket)
-		}
-		first.send(s.ctx, url)
+	if strings.TrimSpace(prompt) == "" && work.Ticket != "" {
+		prompt = ticketPrompt(work.Ticket)
 	}
+	sendFirstPrompt(s.ctx, url, prompt)
 	s.hub.Broadcast("repos", nil)
-	s.notifyPorts()
-	if briefErr != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"url": url, "path": path, "error": briefErr.Error()})
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": path})
 }
 
 // scratchRequest is what the new-session screen's Scratch row asks for. Every
 // default it shows is on it: a row that displays a choice must send it.
 type scratchRequest struct {
-	Name    string `json:"name"`
-	Machine string `json:"machine"`
+	Name string `json:"name"`
 	// Agent and Model are what the new session starts on, as /api/open takes
 	// them. Both empty is the configured default.
 	Agent string `json:"agent"`
 	Model string `json:"model"`
-	// Role is the prompt from ~/.ade/roles this session starts under.
-	Role string `json:"role,omitempty"`
-	// Sandbox, when sent, is the container said rather than remembered.
-	Sandbox *bool `json:"sandbox,omitempty"`
 	// Prompt is the first message, sent once the session is serving.
 	Prompt string `json:"prompt,omitempty"`
-	// Files go with that first message, as the chat's attachments do.
-	Files []chat.Incoming `json:"files,omitempty"`
-	// Terminal is as /api/open has it.
-	Terminal bool `json:"terminal,omitempty"`
-	// Mounts and Env go into the scratch checkout's sandbox file once it is
-	// made, which is the only repository it will ever be.
-	Mounts []sandbox.Path    `json:"mounts,omitempty"`
-	Env    map[string]string `json:"env,omitempty"`
 }
 
 // handleScratch makes a checkout for work with nowhere to live yet and opens
@@ -942,30 +657,20 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Agent, req.Model = agent, model
-	if strings.TrimSpace(req.Machine) != "" {
-		s.scratchOnHost(w, r, req)
-		return
-	}
-
 	dir, err := scratch.New(s.ctx, req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := writeSandbox(r.Context(), dir, req.Mounts, req.Env); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
 	url, err := s.openWith(s.ctx, dir, sessions.Start{
-		Agent: agent, Model: model, Role: req.Role, Sandbox: req.Sandbox,
+		Agent: agent, Model: model,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Before the proxy rewrite: the session answers on its own address.
-	opening{req.Prompt, req.Files, req.Terminal}.send(s.ctx, url)
+	sendFirstPrompt(s.ctx, url, req.Prompt)
 	if httpx.Wide() {
 		via, ok := s.proxyURL(r, s.announcedFor(dir))
 		if !ok {
@@ -974,44 +679,7 @@ func (s *Server) handleScratch(w http.ResponseWriter, r *http.Request) {
 		}
 		url = via
 	}
-	s.notifyPorts()
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "path": dir})
-}
-
-// handleArchive puts a session away, or brings it back. Sessions are derived
-// fresh from transcripts, so the flag lives beside the settings rather than on
-// the session.
-// handleArchive puts sessions away, or brings them back. One id or a list: the
-// row toggle sends one, clearing a pile-up sends the lot.
-func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID       string   `json:"id"`
-		IDs      []string `json:"ids"`
-		Archived bool     `json:"archived"`
-		Machine  string   `json:"machine"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	if s.onMachine(w, r, req.Machine, "/api/archive",
-		map[string]any{"id": req.ID, "ids": req.IDs, "archived": req.Archived}) {
-		return
-	}
-	ids := req.IDs
-	if id := strings.TrimSpace(req.ID); id != "" {
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
-		writeError(w, http.StatusBadRequest, "name a session to archive")
-		return
-	}
-	changed, err := settings.SetArchivedMany(ids, req.Archived)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"changed": changed})
 }
 
 // handleRenameSession gives a session the name you typed, which is final.
@@ -1040,102 +708,27 @@ func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 // is where the pile-up shows, so it is where clearing it belongs.
 func (s *Server) handleDeleteSessions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		IDs     []string `json:"ids"`
-		Machine string   `json:"machine"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	if s.onMachine(w, r, req.Machine, "/api/sessions/delete", map[string]any{"ids": req.IDs}) {
-		return
-	}
-	gone, err := settings.Forget(req.IDs...)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]int{"removed": gone})
-}
-
-// repoOf picks a repository out of the scan by its main checkout, so a
-// request can only name one that was offered.
-func (s *Server) handleCombineSessions(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Dir string   `json:"dir"`
 		IDs []string `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "could not read that request")
 		return
 	}
-	repos, err := s.repos()
+	if _, err := settings.Forget(req.IDs...); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	gone, err := s.dropRecords(req.IDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	group, err := sessions.Combine(repos, req.Dir, req.IDs)
-	if err != nil {
-		writeError(w, groupStatus(err), err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"group": group})
+	s.hub.Broadcast("repos", nil)
+	writeJSON(w, http.StatusOK, map[string]int{"removed": gone})
 }
 
-// groupStatus tells a bad selection from a store that would not take it.
-func groupStatus(err error) int {
-	if errors.Is(err, settings.ErrStore) {
-		return http.StatusInternalServerError
-	}
-	return http.StatusBadRequest
-}
-
-func (s *Server) handleUncombineSessions(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	repos, err := s.repos()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := sessions.Uncombine(repos, req.ID); err != nil {
-		writeError(w, groupStatus(err), err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleDismissSessionSuggestion(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Dir         string `json:"dir"`
-		Fingerprint string `json:"fingerprint"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	repos, err := s.repos()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	dir, ok := sessions.FindCheckout(repos, req.Dir)
-	if !ok || dir.Suggestion == nil || dir.Suggestion.Fingerprint != req.Fingerprint {
-		writeError(w, http.StatusBadRequest, "that is not a current session suggestion")
-		return
-	}
-	if err := settings.SetSessionGroupSuggestionDismissed(dir.Path, req.Fingerprint); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
+// repoOf picks a repository out of the scan by its main checkout, so a
+// request can only name one that was offered.
 func (s *Server) repoOf(path string) (sessions.Repo, bool, error) {
 	all, err := s.repos()
 	if err != nil {
@@ -1147,168 +740,6 @@ func (s *Server) repoOf(path string) (sessions.Repo, bool, error) {
 		}
 	}
 	return sessions.Repo{}, false, nil
-}
-
-// handleWorktrees lists a repository's linked worktrees and what stands in
-// the way of removing each. The launcher is where the pile-up is visible,
-// so it is where they are cleared from, though it is in none of them.
-func (s *Server) handleWorktrees(w http.ResponseWriter, r *http.Request) {
-	repo, ok, err := s.repoOf(r.URL.Query().Get("repo"))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusBadRequest, "that is not one of the repositories on this machine")
-		return
-	}
-	found, err := worktrees.Scan(r.Context(), repo.Path, r.URL.Query().Get("force") == "true")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if found == nil {
-		found = []worktrees.Worktree{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"worktrees": found})
-}
-
-// handlePrune removes the worktrees named, by the same rules as ade prune:
-// each is checked again against a fresh scan, and only one the scan calls
-// removable goes.
-func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Repo  string   `json:"repo"`
-		Paths []string `json:"paths"`
-		Force bool     `json:"force"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	repo, ok, err := s.repoOf(req.Repo)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusBadRequest, "that is not one of the repositories on this machine")
-		return
-	}
-	// A session clone has no worktrees, and is itself the row offered.
-	if _, cloned := provision.OwnedDir(repo.Path); cloned {
-		s.pruneClone(w, r, repo.Path, req.Paths, req.Force)
-		return
-	}
-	found, err := worktrees.Scan(r.Context(), repo.Path, req.Force)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	removed := []string{}
-	left := []kept{}
-	for _, path := range req.Paths {
-		wt, ok := worktrees.Find(found, path)
-		if !ok {
-			left = append(left, kept{Path: path, Why: "not one of that repository's worktrees"})
-			continue
-		}
-		if err := worktrees.Remove(r.Context(), repo.Path, wt); err != nil {
-			left = append(left, kept{Path: path, Why: err.Error()})
-			continue
-		}
-		removed = append(removed, path)
-	}
-	if len(removed) > 0 {
-		_ = gitdiff.PruneWorktrees(r.Context(), repo.Path)
-		s.sweep.forget()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})
-}
-
-type kept struct {
-	Path string `json:"path"`
-	Why  string `json:"why"`
-}
-
-// pruneClone removes a session clone and the directory around it. Judged
-// again here: the sweep behind the panel's row stands for two minutes.
-func (s *Server) pruneClone(w http.ResponseWriter, r *http.Request, path string, paths []string, force bool) {
-	removed := []string{}
-	left := []kept{}
-	for _, want := range paths {
-		if !worktrees.SamePath(want, path) {
-			left = append(left, kept{Path: want, Why: "not that clone"})
-			continue
-		}
-		if err := worktrees.RemoveClone(r.Context(), worktrees.Clone(r.Context(), path, force)); err != nil {
-			left = append(left, kept{Path: want, Why: err.Error()})
-			continue
-		}
-		removed = append(removed, want)
-	}
-	if len(removed) > 0 {
-		s.sweep.forget()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "kept": left})
-}
-
-// handleSync rebases a repository's worktrees onto a freshly fetched base:
-// the launcher is where drift is visible, so it is where it is cleared from.
-func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Repo   string `json:"repo"`
-		DryRun bool   `json:"dryRun"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "could not read that request")
-		return
-	}
-	repo, ok, err := s.repoOf(req.Repo)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusBadRequest, "that is not one of the repositories on this machine")
-		return
-	}
-	// Refused rather than queued: a second sync would read worktrees the first
-	// is part way through rebasing.
-	if !s.claimSync(repo.Path) {
-		writeError(w, http.StatusConflict, "a sync of this repository is already running")
-		return
-	}
-	defer s.releaseSync(repo.Path)
-	report, err := worktrees.Sync(r.Context(), repo.Path, req.DryRun)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// A rebase moves every count the purge panel prints.
-	if !req.DryRun {
-		s.sweep.forget()
-	}
-	writeJSON(w, http.StatusOK, report)
-}
-
-// claimSync takes one repository's sync slot, or reports that it is taken. It
-// only covers this process: an ade sync in a terminal is not held off by it.
-func (s *Server) claimSync(repo string) bool {
-	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-	if s.syncing[repo] {
-		return false
-	}
-	s.syncing[repo] = true
-	return true
-}
-
-func (s *Server) releaseSync(repo string) {
-	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-	delete(s.syncing, repo)
 }
 
 // handleBrowse lists directories, so the page can open a checkout the scan
@@ -1388,7 +819,7 @@ func (s *Server) watchIdle(ctx context.Context, stop context.CancelFunc) {
 			s.mu.Unlock()
 			// A connected host or an open page is somebody still here; a fire in
 			// flight is the launcher still working. See the design doc.
-			if quiet >= s.idle && !s.connected() && s.hub.Clients() == 0 && !s.jobs.busy() {
+			if quiet >= s.idle && s.hub.Clients() == 0 && !s.jobs.busy() {
 				slog.Info("launcher idle, shutting down", "for", quiet.Round(time.Second))
 				stop()
 				return
@@ -1451,4 +882,16 @@ func picked(agent, model string) (string, string, error) {
 		}
 	}
 	return "", "", fmt.Errorf("%q is not a model on the list; sync the models in settings", model)
+}
+
+func (s *Server) setPort(port int) {
+	s.mu.Lock()
+	s.port = port
+	s.mu.Unlock()
+}
+
+func (s *Server) ownPort() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.port
 }

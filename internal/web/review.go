@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/owenrumney/ade/internal/agents"
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/design"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/review"
 )
 
@@ -51,7 +49,7 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		level := strings.TrimSpace(req.Level)
 		runCtx, ok := s.agent.begin(s.ctx, kindReview)
 		if !ok {
-			s.queueBehind(w, queued{kind: kindReview, level: level})
+			writeError(w, http.StatusConflict, "a run is already going here; wait for it, or stop it")
 			return
 		}
 		s.spawn(func() { s.runReview(runCtx, level) })
@@ -87,19 +85,21 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "@"+name+" can edit a checkout, so it does not review one this session is not in")
 			return
 		}
-		calls = append(calls, sideCall{agent: agent, prompt: design.DiffReviewPrompt(name, s.reviewDocPath(), review.RenderDiff(diff)), batch: batch})
+		calls = append(calls, sideCall{agent: agent, prompt: review.DiffReviewPrompt(name, review.RenderDiff(diff)), batch: batch})
 		mentions = append(mentions, "@"+name)
 	}
-	s.say(ChatMessage{Kind: chat.KindYou, Body: fmt.Sprintf("%s review the diff (%d files)", strings.Join(mentions, " "), len(diff.Files))})
+	s.tell(fmt.Sprintf("%s review the diff (%d files)", strings.Join(mentions, " "), len(diff.Files)))
 	// No slots held: the reviewers file their own findings, so there is no
 	// @commenter hand-off to keep room for. A review costs one slot per
 	// reviewer rather than two, which is what let three of them be refused
 	// against a cap of four.
+	undo := s.reviewBegan(batch, names)
 	started := s.startSides(calls)
 	s.hub.Broadcast("agent", nil)
 	s.hub.Broadcast("state", nil)
 	if !started {
 		s.dropBatch(batch)
+		undo()
 		writeError(w, http.StatusConflict, fmt.Sprintf("no room for another agent; %d at most, and one is kept for a rewrite. Wait for one, or stop them", maxSides))
 		return
 	}
@@ -161,7 +161,7 @@ func (s *Server) reviewOnce(ctx context.Context, level string) ([]review.Finding
 	streamer := review.NewStreamer()
 	streamed := map[string]filed{}
 
-	onEvent := func(ev bridge.Event) {
+	onEvent := func(ev oneshot.Event) {
 		s.onAgentEvent(ev)
 		found := streamer.Push(ev.Text)
 		if len(found) == 0 {
@@ -171,7 +171,7 @@ func (s *Server) reviewOnce(ctx context.Context, level string) ([]review.Finding
 		s.hub.Broadcast("state", nil)
 	}
 
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
+	turn, err := s.oneShot(ctx, oneshot.Opts{
 		Bin:          s.agent.bin,
 		Model:        s.agent.model,
 		Dir:          w.diffRoot(),

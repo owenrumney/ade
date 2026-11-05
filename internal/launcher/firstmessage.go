@@ -3,34 +3,17 @@ package launcher
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/sessions"
 )
 
 // firstMessageWait bounds handing the opening message over. The agent's reply
 // is not waited for — only that the session took the message.
 const firstMessageWait = 15 * time.Second
-
-// opening is what a new session is told first, in the agent's terminal or ade's chat.
-type opening struct {
-	Prompt   string
-	Files    []chat.Incoming
-	Terminal bool
-}
-
-func (o opening) send(ctx context.Context, sessionURL string) {
-	if o.Terminal {
-		sendFirstPrompt(ctx, sessionURL, o.Prompt)
-		return
-	}
-	sendFirstMessage(ctx, sessionURL, o.Prompt, o.Files)
-}
 
 // sendFirstPrompt starts the agent's terminal on the task. With nothing to
 // say it is left alone: the window starts it when its tab is opened.
@@ -53,78 +36,7 @@ var sendPrompt = func(ctx context.Context, sessionURL, body string) error {
 	return err
 }
 
-// ticketPrompt is the ticket as create wrote it down in the design document.
-var ticketPrompt = func(ctx context.Context, sessionURL, ticket string) string {
-	start := "Start on ticket " + ticket + "."
-	out, err := sessions.AskFor(ctx, sessionURL, http.MethodGet, "/api/design", "", firstMessageWait)
-	if err != nil {
-		return start
-	}
-	var doc struct {
-		Raw string `json:"raw"`
-	}
-	if err := json.Unmarshal(out, &doc); err != nil || strings.TrimSpace(doc.Raw) == "" {
-		return start
-	}
-	return start + " This is what it says:\n\n" + strings.TrimSpace(doc.Raw)
-}
-
-// sendFirstMessage gives a new session the task it was started for. A failure
-// is logged, not returned: the session is open either way.
-func sendFirstMessage(ctx context.Context, sessionURL, prompt string, files []chat.Incoming) {
-	prompt = strings.TrimSpace(prompt)
-	// A picture on its own is a message, as the chat's own route has it.
-	if (prompt == "" && len(files) == 0) || sessionURL == "" {
-		return
-	}
-	body, err := json.Marshal(struct {
-		Message string          `json:"message"`
-		Files   []chat.Incoming `json:"files,omitempty"`
-	}{prompt, files})
-	if err != nil {
-		return
-	}
-	if err := sendFirst(ctx, sessionURL, string(body)); err != nil {
-		slog.Warn("could not hand the session its first message", "err", err)
-	}
-}
-
-var sendFirst = func(ctx context.Context, sessionURL, body string) error {
-	_, err := sessions.AskFor(ctx, sessionURL, http.MethodPost, "/api/chat", body, firstMessageWait)
-	return err
-}
-
-// Brief is a design document handed to a new session, and whether to start
-// building from it once it lands.
-type Brief struct {
-	Name  string `json:"name"`
-	Body  string `json:"body"`
-	Build bool   `json:"build"`
-}
-
-// sendBrief writes the document into the session, then asks it to build only
-// once that landed: an agent given no brief invents one rather than stopping.
-func sendBrief(ctx context.Context, sessionURL string, brief *Brief) error {
-	if brief == nil || sessionURL == "" || strings.TrimSpace(brief.Body) == "" {
-		return nil
-	}
-	body, err := json.Marshal(map[string]string{"name": brief.Name, "body": brief.Body})
-	if err != nil {
-		return err
-	}
-	if err := askSession(ctx, sessionURL, "/api/design/push", string(body)); err != nil {
-		return fmt.Errorf("hand the session its design document: %w", err)
-	}
-	if !brief.Build {
-		return nil
-	}
-	if err := askSession(ctx, sessionURL, "/api/design/go", "{}"); err != nil {
-		return fmt.Errorf("start the build: %w", err)
-	}
-	return nil
-}
-
-var askSession = func(ctx context.Context, sessionURL, path, body string) error {
-	_, err := sessions.AskFor(ctx, sessionURL, http.MethodPost, path, body, firstMessageWait)
-	return err
+// ticketPrompt is what a session started for a ticket is told when nothing else was typed.
+func ticketPrompt(ticket string) string {
+	return "Start on ticket " + ticket + ". Read it with the tools you have for it, then say how you would begin."
 }

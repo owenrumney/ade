@@ -1,10 +1,4 @@
 import type { Place, Row, Status, World } from "./model";
-import {
-  newest as newestOutcomes,
-  page as jobPage,
-  unread as unreadOutcomes,
-  type Outcome,
-} from "../pages/jobpage";
 
 // ade's own answers, as the window draws them: one function per
 // endpoint. Nothing is invented that the launcher does not send.
@@ -52,20 +46,6 @@ export interface Issue {
   project?: string;
 }
 
-export interface Design {
-  name: string;
-  dir: string;
-  file: string;
-  meta: { repos?: string[]; ticket?: string; title?: string };
-  repo?: string;
-  here?: string[];
-  missing?: string[];
-  changed?: string;
-  session?: string;
-  branch?: string;
-  live?: boolean;
-  modified?: string;
-}
 
 export interface Repo {
   name: string;
@@ -91,10 +71,11 @@ export interface Session {
   live?: boolean;
   archived?: boolean;
   lastUsed?: string;
-  // pinned is one imported by id; from names where it was recorded, when a
-  // different checkout adopted it.
-  pinned?: boolean;
-  from?: string;
+  // What ade recorded when it started the session: its CLI, ticket, tags and brief.
+  agent?: string;
+  ticket?: string;
+  tags?: string[];
+  brief?: string;
 }
 
 export interface Listed {
@@ -118,8 +99,16 @@ export function prs(
   now = Date.now(),
 ): Place {
   const all = dash.reviews ?? [];
-  const asked = all.filter((r) => !r.muted).map(reviewRow);
-  const aside = all.filter((r) => r.muted).map((r) => ({ ...reviewRow(r), group: "Put aside" }));
+  // Opening one checks it out as a session, so the website is a row's own act.
+  const acted = (r: Review): Row => ({
+    ...reviewRow(r),
+    acts: [
+      { label: "Web", what: "pr-web", name: r.url },
+      { label: r.muted ? "Bring back" : "Put aside", what: r.muted ? "pr-unmute" : "pr-mute", name: `${r.repo}#${r.number}` },
+    ],
+  });
+  const asked = all.filter((r) => !r.muted).map(acted);
+  const aside = all.filter((r) => r.muted).map((r) => ({ ...acted(r), group: "Put aside" }));
   const yours = mine
     .filter((p) => p.mine)
     .map((p) => ({
@@ -132,6 +121,7 @@ export function prs(
         .filter(Boolean)
         .join(" · "),
       tag: p.draft ? { text: "draft", kind: "draft" } : undefined,
+      acts: p.url ? [{ label: "Web", what: "pr-web" as const, name: p.url }] : [],
     }));
   return {
     id: "prs",
@@ -212,327 +202,124 @@ function tagFor(r: Review): Row["tag"] {
   return undefined;
 }
 
-// designs is the shared store, which is the only place a design lives:
-// listing a checkout's copy too put the same design on screen twice.
-export function designs(all: Design[]): Place {
-  return store(all);
-}
-
-function store(all: Design[]): Place {
-  return {
-    id: "designs",
-    title: "Designs",
-    icon: "design",
-    rows: all.map((d) => ({
-      id: d.name,
-      group: d.repo || "No repository",
-      icon: (d.missing ?? []).length > 0 ? "warn" : d.live ? "play" : "ring",
-      tone: (d.missing ?? []).length > 0 ? "bad" : d.live ? "good" : undefined,
-      name: d.name,
-      meta: [
-        d.branch,
-        // Not "running": the play icon on the row already says that.
-        (d.meta.repos ?? []).length > 1 ? `${d.meta.repos?.length} repos` : "",
-        (d.missing ?? []).length > 0 ? `needs ${d.missing?.join(", ")}` : "",
-        d.changed ? `the copy in ${d.changed.split("/").pop()} has changed` : "",
-        d.meta.ticket,
-        ago(d.modified),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      // One this machine cannot check out has nothing to start, and
-      // one already being worked on is open rather than started.
-      acts: [
-        ...((d.missing ?? []).length > 0 || d.live
-          ? []
-          : [{ label: "Start work", what: "design-start" as const, name: d.name }]),
-        ...(d.changed
-          ? [{ label: "Re-import", what: "design-again" as const, name: d.name, menu: true as const }]
-          : []),
-      ],
-    })),
-  };
-}
-
-export interface Machine {
-  machine: string;
-  label?: string;
-  repos?: Repo[] | null;
-}
-
 // badge is a live row's icon and tone: red when it is your turn, amber at work.
 export function badge(agent: Active["agent"]): { icon: string; tone: Row["tone"] } {
   if (agent?.terminal === "ended") return { tone: undefined, icon: "history" };
-  const state = stateFrom(agent);
-  if (yourTurn(state)) return { tone: "bad", icon: "bell" };
+  const state = stateOf(agent);
+  if (attention(state)) return { tone: "bad", icon: "bell" };
   const tone = state === "working" ? "warn" : "good";
   return { tone, icon: "play" };
 }
 
-// RUNNING is the group every conversation that is up appears in, above
-// the repositories: what is open is what you are coming back to.
-const RUNNING = "Running";
+// tagsOf is what sits beside a session's name: its ticket, its brief, then
+// the tags typed by hand.
+export function tagsOf(session: Session): NonNullable<Row["tags"]> {
+  return [
+    ...(session.ticket ? [{ text: session.ticket, kind: "ticket" }] : []),
+    ...(session.brief ? [{ text: "brief", kind: "brief" }] : []),
+    ...(session.tags ?? []).map((text) => ({ text, kind: "own" })),
+  ];
+}
 
-export function sessions(
-  repos: Repo[],
-  here?: string,
-  now = Date.now(),
-  machines: Machine[] = [],
-  active: Active[] = [],
-  // Which repositories get a group. Running is every repository: nothing up is hidden.
-  grouped: (repo: Repo) => boolean = () => true,
-): Place {
-  // By repository, not by checkout: three worktrees of ade are three
-  // ways into one repository, not three repositories called ade. What
-  // is up is lifted out of them and listed first, in one group.
-  const up: { at: number; row: Row }[] = [];
-  const groups: { name: string; at: number; rows: Row[] }[] = [];
-  // An ade serving the conversation is live, whatever the transcript's
-  // age says: a sandboxed agent writes nothing while it waits on you.
-  const serving = new Set(active.filter((a) => !a.machine).map((a) => a.id));
+// sessionActs is what a session's row does besides open. Only Close shows on
+// hover; the rest are the context menu's.
+function sessionActs(id: string, brief: boolean): NonNullable<Row["acts"]> {
+  const menu = true as const;
+  return [
+    { label: "Close", what: "session-end", name: id },
+    { label: "Tags…", what: "session-tags", name: id, menu },
+    ...(brief
+      ? [
+          { label: "Open the brief", what: "brief-open" as const, name: id, menu },
+          { label: "Tell the agent to read the brief", what: "brief-send" as const, name: id, menu },
+        ]
+      : []),
+  ];
+}
+
+// sessions is the left side: one row per session, by name. Not by when it
+// last spoke, which reshuffles under the pointer every time an agent writes.
+export function sessions(repos: Repo[], now = Date.now(), active: Active[] = []): Place {
+  const rows: Row[] = [];
+  const serving = new Map(active.map((a) => [a.id, a]));
+  const listed = new Set<string>();
   for (const repo of repos) {
-    const name = repo.owner ? `${repo.owner}/${repo.name}` : repo.name;
-    const found: { at: number; row: Row }[] = [];
     for (const checkout of repo.checkouts ?? []) {
       for (const session of (checkout.sessions ?? []).filter((s) => !s.archived)) {
-        const live = Boolean(session.live) || serving.has(session.id);
-        (live ? up : found).push({ at: when(session.lastUsed), row: {
+        const up = serving.get(session.id);
+        const live = Boolean(session.live) || Boolean(up);
+        listed.add(session.id);
+        rows.push({
           id: session.id,
-          group: live ? RUNNING : name,
-          ...(live
-            ? badge(active.find((a) => !a.machine && a.id === session.id)?.agent)
-            : { tone: undefined, icon: "history" }),
+          ...(live ? badge(up?.agent) : { tone: undefined, icon: "history" }),
           name: session.title || session.branch || session.name,
-          // The worktree names itself now the heading does not, and the
-          // branch only when it differs, or `fix` on `fix` says it twice.
           meta: [
-            // Running has no repository heading, so even a main checkout names itself.
-            checkout.worktree || live ? checkout.name : "",
-            session.branch === checkout.branch ? "" : session.branch,
-            ago(session.lastUsed, now),
+            repo.name,
+            checkout.worktree && checkout.name !== repo.name ? checkout.name : "",
+            session.agent,
+            live ? "" : ago(session.lastUsed, now),
           ]
             .filter(Boolean)
             .join(" · "),
-          tag: session.dir === here ? { text: "here", kind: "here" as const } : undefined,
-          // One verb, the Agents place's own endings. A finished session
-          // had none at all, and a running one only cancelled its turn.
-          acts: [
-            {
-              label: live ? "Stop…" : "Put away…",
-              what: "session-end" as const,
-              name: session.id,
-            },
-          ],
-        } });
+          tags: tagsOf(session),
+          acts: sessionActs(session.id, Boolean(session.brief)),
+        });
       }
     }
-    // A checkout an ade is serving with nothing said in it yet: without
-    // a row it cannot be picked, so Review has nothing to follow.
-    for (const checkout of repo.checkouts ?? []) {
-      const spoken = (checkout.sessions ?? []).some((s) => !s.archived);
-      const serving = active.find((a) => !a.machine && a.dir === checkout.path);
-      if (spoken || !serving) continue;
-      up.push({ at: now, row: {
-        id: serving.id,
-        group: RUNNING,
-        ...badge(serving.agent),
-        name: serving.branch || checkout.name,
-        // Whenever it is not already the heading. `ade create` names a
-        // worktree for its branch, and the repeat pushed the rest out.
-        meta: [checkout.name === serving.branch ? "" : checkout.name, "no conversation yet"]
-          .filter(Boolean)
-          .join(" · "),
-        tag: checkout.path === here ? { text: "here", kind: "here" as const } : undefined,
-        acts: [{ label: "Stop…", what: "session-end" as const, name: serving.id }],
-      } });
-    }
-    if (found.length === 0 || !grouped(repo)) continue;
-    found.sort((a, b) => b.at - a.at);
-    groups.push({ name, at: found[0].at, rows: found.map((f) => f.row) });
   }
-  groups.sort((a, b) => a.name.localeCompare(b.name));
-  // By name, not by when it last spoke: a list ordered by recency
-  // reshuffles under the pointer every time an agent writes a line.
-  up.sort((a, b) => a.row.name.localeCompare(b.row.name) || a.row.id.localeCompare(b.row.id));
-
-  // Another machine's, after this one's: the proxy forwards a session
-  // it does not serve to the launcher that does.
-  const away: Row[] = [];
-  for (const machine of machines) {
-    const name = machine.label || machine.machine;
-    const rows: Row[] = [];
-    for (const repo of machine.repos ?? []) {
-      for (const checkout of repo.checkouts ?? []) {
-        for (const session of (checkout.sessions ?? []).filter((s) => !s.archived)) {
-          rows.push({
-            id: session.id,
-            group: name,
-            icon: session.live ? "play" : "history",
-            tone: session.live ? ("good" as const) : undefined,
-            name: session.title || session.branch || session.name,
-            meta: [repo.name, ago(session.lastUsed, now)].filter(Boolean).join(" · "),
-            tag: { text: machine.machine, kind: "where" },
-          });
-        }
-      }
-    }
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-    away.push(...rows);
+  // An ade serving a checkout the list does not name yet: without a row it
+  // cannot be picked, so its diff has nothing to follow.
+  for (const up of active.filter((a) => !listed.has(a.id))) {
+    rows.push({
+      id: up.id,
+      ...badge(up.agent),
+      name: up.branch || up.name || up.id,
+      meta: [up.repo, "starting"].filter(Boolean).join(" · "),
+      acts: sessionActs(up.id, false),
+    });
   }
-
-  return {
-    id: "sessions",
-    title: "Sessions",
-    icon: "session",
-    rows: [...up.map((u) => u.row), ...groups.flatMap((g) => g.rows), ...away],
-  };
+  rows.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return { id: "sessions", title: "Sessions", icon: "session", rows };
 }
 
-// The tree, the states and the ordering are `app/pages/agents.ts`:
-// one answer for both windows. Renamed, as waiting() is taken here.
-import {
-  attention as yourTurn,
-  detail,
-  queues,
-  stateOf as stateFrom,
-  tree,
-  waiting as wantingYou,
-} from "../pages/agents";
+// briefOf is the path of a session's brief, or empty when it has none.
+export function briefOf(repos: Repo[], id: string): string {
+  for (const repo of repos) {
+    for (const checkout of repo.checkouts ?? []) {
+      const found = (checkout.sessions ?? []).find((s) => s.id === id);
+      if (found) return found.brief ?? "";
+    }
+  }
+  return "";
+}
+
+// ownTags is the tags typed by hand on a session, which the box edits.
+export function ownTags(repos: Repo[], id: string): string[] {
+  for (const repo of repos) {
+    for (const checkout of repo.checkouts ?? []) {
+      const found = (checkout.sessions ?? []).find((s) => s.id === id);
+      if (found) return found.tags ?? [];
+    }
+  }
+  return [];
+}
+
+// typedTags reads the box: commas or spaces between tags, no repeats, no "#".
+export function typedTags(text: string): string[] {
+  const out = text
+    .split(/[\s,]+/)
+    .map((one) => one.replace(/^#/, "").trim())
+    .filter(Boolean);
+  return [...new Set(out)];
+}
+
+import { attention, stateOf } from "../pages/agents";
 import type { Active } from "../pages/agents";
 export type { Active, Health } from "../pages/agents";
 export { attention, stateOf } from "../pages/agents";
 
-const TONE: Record<string, Row["tone"]> = {
-  failed: "bad",
-  wedged: "bad",
-  asking: "bad",
-  working: "warn",
-  idle: undefined,
-};
-
 export function running(state: string): boolean {
   return state === "working" || state === "asking";
-}
-
-// Ending is one question with four answers, worst last. What is running
-// decides the first of them: there is no run to stop when nothing is going.
-export interface Ending {
-  label: string;
-  note: string;
-  value: "agent" | "ade" | "archive" | "delete" | "done";
-}
-
-// spoken is whether a transcript is behind this id: archive and delete
-// act on one, so with none they do nothing.
-export function spoken(repos: Repo[], id: string): boolean {
-  return repos.some((repo) =>
-    (repo.checkouts ?? []).some((c) => (c.sessions ?? []).some((s) => s.id === id)),
-  );
-}
-
-export function endings(state: string, said = true): Ending[] {
-  const out: Ending[] = [];
-  if (running(state)) {
-    out.push({ label: "Stop the agent", note: "the turn stops; ade keeps serving the checkout", value: "agent" });
-  }
-  out.push({
-    label: "Stop ade here",
-    note: said
-      ? "the server for this checkout goes too"
-      : "the only thing that clears this row: nothing has been said in it, so there is no conversation to put away",
-    value: "ade",
-  });
-  if (!said) return out;
-  out.push(
-    { label: "Stop and put away", note: "the server goes, and the conversation leaves the lists", value: "done" },
-    { label: "Archive the session", note: "out of the lists, kept on disk", value: "archive" },
-    { label: "Delete the session", note: "gone from ade for good", value: "delete" },
-  );
-  return out;
-}
-
-export function underway(what: string): string {
-  switch (what) {
-    case "agent":
-      return "stopping";
-    case "ade":
-      return "stopping ade here";
-    case "done":
-      return "stopping and putting away";
-    case "archive":
-      return "archiving";
-    default:
-      return "deleting";
-  }
-}
-
-// ended is what was done. The launcher reports 0 with a 200, so the
-// count decides, not the status.
-export function ended(what: string, body?: unknown): string {
-  const n = (body ?? {}) as { removed?: number; changed?: number };
-  switch (what) {
-    case "agent":
-      return "stopped";
-    case "ade":
-      return "ade stopped here";
-    case "done":
-      return "stopped and put away";
-    case "archive":
-      return n.changed === 0 ? "nothing to archive: no conversation here yet" : "archived";
-    default:
-      return n.removed === 0 ? "nothing to delete: no conversation here yet" : "deleted";
-  }
-}
-
-export function agents(all: Active[]): Place {
-  const rows: Row[] = [];
-  for (const branch of tree(all)) {
-    const { row } = branch;
-    rows.push({
-      id: row.id,
-      icon: row.state === "idle" ? "ring" : "dot",
-      tone: TONE[row.state],
-      name: row.name,
-      meta: detail(row),
-      tag: row.machine ? { text: row.machine, kind: "where" } : undefined,
-      // One verb for the whole session: stopping the run, stopping the ade
-      // under it, and putting the conversation away are the same decision.
-      acts: row.machine
-        ? []
-        : [
-            {
-              label: running(row.state) ? "Stop…" : "Put away…",
-              what: "session-end" as const,
-              name: row.session,
-            },
-          ],
-    });
-    for (const child of branch.children) {
-      rows.push({
-        id: child.id,
-        depth: 1,
-        icon: "dot",
-        tone: "warn",
-        name: child.name,
-        meta: detail(child),
-      });
-    }
-  }
-  const wanted = wantingYou(all);
-  return {
-    id: "agents",
-    title: "Agents",
-    icon: "robot",
-    rows,
-    alert: wanted > 0,
-    count: wanted,
-    note: "No agent is running anywhere.",
-  };
-}
-
-function when(stamp: string | undefined): number {
-  const at = stamp ? Date.parse(stamp) : Number.NaN;
-  return Number.isNaN(at) ? 0 : at;
 }
 
 // What an issue in no project is filed under. Named rather than blank: an
@@ -585,7 +372,7 @@ export function issues(dash: Dash & { error?: string }): Place {
 export function inbox(dash: Dash & { error?: string }): Place {
   return {
     id: "inbox",
-    title: "GitHub inbox",
+    title: "Inbox",
     icon: "inbox",
     rows: (dash.notifications ?? [])
       .filter((n) => !n.dismissed)
@@ -729,185 +516,23 @@ export function team(bus: Bus | undefined, now = Date.now()): Place {
   };
 }
 
-export interface Todo {
-  id: string;
-  text: string;
-  note?: string;
-  due?: string;
-  from?: string;
-  started?: string;
-  doneAt?: string;
-}
+export * from "./myday";
 
-// todos is the list, the overdue first and the done left out: a todo
-// that is finished is history, and this is what is waiting.
-export function todos(items: Todo[], now = Date.now()): Place {
-  const rows: Row[] = items
-    .filter((item) => !item.doneAt)
-    .map((item) => {
-      const due = item.due ? Date.parse(item.due) : Number.NaN;
-      const late = !Number.isNaN(due) && due < now;
-      return {
-        id: item.id,
-        icon: item.started ? "play" : late ? "warn" : "todo",
-        tone: late ? ("bad" as const) : item.started ? ("good" as const) : undefined,
-        name: item.text,
-        meta: [item.note, item.due ? (late ? "overdue" : `due ${ago(item.due, now)}`) : "", item.from]
-          .filter(Boolean)
-          .join(" · "),
-        // A todo is a thing to do, so the row does it: a session with
-        // the todo as its first message. One already started has one.
-        // Done and Drop are menu-only: the row has space for Start alone.
-        acts: [
-          ...(item.started ? [] : [{ label: "Start", what: "todo-start" as const, name: item.id }]),
-          { label: "Mark as done", what: "todo-done" as const, name: item.id, menu: true as const },
-          { label: "Drop it", what: "todo-drop" as const, name: item.id, menu: true as const },
-        ],
-      };
-    });
-  return { id: "todos", title: "Todos", icon: "todo", rows };
-}
-
-// One turn waiting behind the run, in the order it will go.
-export interface Waiting {
-  id: string;
-  kind: string;
-  what?: string;
-}
-
-// queued is every session's queue, each turn under the session it is
-// stacked behind: turns with no session say when but not against what.
-export function queued(all: Active[]): Row[] {
-  return queues(all).map((each) => ({
-    id: `q:${each.id}`,
-    group: `Queued · ${each.where}`,
-    icon: each.position === 1 ? "play" : "ring",
-    name: each.what || each.kind,
-    meta: [`${each.position}`, each.kind].join(" · "),
-    acts:
-      each.position === 1
-        ? []
-        : [
-            {
-              label: "Next",
-              what: "queue-first" as const,
-              name: each.id,
-              on: each.session,
-            },
-          ],
-  }));
-}
-
-// One scheduled job, as `/api/jobs` lists them.
-export interface Job {
-  name: string;
-  description?: string;
-  schedule: string;
-  project?: string;
-  nextDue?: string;
-  lastFired?: string;
-  paused?: boolean;
-  failing?: boolean;
-  running?: boolean;
-  outcomes?: Outcome[];
-}
-
-export function jobReport(job: Job): string {
-  return jobPage(job.name, job.outcomes ?? []);
-}
-
-// jobUnread is how many of a job's reports have not been read.
-export function jobUnread(job: Job): number {
-  return unreadOutcomes(job.outcomes ?? []).length;
-}
-
-// The built-in job behind the calendar icon. Named in internal/jobs/myday.go.
-export const MY_DAY = "my-day";
-
-export function myDay(jobs: Job[]): Job | undefined {
-  return jobs.find((job) => job.name === MY_DAY);
-}
-
-// myDayDue is whether opening the window builds the report: a weekday with
-// nothing fired today. A paused job, or one already running, is left alone.
-export function myDayDue(job: Job | undefined, now: Date): boolean {
-  if (!job || job.paused || job.running) return false;
-  if (now.getDay() === 0 || now.getDay() === 6) return false;
-  const last = job.outcomes?.[0]?.firedAt ?? job.lastFired;
-  return !last || new Date(last).toDateString() !== now.toDateString();
-}
-
-// myDayReport is the newest fire on its own. The Jobs place keeps the run of
-// them; the calendar is today, which is the whole point of the shortcut.
-export function myDayReport(job: Job | undefined): string {
-  if (!job) return "# My Day\n\nThis machine has no my-day job.";
-  const latest = newestOutcomes(job.outcomes ?? [])[0];
-  if (!latest) return "# My Day\n\nIt has not run yet.";
-  if (latest.error) return `# My Day\n\n**It failed:** ${latest.error}`;
-  // The report writes its own dated heading, so nothing is added here.
-  return latest.report?.trim() || "# My Day\n\nNothing waiting, and nothing of yours open.";
-}
-
-// myDayTitle carries how old the fire is, so yesterday's report is not read
-// as this morning's.
-export function myDayTitle(job: Job | undefined, now = Date.now()): string {
-  const when = ago(newestOutcomes(job?.outcomes ?? [])[0]?.firedAt, now);
-  return when ? `My Day · ${when}` : "My Day";
-}
-
-// jobs is what ade does on a timer. A list, not a report: you want to
-// run one now or stop it running again.
-export function jobs(all: Job[], now = Date.now()): Place {
-  const waiting = all.reduce((sum, job) => sum + jobUnread(job), 0);
-  return {
-    id: "jobs",
-    title: "Jobs",
-    icon: "ring",
-    // A report nobody has read is the thing to see across a room; a job
-    // that stopped working is the thing behind it.
-    alert: waiting > 0,
-    count: waiting || all.filter((j) => j.failing).length,
-    rows: all.map((job) => ({
-      id: `job:${job.name}`,
-      icon: job.paused ? "ring" : job.failing ? "warn" : "play",
-      tone: job.failing ? ("bad" as const) : jobUnread(job) ? ("warn" as const) : job.paused ? undefined : ("good" as const),
-      name: job.name,
-      meta: [
-        jobUnread(job) ? `${jobUnread(job)} unread` : "",
-        job.schedule,
-        job.paused ? "paused" : job.nextDue ? `next ${ago(job.nextDue, now)}` : "",
-        job.lastFired ? `last ${ago(job.lastFired, now)}` : "",
-        job.project,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      acts: [
-        { label: "Run now", what: "job-run" as const, name: job.name },
-        {
-          label: job.paused ? "Resume" : "Pause",
-          what: "job-pause" as const,
-          name: job.name,
-        },
-      ],
-    })),
-  };
-}
-
-// waiting is the desk's first list, and the machine's rather than this
-// checkout's: every repository's reviews, every session's queues.
-export function waiting(dash: Dash & { error?: string }, active: Active[] = [], bus?: Bus): Place {
-  const stacked = queued(active);
+// waiting is Notifications: what teammates asked of you over the bus, then
+// the reviews of yours that are ready to move. The machine's, not one checkout's.
+export function waiting(dash: Dash & { error?: string }, bus?: Bus): Place {
   const asked = offered(bus);
   const rows = (dash.reviews ?? [])
     .filter((r) => !r.muted && (r.review?.state === "ready" || r.review?.state === "drafted"))
     .map(reviewRow)
     // Grouped only when there is a second list to tell it from.
-    .map((row) => ({ ...row, group: stacked.length + asked.length > 0 ? "Yours to move" : undefined }));
+    .map((row) => ({ ...row, group: asked.length > 0 ? "Yours to move" : undefined }));
   return {
     id: "waiting",
-    title: "Waiting on you",
+    title: "Notifications",
     icon: "bell",
-    rows: [...asked, ...rows, ...stacked],
+    rows: [...asked, ...rows],
+    alert: asked.length > 0,
     note: why(dash),
   };
 }
@@ -916,39 +541,24 @@ export function offline(why: string): World {
   return {
     places: [
       {
-        id: "waiting",
-        title: "Waiting on you",
-        icon: "bell",
+        id: "sessions",
+        title: "Sessions",
+        icon: "session",
         rows: [{ id: "offline", icon: "warn", tone: "bad", name: why }],
       },
     ],
-    status: {
-      repo: "",
-      branch: "",
-      sandboxed: false,
-      checks: "",
-      waiting: 0,
-      model: "",
-    },
-    blame: "",
+    status: { branch: "", checks: "", waiting: 0 },
   };
 }
 
-// What the picked session is doing: the main agent, and each named
-// agent running beside it.
+// What the picked session is doing: a review or a commit message in flight,
+// and each named agent running beside it.
 export interface Doing {
   running: boolean;
   // terminal is what the agent's own terminal is doing, or empty with none.
   terminal: string;
   kind: string;
-  model: string;
-  sandbox: boolean;
   sides: { id: string; name: string }[];
-  queued: number;
-  // on is the conversation the server is actually in, which picking one
-  // in the window does not change.
-  on: string;
-  provider: string;
   // The repository's own checks, in a few words.
   checks: string;
   // The session's own scope and branch: the scan's branch is the
@@ -959,18 +569,15 @@ export interface Doing {
   pr?: number;
   // How many commits the base has that this branch does not.
   behind?: number;
+  // The last review by named agents, while the session remembers one.
+  review?: ReviewRun;
 }
 
 export const NOTHING: Doing = {
   running: false,
   terminal: "",
   kind: "",
-  model: "",
-  sandbox: false,
   sides: [],
-  queued: 0,
-  on: "",
-  provider: "",
   checks: "",
   scope: "",
   branch: "",
@@ -981,13 +588,9 @@ export function doingIn(got: unknown): Doing {
   const agent = ((got as { agent?: Record<string, unknown> })?.agent ?? {}) as {
     running?: boolean;
     kind?: string;
-    model?: string;
-    sandbox?: boolean;
     sideRuns?: { id: string; name: string }[] | null;
-    queued?: number;
     terminal?: string;
   };
-  const chat = ((got as { chat?: { session?: string } })?.chat ?? {}) as { session?: string };
   const branchPr = (got as { branchPr?: { number?: number } })?.branchPr;
   const tree = (got as { worktree?: { behind?: number } | null })?.worktree;
   const meta = ((got as { meta?: { scope?: string; branch?: string } })?.meta ?? {}) as {
@@ -998,34 +601,102 @@ export function doingIn(got: unknown): Doing {
     running: Boolean(agent.running),
     terminal: agent.terminal ?? "",
     kind: agent.kind ?? "",
-    model: agent.model ?? "",
-    sandbox: Boolean(agent.sandbox),
     sides: agent.sideRuns ?? [],
-    queued: agent.queued ?? 0,
-    on: chat.session ?? "",
-    provider: (agent as { provider?: string }).provider ?? "",
     checks: checksIn(got),
     scope: meta.scope ?? "",
     branch: meta.branch ?? "",
     pr: branchPr?.number,
     behind: tree?.behind,
+    review: reviewIn(got),
   };
 }
 
 // busy is whether anything is in flight, which is what decides how
 // often the window asks again.
 export function busy(doing: Doing): boolean {
-  return doing.running || doing.sides.length > 0;
+  return doing.running || doing.sides.length > 0 || doing.terminal === "working" || Boolean(doing.review?.running);
 }
 
 // saying is what the status bar carries: what is running, by name,
 // because "working" would not say which came back.
 export function saying(doing: Doing): string {
   const bits: string[] = [];
-  if (doing.sides.length > 0) bits.push(doing.sides.map((s) => `@${s.name}`).join(", "));
+  // A review says where it has got to: its reviewers are in that sentence.
+  const stage = doing.review?.running ? doing.review.stage : "";
+  if (stage) bits.push(stage);
+  else if (doing.sides.length > 0) bits.push(doing.sides.map((s) => `@${s.name}`).join(", "));
   if (doing.running) bits.push(doing.kind || "working");
-  if (doing.queued > 0) bits.push(`${doing.queued} queued`);
   return bits.join(" · ");
+}
+
+// A review by named agents as `/api/state` carries it: each reviewer, then
+// the stage it has reached.
+export interface Reviewer {
+  name: string;
+  state: string;
+  doing: string;
+  why: string;
+  found: number;
+  endedAt: string;
+}
+
+export interface ReviewRun {
+  reviewers: Reviewer[];
+  stage: string;
+  summary: string;
+  running: boolean;
+  startedAt: string;
+  endedAt: string;
+}
+
+function reviewIn(got: unknown): ReviewRun | undefined {
+  const run = (got as { reviewRun?: Partial<ReviewRun> | null })?.reviewRun;
+  if (!run?.startedAt) return undefined;
+  return {
+    reviewers: run.reviewers ?? [],
+    stage: run.stage ?? "",
+    summary: run.summary ?? "",
+    running: Boolean(run.running),
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? "",
+  };
+}
+
+// lasted is a run's length in the units a person counts a review in.
+export function lasted(from: string, to: string | number): string {
+  const ms = (typeof to === "number" ? to : Date.parse(to)) - Date.parse(from);
+  if (Number.isNaN(ms) || ms < 0) return "";
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+export interface ReviewLine {
+  name: string;
+  state: string;
+  note: string;
+}
+
+// reviewLines is the strip's rows: each reviewer and how it stands.
+export function reviewLines(run: ReviewRun, now = Date.now()): ReviewLine[] {
+  return run.reviewers.map((r) => {
+    const found = r.found === 1 ? "1 point" : `${r.found} points`;
+    const bits =
+      r.state === "running"
+        ? [lasted(run.startedAt, now), r.doing]
+        : r.state === "done"
+          ? [found, lasted(run.startedAt, r.endedAt)]
+          : r.state === "stopped"
+            ? ["stopped", r.why, r.found ? found : ""]
+            : [`failed: ${r.why}`];
+    return { name: `@${r.name}`, state: r.state, note: bits.filter(Boolean).join(" · ") };
+  });
+}
+
+// reviewHead is the strip's first line: going, or how long it took.
+export function reviewHead(run: ReviewRun): string {
+  if (run.running) return "Review · running";
+  const took = lasted(run.startedAt, run.endedAt);
+  return took ? `Review · finished in ${took}` : "Review · finished";
 }
 
 // What `/api/state` says about the repository's own checks.
@@ -1052,17 +723,14 @@ export function checksIn(got: unknown): string {
   return "";
 }
 
-export function status(dash: Dash, repos: Repo[], doing: Doing = NOTHING): Status {
+export function status(dash: Dash, repos: Repo[], doing: Doing = NOTHING, bus?: Bus): Status {
   const live = repos
     .flatMap((r) => r.checkouts ?? [])
     .find((c) => (c.sessions ?? []).some((s) => s.live));
   return {
-    repo: repos[0]?.name ?? "",
     branch: doing.branch || (live?.branch ?? ""),
-    sandboxed: doing.sandbox,
     checks: doing.checks,
-    waiting: waiting(dash).rows.length,
-    model: doing.model,
+    waiting: waiting(dash, bus).rows.length,
     scope: doing.scope,
     doing: saying(doing),
     pr: doing.pr,
@@ -1097,15 +765,10 @@ export function stillListed(repos: Repo[], gone: ReadonlySet<string>): Set<strin
   return new Set([...gone].filter((id) => listed.has(id)));
 }
 
-// knownSessions is every conversation this window may point at. Not
-// whereSessionsAre: a remote one has no path here but is still a pick.
-export function knownSessions(
-  repos: Repo[],
-  active: Active[] = [],
-  machines: Machine[] = [],
-): Set<string> {
+// knownSessions is every session this window may point at.
+export function knownSessions(repos: Repo[], active: Active[] = []): Set<string> {
   const out = new Set<string>();
-  for (const repo of [...repos, ...machines.flatMap((m) => m.repos ?? [])]) {
+  for (const repo of repos) {
     for (const checkout of repo.checkouts ?? []) {
       for (const session of checkout.sessions ?? []) out.add(session.id);
     }
@@ -1124,9 +787,7 @@ export function whereSessionsAre(repos: Repo[], active: Active[] = []): Map<stri
     }
   }
   for (const each of active) {
-    // Another machine's checkout is not a path here: a session there is
-    // reached through the proxy, and starting it is that machine's job.
-    if (!each.machine && each.dir) out.set(each.id, each.dir);
+    if (each.dir) out.set(each.id, each.dir);
   }
   return out;
 }
@@ -1246,6 +907,13 @@ export function landOn(repos: Repo[], dir = ""): string {
   return (from.find((s) => s.live) ?? newest[0])?.id ?? "";
 }
 
+
+// landAgain is the session a window opens on. A checkout named by `ade .`
+// wins, then the conversation the last run was in.
+export function landAgain(repos: Repo[], known: Set<string>, dir: string, was: string): string {
+  if (!dir && was && known.has(was)) return was;
+  return landOn(repos, dir);
+}
 // Drafted is what an add to the review answered: what went into it, and
 // what GitHub would not take.
 export interface Drafted {
@@ -1284,11 +952,44 @@ export function unserved(error = ""): boolean {
 export function ago(stamp: string | undefined, now = Date.now()): string {
   if (!stamp) return "";
   const at = Date.parse(stamp);
-  if (Number.isNaN(at)) return "";
+  // A Go time that was never set is year 1, which is no age to show.
+  if (Number.isNaN(at) || at <= 0) return "";
   const m = Math.max(0, Math.round((now - at) / 60_000));
   if (m < 1) return "just now";
   if (m < 60) return `${m}m`;
   const h = Math.round(m / 60);
   if (h < 48) return `${h}h`;
   return `${Math.round(h / 24)}d`;
+}
+
+// Conversation is one conversation claude keeps, and how it stands with ade.
+export interface Conversation {
+  id: string;
+  title: string;
+  // The folder it was started in, which is where its session goes.
+  dir: string;
+  used: string;
+  running: boolean;
+  here: boolean;
+  checkout: boolean;
+}
+
+// conversationRows are the omnibox's rows for them: the name, then where it
+// was had and how it stands.
+export function conversationRows(
+  list: Conversation[],
+  now = Date.now(),
+): { label: string; note: string; value: string }[] {
+  return list.map((one) => ({
+    label: one.title || one.id.slice(0, 8),
+    note: [(one.dir ?? "").split("/").pop() ?? "", standing(one), ago(one.used, now)].filter(Boolean).join(" · "),
+    value: one.id,
+  }));
+}
+
+// A session already on it comes first: the claude that has it open is ade's own.
+function standing(one: Conversation): string {
+  if (one.here) return "already in ade";
+  if (!one.checkout) return "not a git checkout";
+  return one.running ? "open in another terminal" : "";
 }

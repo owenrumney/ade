@@ -4,14 +4,9 @@ export interface Bridge {
   onCommand(then: (command: string) => void): void;
   keys(): Promise<unknown[]>;
 
-  // The audit trail: what the person set off, and what there is to read.
-  note(entry: Record<string, unknown>): void;
-  audit(day?: string): Promise<{ days?: string[]; entries?: Noted[] }>;
 
   // Everything the sidebar draws, in one round trip.
   world(dir?: string): Promise<unknown>;
-  // One pull request in full, and one design's markdown.
-  pr(repo: string, number: number): Promise<Record<string, unknown>>;
   // Brings the launcher up, which nothing else on the machine does.
   start(): Promise<{ ok?: boolean; error?: string }>;
   // The picked session's event stream. The panels are webviews and
@@ -27,8 +22,6 @@ export interface Bridge {
   termResize(pane: string, cols: number, rows: number): void;
   onTerm(then: (pane: string, data: string) => void): void;
   onTermClosed(then: (pane: string, why: string) => void): void;
-  // A window of its own, holding one panel.
-  float(panel: string, session: string): Promise<unknown>;
   // A link from a panel, opened in the browser.
   link(href: string): Promise<unknown>;
 
@@ -58,19 +51,6 @@ export interface Bridge {
   opened(): Promise<string>;
 }
 
-// One line of the trail, as the panel draws it.
-export interface Noted {
-  at: string;
-  kind: string;
-  what: string;
-  where?: string;
-  session?: string;
-  ok?: boolean;
-  why?: string;
-  ms?: number;
-  fields?: string[];
-  trace?: string;
-}
 
 declare global {
   interface Window {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Thread } from "./client";
+import type { Thread } from "../renderer/changes";
 import {
   claimState,
   foldAbove,

@@ -8,7 +8,7 @@ export const NEED = {
   diff: 2_000,
   ship: 5_000,
   pr: 30_000,
-  // Design tree, worktrees, repositories: a person changes these, not a run.
+  // Repositories and branches: a person changes these, not a run.
   lists: 10_000,
 } as const;
 
@@ -17,9 +17,8 @@ export type Need = keyof typeof NEED;
 // needFor is a path's need. One with no row is read on every look.
 export function needFor(path: string): number {
   const at = path.split("?")[0];
-  if (at.startsWith("/api/ship")) return NEED.ship;
   if (at.startsWith("/api/pr") || at.startsWith("/api/checks")) return NEED.pr;
-  if (at.startsWith("/api/designs") || at.startsWith("/api/worktrees") || at.startsWith("/api/repos")) {
+  if (at.startsWith("/api/repos") || at.startsWith("/api/branches")) {
     return NEED.lists;
   }
   if (at.startsWith("/api/state") || at.startsWith("/api/agent")) return NEED.agent;

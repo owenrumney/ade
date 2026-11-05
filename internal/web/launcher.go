@@ -26,6 +26,10 @@ import (
 
 var launcherStartMu sync.Mutex
 
+// launcherBinary is what a launcher is started from. A var: a test binary
+// started as one runs the whole suite again, and that run starts another.
+var launcherBinary = os.Executable
+
 // throughLauncher is this session's address on the launcher — started if none
 // is up — and whether a page is open on it.
 func (s *Server) throughLauncher(ctx context.Context) (string, bool) {
@@ -174,7 +178,7 @@ func startLauncher(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	self, err := os.Executable()
+	self, err := launcherBinary()
 	if err != nil {
 		return "", fmt.Errorf("find the ade binary: %w", err)
 	}
@@ -252,36 +256,6 @@ func answerError(body []byte) string {
 	return strings.TrimSpace(string(body))
 }
 
-// hostChoice is a machine as the page picks one. The launcher's own answer
-// carries each worker's URL and token, which the page is not given.
-type hostChoice struct {
-	Name      string `json:"name"`
-	Label     string `json:"label,omitempty"`
-	Connected bool   `json:"connected"`
-	Local     bool   `json:"local,omitempty"`
-	State     string `json:"state"`
-	Sessions  int    `json:"sessions"`
-	Error     string `json:"error,omitempty"`
-}
-
-// handleHosts is the launcher's machine list, served to this session's page.
-func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
-	hosts := []hostChoice{}
-	answer, err := askLauncher(r.Context(), http.MethodGet, "/api/hosts", "", hostsWait)
-	// An empty list, not an error: a session with no launcher can still build here.
-	if err == nil {
-		var got struct {
-			Hosts []hostChoice `json:"hosts"`
-		}
-		if err := json.Unmarshal(answer, &got); err == nil && got.Hosts != nil {
-			hosts = got.Hosts
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"hosts": hosts})
-}
-
-const hostsWait = 10 * time.Second
-
 // record writes this server's record, with the launcher-proxied address when
 // there is one: a reader on a worker's host cannot reach the container's port.
 func (s *Server) record(proxy string) {
@@ -341,4 +315,17 @@ func (s *Server) reproxy(ctx context.Context) {
 	if through, _ := s.throughLauncher(ctx); through != "" {
 		s.record(through)
 	}
+}
+
+// sameFile is whether two paths name one file, links followed.
+func sameFile(a, b string) bool {
+	if a == b {
+		return true
+	}
+	infoA, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	infoB, err := os.Stat(b)
+	return err == nil && os.SameFile(infoA, infoB)
 }

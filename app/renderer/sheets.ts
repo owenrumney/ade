@@ -10,44 +10,45 @@ import {
   shownComments,
   whyNotSendable,
 } from "../pages/commentrow";
-import type { PrAct, PrActId } from "./prpage";
 import { spacePage, type SpaceAct } from "./spacepage";
 
 // The editor area. Each view draws its own content: a pane that changes
 // its title and nothing else is indistinguishable from a broken one.
 
+// Does is what a pane's buttons ask of the window, which holds the session.
+export interface Does {
+  forget?: (rule: string) => void;
+  thread?: OnThread;
+  ask?: (who: string, text: string) => void;
+  space?: (did: SpaceAct) => void;
+  again?: () => void;
+  send?: () => void;
+}
+
 export function sheet(
   view: View,
-  picked: (line: number) => void = () => {},
-  forget: (rule: string) => void = () => {},
-  on: OnThread = () => {},
-  act: (id: PrActId) => void = () => {},
+  does: Does = {},
   review: Review = { hasPR: false, open: new Set() },
-  ask: (who: string, text: string) => void = () => {},
-  space: (did: SpaceAct) => void = () => {},
-  again: () => void = () => {},
 ): HTMLElement {
   switch (view.kind) {
     case "rules":
-      return rules(view.rules, forget);
+      return rules(view.rules, does.forget ?? (() => {}));
     case "hunks":
-      return hunks(view.file, view.threads ?? [], on, review, view.at);
-    case "code":
-      return code(view.source, picked, view.line);
+      return hunks(view.file, view.threads ?? [], does.thread ?? (() => {}), review, view.at);
+    case "diff":
+      return nothing("Pick a file on the left to read its diff.");
     case "doc":
-      return doc(view.body, view.again, again);
-    case "pr":
-      return pr(view.body, view.acts, act, view.busy);
+      return doc(view.body, view.again, does.again, view.brief ? does.send : undefined);
     case "person":
-      return person(view.who, view.body, ask);
+      return person(view.who, view.body, does.ask ?? (() => {}));
     case "space":
-      return spacePage(view.seen, space);
+      return spacePage(view.seen, does.space ?? (() => {}));
     default:
-      return nothing();
+      return nothing("Pick a session on the left.");
   }
 }
 
-function nothing(): HTMLElement {
+function nothing(first: string): HTMLElement {
   const out = el("div", "nothing");
   const hint = el("div");
   hint.append(
@@ -55,40 +56,38 @@ function nothing(): HTMLElement {
     el("span", "key", "⌘K"),
     document.createTextNode(" for anything."),
   );
-  out.append(el("div", "", "Pick something on the left."), hint);
+  out.append(el("div", "", first), hint);
   return out;
 }
 
-// doc is a document the window drew and nobody edits. Anything written
-// goes through `written()` in panels.ts.
-// again is the report's own Refresh: drawn only for one that can be rebuilt.
-function doc(body: string, again?: "idle" | "busy", refresh: () => void = () => {}): HTMLElement {
+// doc is a document the window drew and nobody edits. again is a report's own
+// Refresh; send is a brief's line to the agent.
+function doc(
+  body: string,
+  again?: "idle" | "busy",
+  refresh: () => void = () => {},
+  send?: () => void,
+): HTMLElement {
   const out = el("div", "doc");
-  if (again) {
+  if (again || send) {
     const bar = el("div", "doc-acts");
-    const button = el("button", "", again === "busy" ? "building…" : "Refresh");
-    (button as HTMLButtonElement).disabled = again === "busy";
-    button.addEventListener("click", refresh);
-    bar.append(button);
+    if (again) {
+      const button = el("button", "", again === "busy" ? "building…" : "Refresh");
+      (button as HTMLButtonElement).disabled = again === "busy";
+      button.addEventListener("click", refresh);
+      bar.append(button);
+    }
+    if (send) {
+      const button = el("button", "", "Tell the agent to read it");
+      button.title = "Types one line at the agent: read the brief and say where it leaves off.";
+      button.addEventListener("click", send);
+      bar.append(button);
+    }
     out.append(bar);
   }
   const page = el("div", "rendered");
   page.innerHTML = html(body);
   out.append(page);
-  return out;
-}
-
-function pr(body: string, acts: PrAct[], act: (id: PrActId) => void, busy?: PrActId): HTMLElement {
-  const out = doc(body);
-  const bar = el("div", "pr-acts");
-  for (const one of acts) {
-    const button = el("button", one.primary ? "go" : "", busy === one.id ? "working…" : one.label);
-    button.title = one.blocked ?? one.detail;
-    (button as HTMLButtonElement).disabled = Boolean(one.blocked || busy);
-    button.addEventListener("click", () => act(one.id));
-    bar.append(button);
-  }
-  out.prepend(bar);
   return out;
 }
 
@@ -161,85 +160,23 @@ function table(rows: string[][]): string {
   return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
 }
 
-// code shows a file; clicking a line is what the status bar blames. A
-// gutter would be a read per line, most of it unasked for.
-function code(
-  source: string,
-  picked: (line: number) => void,
-  here = 0,
-): HTMLElement {
-  // No heading: the pane above already names the file.
-  const wrap = el("div", "sheet-stack");
-  const out = el("div", "file");
-  source.split("\n").forEach((line, i) => {
-    const no = i + 1;
-    const row = el("div", no === here ? "ln here" : "ln");
-    row.append(el("span", "no", String(no)), coloured(line));
-    row.addEventListener("click", () => picked(no));
-    out.append(row);
-  });
-  wrap.append(out);
-  return wrap;
-}
-
-// coloured is the crudest highlighter that reads as code: keywords,
-// strings and comments. A real one is the editor's, whichever that is.
-function coloured(src: string): HTMLElement {
-  const out = el("span", "src");
-  if (src.trimStart().startsWith("//")) {
-    out.append(el("span", "c", src));
-    return out;
-  }
-  const words = /\b(func|if|else|return|len|range|for|var|type|struct|nil|import|package|const|interface|map|go|defer)\b/g;
-  let at = 0;
-  for (const found of src.matchAll(words)) {
-    const i = found.index ?? 0;
-    out.append(document.createTextNode(src.slice(at, i)));
-    out.append(el("span", "k", found[0]));
-    at = i + found[0].length;
-  }
-  out.append(document.createTextNode(src.slice(at)));
-  return out;
-}
-
-// rules is the session's permissions, drawn here because a frame of the
-// server's own page wears its stylesheet.
+// rules is what ade refuses every agent it starts, drawn here because a
+// frame of the server's own page wears its stylesheet.
 function rules(all: Rules, forget: (rule: string) => void): HTMLElement {
   const out = el("div", "rules");
-  if (all.free) {
-    out.append(el("div", "warn-strip", "This session asks for nothing: every tool is allowed."));
-  }
-  group(out, "Allowed", all.allow, forget);
-  group(out, "Denied", all.deny, forget);
-  // The session's own are not in the file, so forgetting one is not
-  // the same act: it goes when the session does.
-  group(out, "This session only", all.session);
-  if (all.file) out.append(el("div", "rules-file", all.file));
-  return out;
-}
-
-function group(
-  out: HTMLElement,
-  title: string,
-  rows: string[],
-  forget?: (rule: string) => void,
-): void {
-  out.append(el("h3", "", `${title}  ${rows.length}`));
-  if (rows.length === 0) {
-    out.append(el("div", "empty", "Nothing here."));
-    return;
-  }
-  for (const rule of rows) {
+  out.append(el("h3", "", `Denied  ${all.deny.length}`));
+  if (all.deny.length === 0) out.append(el("div", "empty", "Nothing here."));
+  for (const rule of all.deny) {
     const row = el("div", "rule");
     row.append(el("code", "", rule));
-    if (forget) {
-      const drop = el("button", "drop", "✕");
-      drop.title = "Forget this rule";
-      drop.addEventListener("click", () => forget(rule));
-      row.append(drop);
-    }
+    const drop = el("button", "drop", "✕");
+    drop.title = "Stop refusing this";
+    drop.addEventListener("click", () => forget(rule));
+    row.append(drop);
     out.append(row);
   }
+  if (all.file) out.append(el("div", "rules-file", all.file));
+  return out;
 }
 
 // hunks draws the real diff: the server has already paired the lines and

@@ -26,34 +26,20 @@ import (
 	"github.com/owenrumney/ade/internal/httpx"
 	"github.com/owenrumney/ade/internal/window"
 
-	"github.com/owenrumney/ade/internal/chat"
+	"path/filepath"
+
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/dash"
-	"github.com/owenrumney/ade/internal/design"
-	"github.com/owenrumney/ade/internal/docnotes"
-	"github.com/owenrumney/ade/internal/docs"
-	"github.com/owenrumney/ade/internal/estimate"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/highlight"
-	"github.com/owenrumney/ade/internal/hub"
-	"github.com/owenrumney/ade/internal/limits"
-	"github.com/owenrumney/ade/internal/lineage"
-	"github.com/owenrumney/ade/internal/lsp"
-	"github.com/owenrumney/ade/internal/memory"
-	"github.com/owenrumney/ade/internal/overlap"
 	"github.com/owenrumney/ade/internal/runlog"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/settingsapi"
 	"github.com/owenrumney/ade/internal/term"
-	"github.com/owenrumney/ade/internal/verify"
-	"github.com/owenrumney/ade/internal/whisper"
-	"github.com/owenrumney/ade/internal/wiki"
 	"github.com/owenrumney/ade/internal/words"
-	"path/filepath"
 )
 
 // pollInterval is how often the diff is recomputed. Re-running git diff and
@@ -98,8 +84,6 @@ type Server struct {
 	hub   *httpx.Hub
 	token string
 
-	// wiki is the shared wiki, or nil when no remote is configured.
-	wiki          *wiki.Store
 	delegateToken string
 
 	// hookToken authorizes the agent's PreToolUse hook, which is a different
@@ -107,39 +91,13 @@ type Server struct {
 	hookToken string
 	agent     *agentRunner
 
-	// docsOverride is --docs as it was given, so a later search finds the
-	// same place. A design in the shared store is nowhere near the checkout.
-	docsOverride string
-	// docsDir is where design documents live. Empty when ade is serving a
-	// snapshot, which has no working tree to design against.
-	docsDir string
-
 	// started divides a document already on disk from one written during the
 	// conversation, which is how a design is adopted on an unmatched branch.
 	started time.Time
 
-	// notes is the open document's note store, notesDoc the document it is for.
-	// Its own lock: opening it reads a file, which under s.mu blocks the poll.
-	notesMu  sync.Mutex
-	notes    *docnotes.Store
-	notesDoc string
-
-	// remembered is what ade knows about the repository, across every worktree
-	// of it. Resolved once: the identity is a git remote.
-	remembered     *memory.Store
-	rememberedOnce sync.Once
-	// debt is the last count of unread transcripts, so the state poll does not
-	// scan them. Refreshed when a run settles, which is when it can change.
-	debt *ProjectDebt
-
 	// goingReason is why the server is shutting down, told to the pages on the
 	// way out. Empty for a shutdown nobody explained.
 	goingReason string
-
-	// docDeclined is a document the user closed. The state poll looks for one
-	// belonging to the branch, and without this it would reopen the one they
-	// had just put away.
-	docDeclined string
 
 	// startRoot and startGitDir are where this process began. They identify the
 	// process, so they do not move when it relocates into a worktree — otherwise
@@ -164,18 +122,6 @@ type Server struct {
 	// idle is how long with no browser attached before shutting down.
 	idle time.Duration
 
-	// seedTicket drafts the open document from a ticket once serving starts.
-	seedTicket string
-
-	// seedIssue does the same from a GitHub issue, read here rather than by the
-	// agent, so the draft does not need a tool that can reach GitHub.
-	seedIssue int
-
-	// seedInvestigate is the ticket to open on, skillName the skill it runs
-	// under. The skill's text lives on the agent.
-	seedInvestigate string
-	skillName       string
-
 	// ctx outlives any single request, since an agent run does too.
 	ctx context.Context
 
@@ -185,10 +131,6 @@ type Server struct {
 	termMu   sync.Mutex
 	terms    map[string]*term.Session
 	termRoot string
-
-	// rowPath is each session's transcript, found once.
-	rowMu   sync.Mutex
-	rowPath map[string]string
 
 	// stop ends this server. The idle watcher has always had it; Exit is the
 	// same thing asked for rather than waited for.
@@ -205,11 +147,6 @@ type Server struct {
 	// baseRef is the resolved base branch, for the rebase count and its label.
 	baseRef string
 	draft   *CommitDraft
-	// quiz is the questions written about the diff, held so reopening the
-	// panel does not pay for them again. Nothing about how you did is kept.
-	quiz *Quiz
-	// walkthrough is the steps through the diff, held on the same terms.
-	walkthrough *Walkthrough
 
 	// roots is snapshotted from the sandbox file; homeOpts is what home showed.
 	roots    []DiffRoot
@@ -218,66 +155,6 @@ type Server struct {
 
 	worktree     *gitdiff.Status
 	worktreeHash string
-	// overlap caches the commit read of each worktree, keyed by its tip: the
-	// patch-id pass walks every diff on a branch. A zero Cache is ready.
-	overlap overlap.Cache
-	created *CreatedPR
-	docFile string
-	// drift is the last design-drift pass. In memory only: it is a reading of
-	// the working tree at a moment, so a stale one on disk is worse than none.
-	drift *DriftState
-	// chat is the checkout's conversations, written through as they happen so
-	// a restart costs you nothing but the run that was in flight. tools maps a
-	// tool call in flight to the message it was written as, so its result can
-	// land on the same row.
-	chat  *chat.Store
-	tools map[string]string
-	// ruled is a rule that decided a call before its row was written.
-	ruled map[string]string
-	// children is the sub-agents at work, followed through their transcripts.
-	children *children
-	// wakeWas is the tree as the turn nobody sent began.
-	wakeWas string
-	// turns is the exchanges in flight and the files each has written, so a
-	// finished turn can be credited with the lines it changed. lineages is the
-	// lineage store of each workspace that has been opened, keyed by path,
-	// since the workspace itself is swapped for a worktree or a pull request.
-	turns          []*turn
-	lineages       map[string]*lineage.Store
-	previewPending bool
-	// verify is the repository's own checks after a turn: what is running,
-	// what the last run said, and a detected list waiting on your yes.
-	verifyRunning bool
-	verifyCancel  context.CancelFunc
-	verifyLast    *verify.Outcome
-	verifyOffer   []verify.Check
-	verifyGen     int
-	// attaching serialises the read-modify-writes of a reply off the turn: the
-	// pictures the preview and the outbox put on it, and the cleanse's short form.
-	attaching sync.Mutex
-	// cleansing counts the rewrites in flight, so a test can wait for them.
-	cleansing sync.WaitGroup
-	// recording is the one commit-record publisher: a commit, an amend and a
-	// merge all write the same wiki draft.
-	recording sync.Mutex
-	// sharpening guards sharpenStop, which ends the look the next one replaces.
-	sharpening  sync.Mutex
-	sharpenStop context.CancelFunc
-	// welded is the prompts the running chat turn was made of, under mu.
-	welded *weldedTurn
-	// runChatTurn is the chat turn drain starts. Tests replace it.
-	runChatTurn func(ctx context.Context, attached *chat.Context, message string, files []chat.File)
-	// recorded is the merge and keys last published for a pull request, so the
-	// poll behind it does not clone and submit the same thing on every tick.
-	recorded map[int]string
-	// ships is the Ship page's pull request cache for the repositories that
-	// are not this session's own, which nothing else polls.
-	ships shipCache
-
-	// attachment is a selection waiting to go on the next message, under mu
-	// because an editor writes it and every state read serves it.
-	attachment *Attachment
-	attachSeq  int64
 	// sides is the named agents in flight beside the main one, and heard what
 	// they said since the main agent last spoke, relayed into its next turn.
 	sides    map[string]sideRun
@@ -286,24 +163,18 @@ type Server struct {
 	// its reviewers will make, so a review of N reviewers is not capped at
 	// two by the all-or-none claim in startJobs. batches is what each review
 	// filed, until its rebuttal round has settled it.
-	held      map[string]int
-	batches   map[string]*reviewBatch
-	nextBatch int
-	heard     []design.Heard
-	// limits is the last reading of the plan windows.
-	limits    *limits.Cache
-	estimates estimate.History
-	avatars   *avatarCache
-	branchPR  *BranchPR
-	openPRs   []ghpr.Listed
+	held    map[string]int
+	batches map[string]*reviewBatch
+	// reviewRun is the last review by named agents, for the Diff to show.
+	reviewRun      *ReviewRun
+	reviewRunBatch string
+	nextBatch      int
+	avatars        *avatarCache
+	branchPR       *BranchPR
+	openPRs        []ghpr.Listed
 	// board is what is waiting on you across every repository. Not one
 	// checkout's, which is why the launcher serves the same lists.
-	board      *dash.Board
-	docVersion string
-
-	// mcpHub is the separately-running MCP control plane, if there is one. ade
-	// only ever links to it.
-	mcpHub hub.Info
+	board *dash.Board
 
 	// bus is the connection to agentbus and what it has offered this ade.
 	bus *bus
@@ -319,17 +190,6 @@ type Server struct {
 
 	// version is ade's own, told to the bus so a `who` row says what is running.
 	version string
-
-	// lsp answers language questions about this checkout. Started on the
-	// first ask: a session that never opens a file spawns no server.
-	lspOnce sync.Once
-	lsp     *lsp.Pool
-
-	// queue holds chat turns sent while the agent was busy, in the order you
-	// sent them. nextQueued names them, so removing one does not depend on a
-	// position that shifts as the queue drains.
-	queue      []queued
-	nextQueued int
 
 	// projectName is owner/repo, and projectFor is the checkout it was read
 	// for, so moving into a worktree asks again.
@@ -364,59 +224,23 @@ type Config struct {
 	Branch    string
 	Session   string
 	ClaudeBin string
-	CodexBin  string
 	Provider  string
 	Model     string
 
-	// AutoCompact is the window Claude Code compacts at ("auto" or a token
-	// count); empty leaves Claude Code's default.
-	AutoCompact string
-
-	// Sandbox runs the agent in a container, the checkout mounted, and
-	// SandboxExplicit is it having been typed rather than defaulted.
-	Sandbox         bool
-	SandboxExplicit bool
-
-	// Idle is how long to wait, with no browser attached, before shutting down.
-	// Zero stays up.
+	// Idle is how long to wait, with no window attached, before shutting down.
 	Idle time.Duration
 	Diff gitdiff.Options
 
 	// GitDir is this checkout's git directory, where its comment store lives.
 	GitDir string
 
-	// CommonGitDir is the repository's main git directory, shared with every
-	// worktree. Design documents live under it so one design is visible from
-	// the checkout that wrote it and from any worktree built off it.
+	// CommonGitDir is the repository's main git directory.
 	CommonGitDir string
 
-	// PR and Snapshot are set only for --pr. A non-empty Snapshot means the PR
-	// branch is not checked out, so the diff cannot come from local git.
+	// PR and Snapshot are set only for --pr. A Snapshot means the pull
+	// request's branch is not checked out, so the diff cannot come from git.
 	PR       *PRInfo
 	Snapshot string
-
-	// DocsDir overrides where design documents live.
-	DocsDir string
-
-	// DocFile is the document to open on, if any.
-	DocFile string
-
-	// SeedTicket drafts that document from a tracker ticket on startup. Set only
-	// when the document was just created, so an existing design is never
-	// overwritten by one.
-	SeedTicket string
-
-	// SeedIssue drafts it from a GitHub issue of this repository instead. Set
-	// by create --github, and never together with SeedTicket.
-	SeedIssue int
-
-	// Skill is a skill's body, prepended to the main chat's system prompt, and
-	// SkillName what it is called. Set by `ade investigate`.
-	Skill     string
-	SkillName string
-
-	// SeedInvestigation is a ticket to investigate under that skill on startup.
-	SeedInvestigation string
 
 	// NoLauncher prints this server's own address and starts no launcher.
 	NoLauncher bool
@@ -427,34 +251,25 @@ type Config struct {
 
 // New builds a server for a repo. The diff is loaded on Run.
 func New(cfg Config, store *comments.Store) (*Server, error) {
-	// An unset scope behaves as the branch view, so name it: the browser shows
-	// which one is active, and an empty string would show none of them.
+	// An unset scope behaves as the branch view, so name it.
 	if cfg.Diff.Scope == "" {
 		cfg.Diff.Scope = gitdiff.ScopeBranch
 	}
 	s := &Server{
-		hub:             httpx.NewHub(),
-		token:           newToken(),
-		agent:           newProviderAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.CodexBin, cfg.Provider, cfg.Model, cfg.AutoCompact, sandboxConfig{On: cfg.Sandbox, Explicit: cfg.SandboxExplicit, GitDir: cfg.CommonGitDir, Workspace: sandbox.WorkspacePath(cfg.CommonGitDir), Own: sandbox.SessionPath(cfg.GitDir)}, runlog.Open(runlog.Path(cfg.GitDir))),
-		ctx:             context.Background(),
-		idle:            cfg.Idle,
-		seedTicket:      cfg.SeedTicket,
-		seedIssue:       cfg.SeedIssue,
-		seedInvestigate: cfg.SeedInvestigation,
-		skillName:       cfg.SkillName,
-		startBase:       cfg.Diff.Base,
-		pendingID:       "pending-" + newToken(),
-		startRoot:       cfg.Root,
-		startGitDir:     cfg.GitDir,
-		commonGitDir:    cfg.CommonGitDir,
-		tools:           map[string]string{},
-		ruled:           map[string]string{},
-		children:        newChildren(),
-		bus:             newBus(),
-		busSaid:         map[string]bool{},
-		version:         cfg.Version,
-		limits:          limits.NewCache(),
-		started:         time.Now(),
+		hub:          httpx.NewHub(),
+		token:        newToken(),
+		agent:        newAgentRunner(cfg.Root, cfg.Session, cfg.ClaudeBin, cfg.Provider, cfg.Model, runlog.Open(runlog.Path(cfg.GitDir))),
+		ctx:          context.Background(),
+		idle:         cfg.Idle,
+		startBase:    cfg.Diff.Base,
+		pendingID:    "pending-" + newToken(),
+		startRoot:    cfg.Root,
+		startGitDir:  cfg.GitDir,
+		commonGitDir: cfg.CommonGitDir,
+		bus:          newBus(),
+		busSaid:      map[string]bool{},
+		version:      cfg.Version,
+		started:      time.Now(),
 
 		avatars:  newAvatarCache(),
 		openIn:   sessions.OpenIn,
@@ -472,15 +287,7 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 		},
 	}
 	s.noLauncher = cfg.NoLauncher
-	s.wiki = wikiStore()
-	s.agent.wiki = s.wiki
-	// Only with a wiki to draft into: an id allocated otherwise is a write to
-	// the runlog for a mount that never appears.
-	if s.wiki != nil && s.wiki.Enabled() {
-		s.agent.ensureWikiDraft(newToken())
-	}
-	// The board is the same three lists the launcher shows. Its gh runs in
-	// this checkout only because there is one; the queries are account-wide.
+	// The board is the same three lists the launcher shows.
 	s.board = dash.New(dash.Deps{
 		Dir:     cfg.Root,
 		Repos:   s.repos,
@@ -488,76 +295,8 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 		Create:  func(ctx context.Context, dir, ticket string) (string, error) { return s.createIn(ctx, dir, ticket) },
 		Changed: func() { s.hub.Broadcast("state", nil) },
 	})
-
-	// Set before anything can run, so a finished run always finds them.
-	s.runChatTurn = s.runChat
-	s.agent.onIdle = s.drainAfter
-	s.agent.onWake = s.afterWake
-	s.agent.onWakeStart = s.beforeWake
-	s.children.done = func() <-chan struct{} { return s.ctx.Done() }
-	s.children.spawn = s.spawn
-	s.children.dir = s.subagentsDir
-	s.children.alive = func() bool { return !s.agent.gone() }
-	s.children.touch = s.agent.touch
-	s.children.amend = s.amendChild
-	s.children.tell = func() { s.hub.Broadcast("agent", nil) }
-	s.agent.onStep = s.onStep
+	s.agent.onStep = func(string) { s.hub.Broadcast("agent", nil) }
 	s.agent.onSession = s.onSession
-	s.agent.onLimits = s.limits.NoteCodex
-	s.agent.onAsk = s.onAsk
-	s.agent.docsDir = func() string { dir, _ := s.designPlace(); return dir }
-	s.agent.outbox = s.outboxEnv
-	s.agent.projectPrompt = s.projectPrompt
-	s.agent.skill = strings.TrimSpace(cfg.Skill)
-	// What was waiting when the last server stopped is still waiting, and
-	// stays waiting: the store it comes back from is a file anything writing
-	// the git dir can plant into, so nothing runs until the user says so.
-	// Read once the store is open, below.
-	defer func() {
-		if n := s.loadQueue(); n > 0 {
-			s.say(ChatMessage{Kind: chat.KindNote, Body: fmt.Sprintf("%d queued turn(s) restored from last time — send anything, or run them from the queue", n)})
-		}
-	}()
-
-	// The conversation is read back off disk, so a restart picks up where you
-	// left off rather than opening on an empty pane. A server with no checkout
-	// behind it has nowhere of its own, so its conversation goes in the temp
-	// dir rather than in whatever directory it happened to start in.
-	chatDir := cfg.GitDir
-	if chatDir == "" {
-		chatDir = filepath.Join(os.TempDir(), fmt.Sprintf("ade-%d", os.Getpid()))
-	}
-	conversations, err := chat.Open(chat.Path(chatDir))
-	if err != nil {
-		return nil, err
-	}
-	s.chat = conversations
-
-	// A snapshot has no working tree to design against, so the Design tab is
-	// left off rather than offering a build that could not run.
-	if cfg.Snapshot == "" {
-		dir, err := docs.Dir(cfg.Root, cfg.CommonGitDir, cfg.DocsDir)
-		if err != nil {
-			return nil, err
-		}
-		s.docsDir, s.docsOverride = dir, cfg.DocsDir
-
-		switch {
-		case cfg.DocFile != "":
-			// Recorded, so a later start without the flag keeps it.
-			s.docFile = cfg.DocFile
-			if err := docs.SetOpened(cfg.CommonGitDir, cfg.Branch, cfg.Session, cfg.DocFile); err != nil {
-				slog.Debug("record open document", "file", cfg.DocFile, "err", err)
-			}
-		default:
-			// Otherwise it has to belong to this branch. Nothing matching means
-			// no Design tab, rather than opening whatever was touched last.
-			dirs := docs.SearchDirs(cfg.Root, cfg.CommonGitDir, cfg.DocsDir)
-			if found, file, ok := docs.Find(dirs, cfg.CommonGitDir, cfg.Branch, cfg.Session); ok {
-				s.docsDir, s.docFile = found, file
-			}
-		}
-	}
 
 	if cfg.Snapshot != "" {
 		base, head := "base", "PR"
@@ -573,22 +312,18 @@ func New(cfg Config, store *comments.Store) (*Server, error) {
 	return s, nil
 }
 
-// Close releases what the server holds on disk. Run does this on the way out;
-// a test that opens a second server over the same checkout has to as well,
-// since the conversation store is locked to one process.
+// onSession follows the agent to the conversation its CLI named.
+func (s *Server) onSession(_, to string) {
+	// The launcher's proxy cannot resolve a new id until it is told.
+	s.spawn(func() { s.keepAnnouncing(s.ctx, to) })
+	s.spawn(func() { s.reproxy(s.ctx) })
+}
+
+// Close releases what the server holds. Run does this on the way out.
 func (s *Server) Close() {
-	// Before the store closes: an agent still running is about to be cancelled
-	// with the process, and the conversation should say so.
-	s.noteInterruptedSides()
+	s.stopSides()
 	s.closeTerminal()
-	// A language server outlives nothing: it is this checkout's.
-	if s.lsp != nil {
-		s.lsp.Close()
-	}
 	s.settle(closeWait)
-	if err := s.chatStore().Close(); err != nil {
-		slog.Debug("close the chat store", "err", err)
-	}
 }
 
 // closeWait bounds how long Close waits for a turn's goroutines: a check still
@@ -730,7 +465,6 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	// defer is a real shutdown. A dev rebuild execs over the process, so it
 	// never gets here and a restarting page is left to reconnect.
 	defer s.hub.Bye(s.goingWhy())
-	defer s.agent.Close()
 	defer s.Close()
 
 	url := base + "/?t=" + s.token
@@ -745,8 +479,6 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 		}
 	}()
 	srv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
-	// Opened on the first box that needs one: see reachable.
-	s.agent.alsoOn = func(host string) { s.alsoServe(srv, host) }
 
 	ctx, stopIdle := context.WithCancel(ctx)
 	defer stopIdle()
@@ -756,18 +488,11 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	s.snapshotRoots(ctx)
 	s.watchLogs()
 
-	// Before anything runs: a container from a run that outlived its server is
-	// still mounted read-write on this checkout.
-	go s.agent.sweepOrphan(ctx)
-
-	go s.installCommitHook(ctx)
 	go s.poll(ctx)
 	go s.pollBranchPR(ctx)
-	go s.watchMCPHub(ctx)
 	// The rail is the announced set, so a restart has to say so itself.
 	go s.keepAnnouncing(ctx, s.railID())
 	go s.watchActivity(ctx)
-	go s.watchMachine(ctx)
 	go s.watchIdle(ctx, stopIdle)
 	go s.watchBus(ctx)
 	go func() {
@@ -776,19 +501,6 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-
-	// After the listener is up, so the browser opens on a document already being
-	// written rather than waiting for the agent first.
-	switch {
-	case s.seedTicket != "":
-		s.draftFromTicket(s.seedTicket)
-	case s.seedIssue > 0:
-		// Off this goroutine: reading the issue is a gh call, and the URL below
-		// it should not wait on the network.
-		go s.draftFromIssue(ctx, s.seedIssue)
-	case s.seedInvestigate != "":
-		s.startInvestigation(s.seedInvestigate, s.skillName)
-	}
 
 	// The rail is on the launcher's origin, not this one.
 	through, _ := s.throughLauncher(ctx)
@@ -816,61 +528,28 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("OPTIONS /api/", s.handlePreflight)
 	mux.HandleFunc("GET /api/session", s.handleSession)
-	mux.HandleFunc("POST "+wiki.MCPPath, s.handleWikiMCP)
 	mux.HandleFunc("POST "+BusMCPPath, s.handleBusMCP)
-	mux.HandleFunc("POST "+ChecksMCPPath, s.handleChecksMCP)
 
 	mux.HandleFunc("GET /api/state", s.guard(s.handleState))
 	mux.HandleFunc("POST /api/launcher", s.guard(s.handleLauncher))
 	mux.HandleFunc("GET /api/diff", s.guard(s.handleDiff))
 	mux.HandleFunc("GET /api/blob", s.guard(s.handleBlob))
-	mux.HandleFunc("GET /api/blame", s.guard(s.handleBlame))
 	// The checkout's own source, for a window that may be reaching this
 	// session from another machine.
 	mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
 	mux.HandleFunc("GET /api/source", s.guard(s.handleSource))
 	mux.HandleFunc("PUT /api/source", s.guardHome(s.handleSaveSource))
-	mux.HandleFunc("GET /api/hover", s.guard(s.handleHover))
-	mux.HandleFunc("GET /api/definition", s.guard(s.handleDefinition))
-	mux.HandleFunc("GET /api/references", s.guard(s.handleReferences))
-	mux.HandleFunc("GET /api/docs/{name...}", s.guard(s.handleDocFile))
-	mux.HandleFunc("GET /api/history", s.guard(s.handleHistory))
-	mux.HandleFunc("GET /api/file/at", s.guard(s.handleFileAt))
-	mux.HandleFunc("GET /api/lineage", s.guard(s.handleLineage))
-	mux.HandleFunc("GET /api/lineage/marks", s.guard(s.handleLineageMarks))
-	mux.HandleFunc("POST /api/attach", s.guard(s.handleAttach))
-	mux.HandleFunc("POST /api/transcribe", s.guard(whisper.Handler()))
-	mux.HandleFunc("DELETE /api/attach", s.guard(s.handleUnattach))
 	mux.HandleFunc("POST /api/threads", s.guard(s.handleCreateThread))
 	mux.HandleFunc("POST /api/threads/{id}/reply", s.guard(s.handleReply))
 	mux.HandleFunc("POST /api/threads/{id}/resolve", s.guard(s.handleThreadResolve))
 	mux.HandleFunc("DELETE /api/threads/{id}", s.guard(s.handleDelete))
 	mux.HandleFunc("POST /api/threads/reset", s.guard(s.handleResetThreads))
 	mux.HandleFunc("DELETE /api/threads", s.guard(s.handleResetThreads))
-	mux.HandleFunc("POST /api/resolve", s.guard(s.handleAgentResolve))
-	mux.HandleFunc("POST /api/threads/{id}/draft-reply", s.guardHome(s.handleDraftReply))
 	mux.HandleFunc("POST /api/threads/{id}/send-reply", s.guardHome(s.handleSendReply))
 	mux.HandleFunc("POST /api/threads/send-replies", s.guardHome(s.handleSendReplies))
-	mux.HandleFunc("POST /api/draft-replies", s.guardHome(s.handleDraftReplies))
 	mux.HandleFunc("POST /api/review", s.guard(s.handleReview))
-	mux.HandleFunc("POST /api/explain", s.guard(s.handleExplain))
-	mux.HandleFunc("POST /api/answer", s.guard(s.handleAnswer))
 	mux.HandleFunc("POST /api/cancel", s.guard(s.handleCancel))
-	mux.HandleFunc("GET /api/verify", s.guard(s.handleVerify))
-	mux.HandleFunc("POST /api/verify", s.guard(s.handleVerifySave))
-	mux.HandleFunc("POST /api/verify/run", s.guardHome(s.handleVerifyRun))
-	mux.HandleFunc("GET /api/turns/{id}/undo", s.guard(s.handleUndoPlan))
-	mux.HandleFunc("POST /api/turns/{id}/undo", s.guardHome(s.handleUndo))
-	mux.HandleFunc("POST /api/turns/{id}/fixture", s.guardHome(s.handleSaveFixture))
-	mux.HandleFunc("POST /api/sides/{id}/cancel", s.guard(s.handleCancelSide))
-	mux.HandleFunc("PUT /api/queue/{id}", s.guard(s.handleEditQueued))
-	mux.HandleFunc("DELETE /api/queue/{id}", s.guard(s.handleDropQueued))
-	mux.HandleFunc("POST /api/queue/run", s.guard(s.handleRunQueued))
-	mux.HandleFunc("POST /api/queue/{id}/urgent", s.guard(s.handlePromoteQueued))
-	mux.HandleFunc("POST /api/sharpen", s.guard(s.handleSharpen))
 	mux.HandleFunc("POST /api/commit-message", s.guard(s.handleCommitMessage))
-	mux.HandleFunc("POST /api/quiz", s.guard(s.handleQuiz))
-	mux.HandleFunc("POST /api/walkthrough", s.guard(s.handleWalkthrough))
 	mux.HandleFunc("POST /api/commit", s.guard(s.handleCommit))
 	mux.HandleFunc("POST /api/stage", s.guard(s.handleStage))
 	mux.HandleFunc("POST /api/unstage", s.guard(s.handleUnstage))
@@ -880,15 +559,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/base/rebase", s.guard(s.handleRebaseBase))
 	mux.HandleFunc("POST /api/base/catch-up", s.guardHome(s.handleCatchUp))
 	mux.HandleFunc("GET /api/commit/head", s.guard(s.handleHeadMessage))
-	mux.HandleFunc("POST /api/pr-create", s.guardHome(s.handlePRCreate))
 	mux.HandleFunc("POST /api/scope", s.guard(s.handleScope))
 	mux.HandleFunc("POST /api/diff/root", s.guard(s.handleDiffRoot))
 	mux.HandleFunc("PUT /api/diff/folders", s.guard(s.handleDiffFolders))
-	mux.HandleFunc("GET /api/ship", s.guard(s.handleShip))
 	mux.HandleFunc("GET /api/repos", s.guard(s.handleRepos))
-	mux.HandleFunc("GET /api/graph", s.guard(s.handleGraph))
-	mux.HandleFunc("POST /api/graph/cancel", s.guard(s.handleGraphCancel))
-	mux.HandleFunc("POST /api/graph/stop", s.guardHome(s.handleGraphStop))
 	mux.HandleFunc("GET /api/recent", s.guard(s.handleRecent))
 	mux.HandleFunc("POST /api/sessions/open", s.guard(s.handleOpenSession))
 	mux.HandleFunc("GET /api/prs", s.guard(s.handleListPRs))
@@ -897,12 +571,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/reviews/open", s.guard(s.handleOpenReview))
 	mux.HandleFunc("POST /api/reviews/mute", s.guard(s.handleMuteReview))
 	mux.HandleFunc("POST /api/notifications/dismiss", s.guard(s.handleDismissNotification))
-	mux.HandleFunc("GET /api/sandbox", s.guard(s.handleSandbox))
-	mux.HandleFunc("GET /api/sandbox/browse", s.guard(s.handleBrowse))
-	mux.HandleFunc("PUT /api/sandbox", s.guard(s.handleSaveSandbox))
-	mux.HandleFunc("PUT /api/sandbox/on", s.guard(s.handleSandboxOn))
-	mux.HandleFunc("GET /api/preview", s.guard(s.handlePreview))
-	mux.HandleFunc("PUT /api/preview", s.guard(s.handleSavePreview))
 	(&settingsapi.API{
 		Tickets: func() { s.board.RefreshTickets(s.ctx) },
 		Changed: func() {
@@ -914,8 +582,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/linear/refresh", s.guard(s.handleLinearRefresh))
 	mux.HandleFunc("POST /api/linear/start", s.guard(s.handleLinearStart))
 	mux.HandleFunc("DELETE /api/prs", s.guardHome(s.handleClosePR))
-	mux.HandleFunc("PUT /api/pr", s.guardHome(s.handleEditPR))
-	mux.HandleFunc("POST /api/pr/checkout", s.guardHome(s.handlePRCheckout))
 	mux.HandleFunc("POST /api/pr/merge", s.guardHome(s.handleMergePR))
 	mux.HandleFunc("POST /api/pr/approve", s.guardHome(s.handleApprovePR))
 	mux.HandleFunc("POST /api/pr/request-changes", s.guardHome(s.handleRequestChangesPR))
@@ -927,66 +593,21 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/review/finish", s.guardHome(s.handleFinishReview))
 	mux.HandleFunc("PUT /api/threads/{id}/outgoing", s.guardHome(s.handleSetOutgoing))
 	mux.HandleFunc("POST /api/checks/refresh", s.guardHome(s.handleRefreshChecks))
-	mux.HandleFunc("POST /api/checks/fix", s.guardHome(s.handleFixChecks))
 	mux.HandleFunc("GET /api/avatar/{login}", s.guard(s.handleAvatar))
-	mux.HandleFunc("GET /api/files", s.guard(s.handleFiles))
-	mux.HandleFunc("GET /api/files/raw", s.guard(s.handleFileRaw))
-	mux.HandleFunc("GET /api/files/render", s.guard(s.handleFileRender))
-	mux.HandleFunc("GET /api/files/uses", s.guard(s.handleFileUses))
-	mux.HandleFunc("DELETE /api/files", s.guard(s.handleFileDelete))
-	mux.HandleFunc("GET /api/design", s.guard(s.handleDesignDoc))
-	mux.HandleFunc("POST /api/design", s.guard(s.handleDesignCreate))
-	mux.HandleFunc("PUT /api/design", s.guard(s.handleDesignSave))
-	mux.HandleFunc("DELETE /api/design", s.guard(s.handleDesignClose))
-	mux.HandleFunc("DELETE /api/design/doc", s.guard(s.handleDesignDelete))
-	mux.HandleFunc("POST /api/design/archive", s.guard(s.handleDesignArchive))
-	mux.HandleFunc("POST /api/design/push", s.guard(s.handleDesignPush))
-	mux.HandleFunc("GET /api/hosts", s.guard(s.handleHosts))
-	mux.HandleFunc("POST /api/design/seed", s.guard(s.handleDesignSeed))
-	mux.HandleFunc("POST /api/design/fold", s.guard(s.handleDesignFold))
-	mux.HandleFunc("POST /api/design/condense", s.guard(s.handleDesignCondense))
-	mux.HandleFunc("POST /api/design/go", s.guardHome(s.handleDesignGo))
-	mux.HandleFunc("GET /api/design/estimate", s.guard(s.handleBuildEstimate))
 
-	mux.HandleFunc("GET /api/design/notes", s.guard(s.handleNotes))
-	mux.HandleFunc("POST /api/design/notes", s.guard(s.handleNoteCreate))
-	mux.HandleFunc("POST /api/design/notes/{id}/reply", s.guard(s.handleNoteReply))
-	mux.HandleFunc("POST /api/design/notes/{id}/resolve", s.guard(s.handleNoteResolve))
-	mux.HandleFunc("DELETE /api/design/notes/{id}", s.guard(s.handleNoteDelete))
-	mux.HandleFunc("POST /api/design/review", s.guard(s.handleDesignReview))
-	mux.HandleFunc("POST /api/design/accept", s.guard(s.handleDesignAccept))
-	mux.HandleFunc("GET /api/project", s.guard(s.handleProject))
-	mux.HandleFunc("PUT /api/project", s.guard(s.handleProjectSave))
-	mux.HandleFunc("POST /api/project/entry", s.guard(s.handleProjectEntry))
-	mux.HandleFunc("POST /api/project/distil", s.guard(s.handleProjectDistil))
-	mux.HandleFunc("GET /api/drift", s.guard(s.handleDrift))
-	mux.HandleFunc("POST /api/drift", s.guardHome(s.handleDriftRun))
-	mux.HandleFunc("POST /api/drift/dismiss", s.guardHome(s.handleDriftDismiss))
 	mux.HandleFunc("GET /api/logs", s.guard(s.handleLogs))
-	mux.HandleFunc("POST /api/diagnose/net", s.guard(s.handleNetCheck))
 	mux.HandleFunc("GET /api/terminal", s.guard(s.handleTerminal))
 	mux.HandleFunc("POST /api/terminal/close", s.guard(s.handleTerminalClose))
 	mux.HandleFunc("POST /api/agent/terminal", s.guard(s.handleAgentTerminal))
 	mux.HandleFunc("POST /api/agent/terminal/close", s.guard(s.handleAgentTerminalClose))
 	mux.HandleFunc("POST /api/agent/seen", s.guard(s.handleAgentSeen))
+	mux.HandleFunc("POST /api/agent/conversation", s.guard(s.handleContinue))
 	mux.HandleFunc("POST /api/agent/findings", s.guard(s.handleSendFindings))
+	mux.HandleFunc("GET /api/brief", s.guard(s.handleBrief))
+	mux.HandleFunc("POST /api/agent/brief", s.guard(s.handleSendBrief))
 	mux.HandleFunc("POST "+BadgePath, s.handleAgentBadge)
 	mux.HandleFunc("GET /api/agents", s.guard(s.handleAgents))
-	mux.HandleFunc("GET /api/internal/delegate/agents", s.handlePiAgents)
-	mux.HandleFunc("POST /api/internal/delegate", s.handlePiDelegate)
-	mux.HandleFunc("GET /api/internal/delegate/said", s.handleSaid)
-	mux.HandleFunc("POST /api/internal/delegate/doc", s.handleDelegateDoc)
-	mux.HandleFunc("GET /api/internal/delegate/drift", s.handleDelegateDrift)
-	mux.HandleFunc("GET /api/chat", s.guard(s.handleChatList))
-	mux.HandleFunc("POST /api/chat", s.guard(s.handleChat))
-	mux.HandleFunc("POST /api/chat/new", s.guard(s.handleChatNew))
-	mux.HandleFunc("POST /api/chat/clear", s.guard(s.handleChatClear))
 	mux.HandleFunc("POST /api/port", s.guardHome(s.handlePort))
-	mux.HandleFunc("POST /api/chat/resume", s.guard(s.handleChatResume))
-	mux.HandleFunc("POST /api/chat/model", s.guard(s.handleChatModel))
-	mux.HandleFunc("POST /api/chat/answer", s.guard(s.handleChatAnswer))
-	mux.HandleFunc("POST /api/chat/decide", s.guard(s.handleChatDecide))
-	mux.HandleFunc("POST /api/chat/{id}/separate", s.guard(s.handleChatSeparate))
 	mux.HandleFunc("GET /api/bus/who", s.guard(s.handleBusWho))
 	mux.HandleFunc("POST /api/bus/answer", s.guard(s.handleBusAnswer))
 	mux.HandleFunc("POST /api/bus/claim", s.guard(s.handleBusClaim))
@@ -997,32 +618,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/bus/refresh", s.guard(s.handleBusRefresh))
 	mux.HandleFunc("POST /api/bus/ask", s.guard(s.handleBusAsk))
 	mux.HandleFunc("POST /api/bus/presence", s.guard(s.handleBusPresence))
-	// Its own token, not s.guard: the caller is the agent's hook, not the page.
-	mux.HandleFunc("POST /api/hook/pretooluse", s.handleHook)
-	mux.HandleFunc("POST /api/chat/free", s.guard(s.handleFree))
-	mux.HandleFunc("GET /permissions", s.guard(s.handleRulesPage))
 	mux.HandleFunc("GET /api/permissions", s.guard(s.handleRules))
 	mux.HandleFunc("POST /api/permissions", s.guard(s.handleRuleChange))
-	mux.HandleFunc("POST /api/chat/switch", s.guard(s.handleChatSwitch))
-	mux.HandleFunc("POST /api/investigate", s.guard(s.handleInvestigate))
-	mux.HandleFunc("POST /api/sessions/archive", s.guard(s.handleArchive))
-	mux.HandleFunc("POST /api/sessions/delete", s.guard(s.handleDeleteSessions))
-	mux.HandleFunc("POST /api/sessions/combine", s.guard(s.handleCombineSessions))
-	mux.HandleFunc("POST /api/sessions/uncombine", s.guard(s.handleUncombineSessions))
-	mux.HandleFunc("POST /api/sessions/suggestion/dismiss", s.guard(s.handleDismissSessionSuggestion))
 	mux.HandleFunc("POST /api/exit", s.guard(s.handleExit))
-	mux.HandleFunc("GET /api/worktrees", s.guard(s.handleListWorktrees))
-	mux.HandleFunc("POST /api/worktrees/prune", s.guardHome(s.handlePruneWorktrees))
-	mux.HandleFunc("POST /api/worktrees/push", s.guardHome(s.handlePushWorktree))
-	mux.HandleFunc("POST /api/worktrees/close", s.guardHome(s.handleCloseWorktree))
-	mux.HandleFunc("POST /api/worktrees/merge", s.guardHome(s.handleMergeWorktree))
-	mux.HandleFunc("GET /api/worktrees/overlap", s.guard(s.handleOverlap))
-	mux.HandleFunc("GET /api/worktrees/switch", s.guard(s.handleSwitchableWorktrees))
-	mux.HandleFunc("POST /api/worktrees/switch", s.guardHome(s.handleSwitchWorktree))
-	mux.HandleFunc("GET /assets/mermaid.min.js", s.handleMermaid)
-	mux.HandleFunc("GET /design-assets/{name}", s.handleDesignAssets)
-	mux.HandleFunc("GET /design-images/{name}", s.guard(s.handleDocImage))
-	mux.HandleFunc("GET /attachments/{name}", s.guard(s.handleAttachment))
 	mux.HandleFunc("GET /api/events", s.guard(s.hub.HandleSSE))
 	return noReferrer(s.sameHost(mux))
 }
@@ -1041,9 +639,7 @@ func noReferrer(next http.Handler) http.Handler {
 func (s *Server) sameHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Empty before the listener is up, which is also how the tests call in.
-		// The wiki tool carries its own bearer capability; a box names us however it can.
-		exempt := r.Method == http.MethodPost && r.URL.Path == wiki.MCPPath
-		if s.listenPort != "" && !exempt && !localHost(r.Host, s.listenPort) {
+		if s.listenPort != "" && !localHost(r.Host, s.listenPort) {
 			slog.Warn("refused a request for another host", "host", r.Host)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -1203,25 +799,15 @@ func sameToken(got, want string) bool {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	health := session.Health{Ade: true, Root: s.startRoot, PID: os.Getpid(), Version: s.version}
 	if s.authorized(r) {
-		state := s.agentState()
+		state := s.agent.State()
 		agent := &session.AgentHealth{
 			Running: state.Running, Kind: state.Kind, Model: state.Model, Session: state.Session,
-			StartedAt: state.StartedAt, Queued: state.Queued, Error: state.Error, Sandbox: state.Sandbox,
-			LastEventAt: state.LastEventAt, Activity: state.Activity, Asking: len(state.Asking),
+			StartedAt: state.StartedAt, Error: state.Error,
+			LastEventAt: state.LastEventAt, Activity: state.Activity,
 			Terminal: state.Terminal,
 		}
 		for _, side := range state.SideRuns {
 			agent.SideRuns = append(agent.SideRuns, side.Name)
-		}
-		for _, each := range state.Waiting {
-			agent.Stacked = append(agent.Stacked, session.AgentQueued{
-				ID: each.ID, Kind: each.Kind, What: each.What,
-			})
-		}
-		for _, child := range state.Children {
-			agent.Children = append(agent.Children, session.AgentChild{
-				Kind: child.Kind, Name: child.Name, Doing: child.Doing,
-			})
 		}
 		health.Branch = s.space().branch
 		health.Agent = agent
@@ -1250,44 +836,15 @@ type stateResponse struct {
 	Meta          meta                `json:"meta"`
 	Agent         RunState            `json:"agent"`
 	Draft         *CommitDraft        `json:"draft,omitempty"`
-	Quiz          *Quiz               `json:"quiz,omitempty"`
-	Walkthrough   *Walkthrough        `json:"walkthrough,omitempty"`
 	PR            *PRInfo             `json:"pr,omitempty"`
 	Worktree      *gitdiff.Status     `json:"worktree,omitempty"`
-	Created       *CreatedPR          `json:"created,omitempty"`
-	Design        *DesignState        `json:"design,omitempty"`
 	BranchPR      *BranchPR           `json:"branchPr,omitempty"`
 	OpenPRs       []ghpr.Listed       `json:"openPrs,omitempty"`
 	Reviews       []dash.Review       `json:"reviews,omitempty"`
+	ReviewRun     *ReviewRun          `json:"reviewRun,omitempty"`
 	Notifications []dash.Notification `json:"notifications,omitempty"`
-	// Hub is mcp-hub when it happens to be running. Absent rather than a
-	// disabled button: there is nothing to offer and nothing to explain.
-	Hub *hub.Info `json:"hub,omitempty"`
-
-	// Verify is the repository's own checks: the last run, or an offer to
-	// start running them. Absent until there is something to say.
-	Verify *VerifyState `json:"verify,omitempty"`
-
-	// Limits is how full the subscription windows are, when known.
-	Limits *LimitsState `json:"limits,omitempty"`
-
 	// Linear is the issues assigned to you, when a key is set.
 	Linear *dash.Tickets `json:"linear,omitempty"`
-
-	// Project is the project's memory, as a count rather than its contents:
-	// how much is waiting to be reviewed and how far behind distillation is.
-	Project *ProjectDebt `json:"project,omitempty"`
-
-	// Chat is which conversation the agent is in and how long it is, so a
-	// page whose copy disagrees knows to read it again — a stream frame it
-	// missed, a fetch that crossed a message on the way — without the
-	// messages themselves, which are fetched on their own.
-	Chat ChatInfo `json:"chat"`
-
-	// Attachment is a selection an editor put on the next message, absent when
-	// the composer has nothing waiting.
-	Attachment *Attachment `json:"attachment,omitempty"`
-
 	// Bus is what agentbus has offered this ade, and whether it is joined.
 	// Absent when there is no bus and nothing waiting.
 	Bus *BusState `json:"bus,omitempty"`
@@ -1301,12 +858,6 @@ type stateResponse struct {
 type Fault struct {
 	Count  int    `json:"count"`
 	Latest string `json:"latest"`
-}
-
-// ChatInfo is the conversation's session and its length.
-type ChatInfo struct {
-	Session string `json:"session"`
-	Count   int    `json:"count"`
 }
 
 type meta struct {
@@ -1385,43 +936,19 @@ func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
 			View:     ws.viewRoot,
 			Files:    len(diff.Files),
 		},
-		Agent:         s.agentState(),
+		Agent:         s.agent.State(),
 		Draft:         s.currentDraft(),
-		Quiz:          s.currentQuiz(),
-		Walkthrough:   s.currentWalkthrough(),
 		PR:            ws.pr,
 		Worktree:      s.currentWorktree(),
-		Created:       s.currentCreatedPR(),
-		Design:        s.currentDesign(),
 		BranchPR:      s.currentBranchPR(),
 		OpenPRs:       s.currentOpenPRs(),
 		Reviews:       s.board.Reviews(),
+		ReviewRun:     s.currentReviewRun(),
 		Notifications: s.board.Notifications(),
-		Hub:           s.currentMCPHub(),
-		Limits:        s.currentLimits(),
-		Verify:        s.verifyState(),
 		Linear:        s.board.Tickets(),
-		Project:       s.projectDebt(),
-		Chat:          s.chatInfo(),
-		Attachment:    s.currentAttachment(),
 		Bus:           s.currentBus(),
 		Fault:         currentFault(),
 	})
-}
-
-// chatInfo is where the conversation is and how long, for the state.
-func (s *Server) chatInfo() ChatInfo {
-	session := s.agent.Current()
-	return ChatInfo{Session: session, Count: s.chatStore().Len(session)}
-}
-
-// currentLimits is the plan windows as last read, or nothing yet.
-func (s *Server) currentLimits() *LimitsState {
-	state := s.limits.Snapshot(s.ctx)
-	if state.Claude == nil && state.Codex == nil {
-		return nil
-	}
-	return &state
 }
 
 // handleDiff serves the diff on its own, tagged with the version /api/state
@@ -1577,10 +1104,6 @@ func (s *Server) handleExit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"stopping": true})
 
-	// The door is the last chance to have this session's prose distilled, and
-	// the launcher is what will still be here to do it.
-	s.quietly()
-
 	// Nil before Run has started serving, which is every test and no real
 	// browser: answering is still the honest thing to do.
 	if s.stop == nil {
@@ -1632,53 +1155,6 @@ func (s *Server) poll(ctx context.Context) {
 			s.tick(ctx)
 		}
 	}
-}
-
-// watchMCPHub keeps track of whether mcp-hub is up, so the page can offer a way
-// into it.
-//
-// On its own timer rather than the main tick: that runs every 1.5s and the hub
-// does not come and go at anything like that rate, so probing a loopback port
-// with it would be noise for no news. Costs a failed stat when no hub has ever
-// run, which is the usual case.
-func (s *Server) watchMCPHub(ctx context.Context) {
-	const step = 10 * time.Second
-
-	check := func() {
-		found := hub.Detect(ctx)
-		s.mu.Lock()
-		changed := found != s.mcpHub
-		s.mcpHub = found
-		s.mu.Unlock()
-		// The button appears and disappears on this, so the page has to be told
-		// rather than left until something else refetches.
-		if changed {
-			s.hub.Broadcast("state", nil)
-		}
-	}
-
-	check()
-	ticker := time.NewTicker(step)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			check()
-		}
-	}
-}
-
-// currentMCPHub is the last look, or nothing when there is no hub to offer.
-func (s *Server) currentMCPHub() *hub.Info {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if !s.mcpHub.Running {
-		return nil
-	}
-	found := s.mcpHub
-	return &found
 }
 
 // going records why the server is shutting down, for the farewell the pages
@@ -1746,31 +1222,6 @@ func (s *Server) tick(ctx context.Context) {
 	}
 	s.followBranch(ctx)
 	s.holdViewRoot(ctx)
-	s.watchDoc()
-	s.drainCommits(ctx)
-}
-
-// watchDoc notices the agent rewriting the open design document. It writes the
-// file directly, so without this the browser sits showing whatever it fetched
-// when the run started and you have to reload by hand at the right moment.
-func (s *Server) watchDoc() {
-	if s.docsDir == "" {
-		return
-	}
-	file := s.currentDoc()
-	if file == "" {
-		return
-	}
-	version := docs.Version(s.docsDir, file)
-
-	s.mu.Lock()
-	changed := version != s.docVersion
-	s.docVersion = version
-	s.mu.Unlock()
-
-	if changed {
-		s.hub.Broadcast("state", nil)
-	}
 }
 
 // followBranch picks up a checkout under a long-lived server. Without it a

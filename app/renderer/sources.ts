@@ -46,60 +46,6 @@ export const SOURCES: Record<Choice, Source> = {
         value: r.repo,
       })),
   },
-  model: {
-    at: "launcher",
-    path: "/api/models",
-    rows: (got) =>
-      list(got.models).map((m) => ({ label: str(m.label) || str(m.id), value: m.id })),
-  },
-  role: {
-    at: "launcher",
-    path: "/api/roles",
-    rows: (got) => list(got.roles).map((r) => ({ label: str(r.name), note: str(r.about), value: r.name })),
-  },
-  // The list the switch is gated on, so nothing offered is refused. The
-  // checkout the session is already in is not somewhere to move it to.
-  // Worktrees move the session to another checkout; branches switch the one
-  // it is in. Each row carries the field the switch takes.
-  worktree: {
-    at: "session",
-    path: "/api/worktrees/switch",
-    rows: (got) => [
-      ...list(got.worktrees)
-        .filter((t) => t.path !== got.here)
-        .map((t) => ({
-          label: str(t.name),
-          note: str(t.branch) || str(t.path),
-          value: { path: str(t.path) },
-        })),
-      ...list(got.branches).map((b) => ({
-        label: str(b.name),
-        note: b.stashed ? `${String(b.stashed)} files set aside · ${str(b.at)}` : str(b.at),
-        value: { branch: str(b.name) },
-      })),
-    ],
-  },
-  agent: {
-    at: "session",
-    path: "/api/state",
-    rows: (got) =>
-      list((got.agent as { sideRuns?: unknown })?.sideRuns).map((run) => ({
-        label: `@${str(run.name)}`,
-        note: run.startedAt ? `since ${new Date(String(run.startedAt)).toLocaleTimeString()}` : "",
-        value: run.id,
-      })),
-  },
-  // This machine is not somewhere else, so it is not offered. Neither is one
-  // ade has not connected: starting there fails on arrival, three questions
-  // after the machine was picked.
-  machine: {
-    at: "launcher",
-    path: "/api/hosts",
-    rows: (got) =>
-      list(got.hosts)
-        .filter((h) => !h.local && h.connected)
-        .map((h) => ({ label: str(h.label) || str(h.name), note: str(h.name), value: h.name })),
-  },
   // What the server will take as a reviewer: `reviews: true`, and user
   // scope only — a branch could otherwise ship the reviewer that reviews it.
   reviewer: {
@@ -109,56 +55,6 @@ export const SOURCES: Record<Choice, Source> = {
       list(got.agents)
         .filter((a) => a.reviews && a.scope === "user")
         .map((a) => ({ label: `@${str(a.name)}`, note: str(a.description), value: a.name })),
-  },
-  // A resolved thread is not one to resolve, so it is not offered.
-  // Two sources, because kept and proposed take different verbs.
-  remembered: {
-    at: "session",
-    path: "/api/project",
-    rows: (got) =>
-      list(got.entries)
-        .filter((e) => e.state !== "superseded")
-        .map((e) => ({ label: str(e.heading), note: first1(e.body), value: e.id })),
-  },
-  proposed: {
-    at: "session",
-    path: "/api/project",
-    rows: (got) =>
-      list(got.proposed).map((e) => ({
-        label: str(e.heading),
-        note: first1(e.body),
-        value: e.id,
-      })),
-  },
-  // The requirements this change is checked against, split by whether
-  // they are still being checked: the two take opposite verbs.
-  drifted: {
-    at: "session",
-    path: "/api/drift",
-    rows: (got) =>
-      list(got.items)
-        .filter((i) => !i.dismissed)
-        .map((i) => ({ label: str(i.text), note: str(i.verdict), value: i.id })),
-  },
-  dismissed: {
-    at: "session",
-    path: "/api/drift",
-    rows: (got) =>
-      list(got.items)
-        .filter((i) => i.dismissed)
-        .map((i) => ({ label: str(i.text), note: "dismissed", value: i.id })),
-  },
-  thread: {
-    at: "session",
-    path: "/api/state",
-    rows: (got) =>
-      list(got.threads)
-        .filter((t) => !t.resolved)
-        .map((t) => ({
-          label: `${str(t.file)}:${t.line ?? 0}`,
-          note: first(t.comments),
-          value: t.id,
-        })),
   },
   reply: {
     at: "session",
@@ -206,11 +102,6 @@ function bus(got: Record<string, unknown>): { replies?: unknown; offers?: unknow
   return (got.bus as { replies?: unknown; offers?: unknown }) ?? {};
 }
 
-// The comment a thread opened with, which is what it is about.
-function first(comments: unknown): string {
-  return str(list(comments)[0]?.body).split("\n")[0];
-}
-
 function list(of: unknown): Row[] {
   return Array.isArray(of) ? (of as Row[]) : [];
 }
@@ -219,7 +110,3 @@ function str(of: unknown): string {
   return typeof of === "string" ? of : "";
 }
 
-// first1 is a body's opening line, which is what a pick has room for.
-function first1(body: unknown): string {
-  return String(body ?? "").split("\n")[0].trim();
-}

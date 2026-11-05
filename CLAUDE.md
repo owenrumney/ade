@@ -76,8 +76,8 @@ connection by the process it holds responsible, which for an `ade` the window
 starts is ADE.app, and for one a terminal starts is the terminal. A dial from
 the Go binary is judged exactly as the ssh it stands in for.
 
-The symptom is ssh to a LAN host failing with `No route to host` from the
-Machines tree while Tailscale, the router and the internet all work. Measure
+The symptom is a dial to a LAN host failing with `No route to host` from an
+`ade` the window started while Tailscale, the router and the internet all work. Measure
 it in this order, and do not skip step 1:
 
 1. From a terminal outside ade, with an Apple-signed tool so nothing new gets
@@ -85,9 +85,7 @@ it in this order, and do not skip step 1:
    unsigned one gets its own Settings row and its own refusal. That mistake
    cost this repository an evening. If `nc` fails, the Mac cannot reach the
    host and nothing here will change it.
-2. The same dial from inside the window-spawned tree, or `ade.diagnose`
-   (**ade: Check the network**), which dials every bookmarked machine from the
-   launcher. This is the verdict.
+2. The same dial from a Shell tab inside the window. This is the verdict.
 3. Only if step 2 says `No route to host`: the *window's* row under Settings →
    Privacy & Security → Local Network.
 
@@ -124,8 +122,8 @@ picture of the change is worth more than a paragraph claiming it works.
 The outbox itself is not specific to this repository: `$ADE_OUTBOX` names it in
 every session, and the system prompt tells every editing agent to use it.
 
-It will not send a view you did not name: `make app-shots VIEWS="app-chat
-app-code"`. Named views are the only ones shot and the only ones copied to the
+It will not send a view you did not name: `make app-shots VIEWS="app-session
+app-diff"`. Named views are the only ones shot and the only ones copied to the
 outbox; a bare run writes every view to `app/dist/shots` and sends none. `make
 app-shots VIEWS=nope` lists the names. A reply carries four pictures.
 
@@ -135,18 +133,16 @@ and `ADE_CHROME` points at one somewhere else. Reprovisioning happens between
 turns, so a container that had chromium an hour ago may not now — read the
 error rather than assuming the last install held.
 
-`internal/web/preview.go` is a different feature — the post-turn preview capture
-of a local dev server. It is off under a sandbox by design. It is not this.
 
 ## The prompts that are not here
 
-`internal/roles/defaults` and `internal/agents/defaults` hold a `README` and no
+`internal/agents/defaults` holds a `README` and no
 `.md`. The prompts name people, an employer and internal conventions, so they
 live in the private `ade-private` repository beside this checkout. `make
 private` copies them in, and `.gitignore` stops them coming back.
 
 Without them ade builds and every test passes: `install` installs nothing, and
-the machine's own `~/.ade/roles` and `~/.claude/agents` are read as always.
+the machine's own `~/.claude/agents` are read as always.
 `TestTheShippedAgentsParseAndOnlyTheWritersWrite` skips itself, so the check
 that the shipped agents declare the right tools only runs once you have copied
 them in. Edit a prompt in `ade-private`, not in the working copy here: the copy
@@ -163,14 +159,14 @@ guide allows speaking the protocol instead.
 Do not swap the mirror for the real client. A frame that changes is changed
 here; a frame ade does not send is not copied here.
 
-The design doc is `.git/ade/docs/agentbus-harness.md`, including why a review
+The design doc is `~/.ade/designs/agentbus-harness/design.md`, including why a review
 claimed in one checkout cannot report its verdict from the worktree ade opens
 for it.
 
 ## Comments
 
 Two lines is the hard limit for any one comment, and comments may be at most
-12% of the lines a change adds. Both are enforced by `internal/bridge`
+12% of the lines a change adds. Both are enforced by `internal/ratchet`
 (`TestNoCommentInTheWorkingTreeRunsPastTheCap`,
 `TestCommentsAreASmallPartOfWhatTheWorkingTreeAdds`) against the working tree,
 so a change that argues its case in the margins fails the build.
@@ -196,7 +192,7 @@ it from source, `make app-install` puts it in /Applications. The VSCodium fork
 and the VS Code extension are both gone; `.git/ade/docs/editor-removal.md` is
 the plan they went by.
 
-- `app/renderer` is the window: tabs, the sidebar, the diff, the chat dock.
+- `app/renderer` is the window: sessions on the left, a session's three tabs, the diff, the lists on the right.
 - `app/pages` are the panels it frames, one iframe each, talking to a host in
   `app/renderer/panels.ts` over `postMessage`. They were the extension's
   webviews and still wear its contract: `acquireVsCodeApi()`, a `ready`

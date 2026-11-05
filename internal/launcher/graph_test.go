@@ -12,9 +12,9 @@ import (
 	"github.com/owenrumney/ade/internal/session"
 )
 
-func TestTheGraphEndpointNeedsTheToken(t *testing.T) {
+func TestStoppingAServerNeedsTheToken(t *testing.T) {
 	s := newTestLauncher(t)
-	req := do(t, s, "GET", "/api/graph?t=wrong", "")
+	req := do(t, s, "POST", "/api/graph/stop?t=wrong", `{"dir":"/nowhere"}`)
 	assert.Equal(t, http.StatusForbidden, req.Code)
 }
 

@@ -191,7 +191,7 @@ func (s *Server) swap(ctx context.Context, next *workspace) error {
 	s.ws = next
 	s.diff, s.diffHash = diff, hashDiff(diff)
 	s.worktree, s.worktreeHash = nil, ""
-	s.draft, s.created = nil, nil
+	s.draft = nil
 	s.mu.Unlock()
 
 	sweptComments(next.store.Reanchor(diff))

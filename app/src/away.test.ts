@@ -32,7 +32,7 @@ describe("a link in the window", () => {
   it("knows the browser's from ade's own", () => {
     expect(outward("https://example.com")).toBe(true);
     expect(outward("http://127.0.0.1:4000/x")).toBe(true);
-    expect(outward("ade-webview://panel/chat")).toBe(false);
+    expect(outward("ade-webview://panel/settings")).toBe(false);
     expect(outward("file:///Applications/ADE.app/renderer/index.html")).toBe(false);
   });
 
@@ -48,7 +48,7 @@ describe("a link in the window", () => {
     opened.length = 0;
     const it = fake();
     away(it.win as never);
-    expect(it.navigate("ade-webview://panel/chat")).toBe(false);
+    expect(it.navigate("ade-webview://panel/settings")).toBe(false);
     expect(opened).toEqual([]);
   });
 

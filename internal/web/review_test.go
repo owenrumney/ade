@@ -12,22 +12,16 @@ import (
 	"github.com/owenrumney/ade/internal/review"
 )
 
-func TestReviewQueuesBehindAConcurrentRun(t *testing.T) {
+func TestReviewIsRefusedWhileARunIsInFlight(t *testing.T) {
 	s := newTestServer(t)
 
-	_, ok := s.agent.begin(context.Background(), "resolve")
+	_, ok := s.agent.begin(context.Background(), kindCommitMessage)
 	require.True(t, ok)
 	defer s.agent.finish(nil)
 
 	rec := do(t, s, "POST", "/api/review", `{"level":"medium"}`)
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-
-	// The level is the ask, so a review at another depth is another entry.
-	rec = do(t, s, "POST", "/api/review", `{"level":"medium"}`)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-	rec = do(t, s, "POST", "/api/review", `{"level":"high"}`)
-	assert.Contains(t, rec.Body.String(), `"queued":2`)
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "a run is already going here")
 }
 
 func TestReviewRejectsAnEmptyDiff(t *testing.T) {
@@ -96,18 +90,6 @@ func TestFileFindings(t *testing.T) {
 		assert.True(t, got.Orphaned)
 		assert.Equal(t, "ghost.go", got.File)
 	})
-}
-
-func TestFileFindingsIsResolvable(t *testing.T) {
-	s := newTestServer(t)
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-	s.agent.finish(nil)
-
-	s.fileFindings([]review.Finding{{File: "a.go", Line: 3, Summary: "fix me"}}, comments.AuthorAgent, s.agent.step)
-
-	// A filed finding must be picked up by Resolve like any hand-written comment.
-	assert.Len(t, s.threadsToResolve(nil), 1)
 }
 
 func TestReconcile(t *testing.T) {

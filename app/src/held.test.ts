@@ -5,23 +5,23 @@ describe("a part of the gather that failed this time", () => {
   it("keeps the rows it had, and still names the trouble", async () => {
     const kept = keeper();
     const trouble: Record<string, string> = {};
-    expect(await kept("todos", "/code/ade", Promise.resolve([{ id: "a" }]), trouble)).toHaveLength(1);
+    expect(await kept("spaces", "/code/ade", Promise.resolve([{ id: "a" }]), trouble)).toHaveLength(1);
 
     const again = await kept<{ id: string }>(
-      "todos",
+      "spaces",
       "/code/ade",
       Promise.reject(new Error("The operation was aborted due to timeout")),
       trouble,
     );
     expect(again).toEqual([{ id: "a" }]);
-    expect(trouble.todos).toContain("timeout");
+    expect(trouble.spaces).toContain("timeout");
   });
 
   it("does not hand one checkout's list to another", async () => {
     const kept = keeper();
     const trouble: Record<string, string> = {};
-    await kept("todos", "/code/ade", Promise.resolve([{ id: "a" }]), trouble);
-    expect(await kept("todos", "/code/other", Promise.reject(new Error("no")), trouble)).toEqual([]);
+    await kept("spaces", "/code/ade", Promise.resolve([{ id: "a" }]), trouble);
+    expect(await kept("spaces", "/code/other", Promise.reject(new Error("no")), trouble)).toEqual([]);
   });
 
   it("says why in the caller's words", async () => {

@@ -142,14 +142,14 @@ describe("the needs", () => {
   });
 
   it("are picked by the path, query string and all", () => {
-    expect(needFor("/api/ship")).toBe(NEED.ship);
     expect(needFor("/api/pr/checks")).toBe(NEED.pr);
-    expect(needFor("/api/designs?all=1")).toBe(NEED.lists);
+    expect(needFor("/api/repos?all=1")).toBe(NEED.lists);
+    expect(needFor("/api/branches")).toBe(NEED.lists);
     expect(needFor("/api/state")).toBe(NEED.agent);
     expect(needFor("/api/diff")).toBe(NEED.diff);
   });
 
   it("read a path with no need every look, as every panel did before", () => {
-    expect(needFor("/api/sandbox")).toBe(0);
+    expect(needFor("/api/settings")).toBe(0);
   });
 });

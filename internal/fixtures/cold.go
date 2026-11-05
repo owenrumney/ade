@@ -3,7 +3,7 @@ package fixtures
 import (
 	"context"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/oneshot"
 )
 
 // editTools is what a fixture run may use: enough to make a change and run
@@ -14,7 +14,7 @@ var editTools = []string{"Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "
 // transcript: a fixture run read back as a conversation would be noise.
 func ColdRunner(bin string) Runner {
 	return func(ctx context.Context, req Request) (Response, error) {
-		turn, err := bridge.OneShot(ctx, bridge.OneShotOpts{
+		turn, err := oneshot.Run(ctx, oneshot.Opts{
 			Bin:                  bin,
 			Dir:                  req.Dir,
 			Model:                req.Model,

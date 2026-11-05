@@ -1,20 +1,17 @@
-// The chat is a dock on the right, not a tab. What that costs the window.
+// The three columns beside the terminal, each dragged by its own grip and kept.
 
-export const CHAT_MIN = 280;
-export const CHAT_MAX = 900;
-export const SIDEBAR_MIN = 180;
-export const SIDEBAR_MAX = 720;
+export type Edge = "sidebar" | "files" | "side";
 
-// A dock that hides itself as the window narrows reads as a bug.
-export function sideWidth(which: "sidebar" | "chat", want: number): number {
-  const low = which === "chat" ? CHAT_MIN : SIDEBAR_MIN;
-  const high = which === "chat" ? CHAT_MAX : SIDEBAR_MAX;
-  return Math.min(high, Math.max(low, Math.round(want)));
-}
+// css is the variable the column's width is read from; `back` is a grip on
+// the column's left, where a pointer moving left widens it.
+export const WIDTHS: Record<Edge, { key: string; css: string; min: number; max: number; back?: true }> = {
+  // Its own key: the width the old window kept was for a sidebar of lists, not tabs.
+  sidebar: { key: "ade.sessions.w", css: "--sidebar-w", min: 160, max: 560 },
+  files: { key: "ade.files", css: "--files-w", min: 200, max: 640 },
+  side: { key: "ade.side.w", css: "--side-w", min: 240, max: 720, back: true },
+};
 
-// The panel ids that used to open a chat tab.
-const CHAT_PANELS = new Set(["ade.openChat", "ade.focusChat", "ade.concierge"]);
-
-export function isChat(panel: string): boolean {
-  return CHAT_PANELS.has(panel);
+// A column that hides itself as the window narrows reads as a bug.
+export function sideWidth(which: Edge, want: number): number {
+  return Math.min(WIDTHS[which].max, Math.max(WIDTHS[which].min, Math.round(want)));
 }

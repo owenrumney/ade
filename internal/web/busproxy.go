@@ -104,16 +104,14 @@ func (s *Server) pulseBus(ctx context.Context) {
 // reportBus is this checkout's account of itself: what the launcher cannot
 // see from outside, which is focus and what the agent is doing.
 func (s *Server) reportBus(ctx context.Context) {
-	run := s.agentState()
+	run := s.agent.State()
 	running, asking := busStanding(run)
 	body := map[string]any{
-		"dir":         s.startRoot,
-		"label":       s.busLabel(),
-		"focused":     s.here(),
-		"asking":      asking,
-		"running":     running,
-		"queued":      run.Queued,
-		"queue_since": s.queueSince(),
+		"dir":     s.startRoot,
+		"label":   s.busLabel(),
+		"focused": s.here(),
+		"asking":  asking,
+		"running": running,
 	}
 	if err := busCall(ctx, http.MethodPost, "/api/bus/checkout", body, nil); err != nil {
 		slog.Debug("report to the launcher's bus", "err", err)

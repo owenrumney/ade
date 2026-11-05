@@ -1,8 +1,10 @@
 package web
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // BusMCPPath is where ade serves the bus tools. The agentbus skills name the
@@ -158,4 +160,11 @@ func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, message 
 		"jsonrpc": "2.0", "id": id,
 		"error": map[string]any{"code": code, "message": message},
 	})
+}
+
+// delegateBearer is the same token as a bearer, which is how codex sends it.
+func (s *Server) delegateBearer(r *http.Request) bool {
+	given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && s.delegateToken != "" &&
+		subtle.ConstantTimeCompare([]byte(strings.TrimSpace(given)), []byte(s.delegateToken)) == 1
 }

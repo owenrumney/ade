@@ -17,8 +17,8 @@ const mac = process.platform === "darwin";
 // the renderer draws what it draws with no launcher: one place, holding
 // the line that says so. That it got that far is the point.
 const want = {
-  // The one place an offline window has, and the terminal button beside it.
-  places: 2,
+  // An offline window has its one line on the left and nothing on the bar.
+  places: 0,
   rows: 1,
   offline: true,
   bridge: "object",
@@ -29,25 +29,14 @@ const want = {
 // names a checkout carries slashes, which is not one path segment, and
 // the iframe showed "no such panel".
 const PANEL_IDS = [
-  "ade.openChat",
-  "ade.commitPanel",
-  "ade.audit",
-  "ade.machines",
   "ade.openSettings",
-  "ade.worktrees",
   "ade.newSession",
-  "design:spaces.md",
-  "spacedesign:/Users/x/code/infracost/coast|FIX-818.md",
-  "pr:412",
+  "in:/Users/x/code/infracost/coast",
 ];
 
 // One bundle per page, as the Makefile's PAGES builds them. A panel whose
 // bundle is missing frames and then draws nothing.
-const BUNDLES = [
-  "chat", "settings", "commit", "worktrees", "repo", "purge",
-  "designprune", "quiz", "designedit", "newsession", "sandbox", "audit",
-  "machines",
-];
+const BUNDLES = ["settings", "newsession"];
 
 async function panelsAreReachable() {
   serve(join(__dirname, ".."));

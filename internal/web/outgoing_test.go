@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
 )
@@ -214,7 +214,6 @@ func TestReadyToSendIsOnlyWhatWasConverted(t *testing.T) {
 func TestConvertRunsBesideARunningAgentOnTheSmallModel(t *testing.T) {
 	s := newTestServer(t)
 	s.agent.bin = filepath.Join(t.TempDir(), "no-such-claude")
-	s.agent.switchModel("opus")
 	thread, err := s.space().store.Add(comments.Thread{
 		File: "a.go", Side: "right", Line: 3,
 		Comments: []comments.Comment{{Author: "agent", Body: "finding"}},
@@ -230,81 +229,14 @@ func TestConvertRunsBesideARunningAgentOnTheSmallModel(t *testing.T) {
 	rec := do(t, s, "POST", "/api/threads/"+thread.ID+"/convert", "")
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	assert.NotContains(t, rec.Body.String(), "queued")
-	assert.Zero(t, s.stacked())
 
-	// No claude to run it, so it fails fast — under its own kind, so the
-	// page folds it, and never as the main agent's failure.
+	// No claude to run it, so it fails fast, and never as the main agent's failure.
 	assert.Eventually(t, func() bool {
-		for _, msg := range messagesOfKind(s.conversation(), chat.KindNote) {
-			if msg.Run == kindConvert && msg.Failed {
-				return true
-			}
-		}
-		return false
+		return strings.HasPrefix(lastSaid(s), "convert for GitHub: ")
 	}, 5e9, 1e7)
 	assert.True(t, s.agent.State().Running, "the review was never interrupted")
 	assert.Empty(t, s.agent.State().Error)
 	assert.Eventually(t, func() bool { return len(s.sideRuns()) == 0 }, 5e9, 1e7)
-}
-
-func TestAConvertSavedByAnOlderAdeDoesNotWedgeTheAgent(t *testing.T) {
-	s := newTestServer(t)
-	s.stack(queued{kind: kindConvert, thread: "gone"})
-
-	s.drain()
-
-	// It runs beside the agent now, or not at all for a comment that is not
-	// there; either way the runner is not held.
-	assert.Zero(t, s.stacked())
-	assert.False(t, s.agent.State().Running)
-	assert.Empty(t, s.sideRuns())
-}
-
-func TestDroppingAQueuedPromptTakesItsMessageToo(t *testing.T) {
-	s := newTestServer(t)
-	writeDoc(t, s, "plan.md", "# Plan\n")
-	s.setDoc("plan.md")
-
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-	defer s.agent.finish(nil)
-
-	require.Equal(t, http.StatusAccepted,
-		do(t, s, "POST", "/api/chat", `{"message":"the one I change my mind about"}`).Code)
-	require.Len(t, messagesOfKind(s.conversation(), "you"), 1)
-
-	// A queued prompt is on screen the moment you send it. Taking it out of the
-	// queue has to take the message with it, or the conversation keeps a prompt
-	// that will never run.
-	id := s.waiting()[0].ID
-	rec := do(t, s, "DELETE", "/api/queue/"+id, "")
-	require.Equal(t, http.StatusNoContent, rec.Code)
-
-	assert.Empty(t, messagesOfKind(s.conversation(), "you"), "the dropped prompt is still in the conversation")
-	assert.Zero(t, s.stacked())
-}
-
-func TestCancellingUnsaysEverythingItDropped(t *testing.T) {
-	s := newTestServer(t)
-	writeDoc(t, s, "plan.md", "# Plan\n")
-	s.setDoc("plan.md")
-
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-
-	for _, message := range []string{"one", "two"} {
-		require.Equal(t, http.StatusAccepted,
-			do(t, s, "POST", "/api/chat", `{"message":"`+message+`"}`).Code)
-	}
-	require.Len(t, messagesOfKind(s.conversation(), "you"), 2)
-
-	require.Equal(t, http.StatusNoContent, do(t, s, "POST", "/api/cancel", "").Code)
-
-	// The prompts go; the note saying they went stays.
-	assert.Empty(t, messagesOfKind(s.conversation(), "you"), "cancel left the dropped prompts on screen")
-	notes := messagesOfKind(s.conversation(), "note")
-	require.Len(t, notes, 1)
-	assert.Contains(t, notes[0].Body, "dropped 2")
 }
 
 func TestMatchSentFindsTheCommentItWasPostedAs(t *testing.T) {

@@ -50,13 +50,7 @@ func (s *Server) handleActive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) activeSessions(ctx context.Context) []ActiveSession {
-	rows := s.localSessions(ctx)
-	hosts := s.hostSessions(ctx)
-	if len(hosts) == 0 {
-		return rows
-	}
-	out := make([]ActiveSession, 0, len(rows)+len(hosts))
-	return append(append(out, rows...), hosts...)
+	return s.localSessions(ctx)
 }
 
 func (s *Server) localSessions(ctx context.Context) []ActiveSession {

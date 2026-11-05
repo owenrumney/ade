@@ -15,150 +15,53 @@ mkdirSync(out, { recursive: true });
 // order, so shooting the gallery means sending the first four for ever
 // and never the one the change is about. Name what you want:
 //
-//     make app-shots VIEWS="app-chat app-code"
+//     make app-shots VIEWS="app-sessions app-diff"
 //
 // Nothing named shoots them all and sends none, which is the honest
 // default: the files are on disk to look at.
 const wanted = process.argv.slice(2).flatMap((bit) => bit.split(/[\s,]+/)).filter(Boolean);
 
-// Each view: the activity button by its title, then the row or the twigs
-// to open. `session` picks a checkout first, which is what a session verb
-// and the Review diff both act on.
+// Each view: `session` picks one on the left, `tab` one of its three tabs,
+// `place` a button on the bar, then `row` in its list or `twigs` in the Diff's files.
+const S = "Rethink the workflow and the window";
+const FILE = ["app/renderer", "doing.ts"];
 const VIEWS = [
-  { name: "app-prs", place: "Pull requests", row: "#412 Add usage tiles to the desk" },
-  { name: "app-designs", place: "Designs", row: "rethink-workflow-and-uk" },
-  {
-    name: "app-design-notes",
-    place: "Designs",
-    row: "rethink-workflow-and-uk",
-    settle: 1200,
-  },
-  { name: "app-spaces", place: "Spaces" },
-  { name: "app-space", place: "Spaces", row: "owenrumney/ade" },
-  { name: "app-issues", place: "Issues" },
-  {
-    name: "app-space-new-session",
-    place: "Spaces",
-    row: "owenrumney/ade",
-    keys: "k",
-    type: "New Session",
-    enter: true,
-    settle: 600,
-  },
-  { name: "app-open-space", place: "Spaces", keys: "k", type: "open space" },
-  {
-    name: "app-open-space-again",
-    place: "Spaces",
-    row: "owenrumney/ade",
-    keys: "k",
-    type: "open a space",
-    enter: true,
-    pick: "squealer",
-    settle: 700,
-  },
-  { name: "app-review", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"] },
-  {
-    name: "app-review-adding",
-    place: "Review",
-    session: "Rethink the workflow and the window",
-    tap: ".review-bar .btn.add",
-    settle: 500,
-  },
-  {
-    name: "app-review-pressed",
-    place: "Review",
-    session: "Rethink the workflow and the window",
-    twigs: ["app/renderer", "doing.ts"],
-    tapText: "Add to the review",
-    settle: 400,
-  },
-  { name: "app-review-split", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .how", settle: 300 },
-  { name: "app-review-viewed", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".diff .file-head .seen input", settle: 300 },
-  { name: "app-chat-wide", chat: true, place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".dock .dockhead .x", settle: 300 },
-  { name: "app-todo-start", place: "Todos", hover: ".sidebar .row", tap: ".sidebar .row .act", settle: 900 },
-  { name: "app-todo-menu", place: "Todos", right: ".sidebar .row" },
-  { name: "app-side-folded", place: "Todos", tap: ".activity button.fold", settle: 300 },
-  { name: "app-audit", place: "Todos", keys: "k", type: "audit", enter: true },
-  { name: "app-machines", place: "Todos", keys: "k", type: "machines", enter: true },
-  {
-    name: "app-ship",
-    place: "Review",
-    session: "Rethink the workflow and the window",
-    keys: "k",
-    type: "ship",
-    enter: true,
-  },
-  { name: "app-omnibox", place: "Pull requests", keys: "k" },
-  { name: "app-new-session", place: "Sessions", keys: "n", after: ".tab.on", settle: 1200 },
-  { name: "app-review-agents", place: "Review", session: "Rethink the workflow and the window", keys: "k", type: "review with named", enter: true },
-  { name: "app-worktree-switch", place: "Review", session: "Rethink the workflow and the window", tap: ".statusbar .item.branch" },
-  { name: "app-verbs", place: "Pull requests", keys: "k", type: "review" },
-  { name: "app-waiting", place: "Waiting on you" },
-  { name: "app-sessions", place: "Sessions" },
-  { name: "app-agents", place: "Agents" },
-  { name: "app-terminal", place: "Terminal" },
-  { name: "app-todos", place: "Todos" },
-  // The title carries the age of the fire, so the tap matches on its start.
-  {
-    name: "app-myday",
-    place: "Waiting on you",
-    tap: ".activity button[title^='My Day']",
-    settle: 400,
-  },
+  { name: "app-sessions" },
+  { name: "app-session", session: S },
+  { name: "app-session-menu", right: ".sidebar.left .row" },
+  { name: "app-tags", session: S, keys: "k", type: "Tag this session", enter: true },
+  { name: "app-import", keys: "k", type: "Import a claude", enter: true },
+  { name: "app-brief", session: S, tap: ".sidebar.left .row .tag.brief", settle: 600 },
+  { name: "app-shell", session: S, tab: "Shell" },
+  { name: "app-notifications", session: S, place: "Notifications" },
+  { name: "app-prs", place: "Pull requests" },
+  { name: "app-inbox", place: "Inbox" },
   { name: "app-team", place: "Team" },
   { name: "app-person", place: "Team", row: "kim" },
-  { name: "app-jobs", place: "Jobs" },
-  { name: "app-my-day", place: "Jobs", row: "my-day" },
-  {
-    name: "app-chat",
-    chat: true,
-    place: "Sessions",
-    row: "Rethink the workflow and the window",
-  },
-  { name: "app-review-edit", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], tap: ".tab.on .swap", settle: 1200 },
-  { name: "app-tab-menu", place: "Review", session: "Rethink the workflow and the window", twigs: ["app/renderer", "doing.ts"], right: ".tab.on" },
-  {
-    name: "app-split",
-    place: "Review",
-    session: "Rethink the workflow and the window",
-    twigs: ["app/renderer", "doing.ts"],
-    also: "Terminal",
-    drag: { what: '.tab[data-tab^="hunks:"]', to: 0.78 },
-  },
-  {
-    name: "app-split-drop",
-    place: "Review",
-    session: "Rethink the workflow and the window",
-    twigs: ["app/renderer", "doing.ts"],
-    also: "Terminal",
-    drag: { what: '.tab[data-tab^="hunks:"]', to: 0.78, hold: true },
-  },
-  { name: "app-code", place: "Code", session: "Rethink the workflow and the window", twigs: ["internal/web", "web.go"] },
-  {
-    name: "app-commit",
-    place: "Pull requests",
-    session: "Rethink the workflow and the window",
-    keys: "k",
-    type: "Commit",
-    enter: true,
-  },
-  {
-    name: "app-explain",
-    place: "Pull requests",
-    session: "Rethink the workflow and the window",
-    keys: "k",
-    type: "Explain this change",
-    enter: true,
-    settle: 1500,
-  },
-  {
-    name: "app-permissions",
-    place: "Pull requests",
-    session: "Rethink the workflow and the window",
-    keys: "k",
-    type: "permission",
-    enter: true,
-  },
+  // The title carries the age of the fire, so the tap matches on its start.
+  { name: "app-myday", tap: ".activity button[title^='My Day']", settle: 400 },
+  { name: "app-side-shut", session: S, place: "Team", again: "Team" },
+  { name: "app-diff", session: S, tab: "Diff", twigs: FILE },
+  { name: "app-diff-side", session: S, tab: "Diff", twigs: FILE, place: "Notifications" },
+  { name: "app-review-adding", session: S, tab: "Diff", tap: ".review-bar .btn.add", settle: 500 },
+  { name: "app-review-pressed", session: S, tab: "Diff", twigs: FILE, tapText: "Add to the review", settle: 400 },
+  { name: "app-review-split", session: S, tab: "Diff", twigs: FILE, tap: ".diff .file-head .how", settle: 300 },
+  { name: "app-review-viewed", session: S, tab: "Diff", twigs: FILE, tap: ".diff .file-head .seen input", settle: 300 },
+  { name: "app-review-edit", session: S, tab: "Diff", twigs: FILE, tap: ".tab.on .swap", settle: 1200 },
+  { name: "app-review-agents", session: S, keys: "k", type: "review with named", enter: true },
+  { name: "app-review-running", session: "Pruning the design docs", tab: "Diff" },
+  { name: "app-review-finished", session: "Webview for the sandbox", tab: "Diff" },
+  { name: "app-tab-menu", session: S, tab: "Diff", twigs: FILE, right: ".tab.on" },
+  { name: "app-split", session: S, tab: "Diff", twigs: FILE, drag: { what: '.tab[data-tab="diff"]', to: 0.78 } },
+  { name: "app-split-drop", session: S, tab: "Diff", twigs: FILE, drag: { what: '.tab[data-tab="diff"]', to: 0.78, hold: true } },
+  { name: "app-omnibox", keys: "k" },
+  { name: "app-verbs", keys: "k", type: "review" },
+  { name: "app-new-session", keys: "n", after: ".tab.on", settle: 1200 },
+  { name: "app-spaces", keys: "k", type: "Spaces", enter: true },
+  { name: "app-issues", keys: "k", type: "Issues", enter: true },
+  { name: "app-open-space", keys: "k", type: "open space" },
+  { name: "app-permissions", session: S, keys: "k", type: "permission", enter: true },
+  { name: "app-sessions-hidden", session: S, keys: "b", after: ".main" },
 ];
 
 const known = new Set(VIEWS.map((view) => view.name));
@@ -199,8 +102,6 @@ await page.evaluateOnNewDocument(shell());
 // it was, and a picture of where the last shot left it is not a view.
 await page.evaluateOnNewDocument(() => {
   localStorage.clear();
-  // A view of the chat asks for it: the agent's terminal is the default.
-  if (location.search === "?chat") localStorage.setItem("ade.terminal", "0");
 });
 page.on("console", (m) => m.type() === "error" && console.error("page:", m.text()));
 page.on("pageerror", (e) => console.error("page threw:", e.message));
@@ -211,7 +112,7 @@ async function clicked(what, selector, text) {
   const found = await page.evaluateHandle(
     (sel, want) => {
       const all = [...document.querySelectorAll(sel)];
-      return all.find((n) => (n.textContent ?? "").trim() === want)?.closest(".row, .twig, button");
+      return all.find((n) => (n.textContent ?? "").trim() === want);
     },
     selector,
     text,
@@ -225,27 +126,34 @@ async function clicked(what, selector, text) {
   await new Promise((done) => setTimeout(done, 120));
 }
 
+// pressed clicks a button on the bar by its title, or says which there were.
+async function pressed(title) {
+  const saw = await page.$$eval(
+    ".activity button",
+    (bs, want) => {
+      const found = bs.find((b) => b.title === want);
+      found?.click();
+      return found ? [] : bs.map((b) => b.title);
+    },
+    title,
+  );
+  if (saw.length) throw new Error(`no button called ${title}; saw ${saw.join(", ")}`);
+  await new Promise((done) => setTimeout(done, 150));
+}
+
 // Naming one shoots one: the rest cost ten seconds nobody asked for.
 for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) : VIEWS) {
-  await page.goto(view.chat ? `${page1}?chat` : page1, { waitUntil: "load" });
-  // A tree place draws twigs and a list draws rows; the window may
-  // have come up on either, since it remembers where it was.
-  await page.waitForSelector(".sidebar .row, .sidebar .twig, .sidebar .empty");
-  if (view.session) {
-    await page.$$eval(".activity button", (bs) => {
-      bs.find((b) => b.title === "Sessions")?.click();
-    });
-    await new Promise((done) => setTimeout(done, 120));
-    await clicked("session", ".sidebar .row .name", view.session);
-  }
-  await page.$$eval(
-    ".activity button",
-    (bs, want) => bs.find((b) => b.title === want)?.click(),
-    view.place,
-  );
-  await new Promise((done) => setTimeout(done, 150));
-  if (view.row) await clicked("row", ".sidebar .row .name", view.row);
-  for (const want of view.twigs ?? []) await clicked("twig", ".sidebar .twig .nm", want);
+  // A drag shot mid-carry leaves the button down.
+  await page.mouse.up().catch(() => undefined);
+  await page.goto(page1, { waitUntil: "load" });
+  await page.waitForSelector(".sidebar.left .row, .sidebar.left .empty");
+  if (view.session) await clicked("session", ".sidebar.left .row .name", view.session);
+  if (view.tab) await clicked("tab", ".main .head .tab .nm", view.tab);
+  for (const want of view.twigs ?? []) await clicked("twig", ".sidebar.files .twig .nm", want);
+  if (view.place) await pressed(view.place);
+  if (view.row) await clicked("row", ".sidebar.side .row .name", view.row);
+  // The same button again shuts its list.
+  if (view.again) await pressed(view.again);
   // A row's act is out of the layout until the pointer is on the row, so
   // the pointer goes there first or the click lands on nothing.
   if (view.hover) await page.hover(view.hover);
@@ -279,15 +187,6 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     await new Promise((done) => setTimeout(done, view.settle ?? 400));
   }
 
-  // A second tab, opened from the activity bar rather than a row.
-  if (view.also) {
-    await page.$$eval(
-      ".activity button",
-      (bs, want) => bs.find((b) => b.title === want)?.click(),
-      view.also,
-    );
-    await new Promise((done) => setTimeout(done, 400));
-  }
 
   // No verb opens a split: the shot drags a tab, as a hand does.
   if (view.drag) {

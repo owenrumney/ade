@@ -43,17 +43,6 @@ func TestResolveBlockedReason(t *testing.T) {
 	})
 }
 
-func TestResolveRefusedWhenPRHeadIsNotCheckedOut(t *testing.T) {
-	s := newTestServer(t)
-	createThread(t, s, `{"file":"a.go","side":"right","line":3,"body":"fix this"}`)
-	s.ws.pr = &PRInfo{Number: 6, ResolveBlocked: "the PR head abc12345 is not checked out"}
-
-	rec := do(t, s, "POST", "/api/resolve", `{}`)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "not checked out")
-	assert.False(t, s.agent.State().Running, "the run must not have started")
-}
-
 func TestPRIsExposedInState(t *testing.T) {
 	s := newTestServer(t)
 	s.ws.pr = &PRInfo{Number: 6, Title: "feat: add interactive chat", Author: "owenrumney", State: "MERGED"}
@@ -109,15 +98,6 @@ func TestImportComments(t *testing.T) {
 		assert.Equal(t, 0, s.importComments(threads))
 		assert.Len(t, s.ws.store.List(), 3)
 	})
-}
-
-func TestImportedThreadsAreResolvable(t *testing.T) {
-	s := newTestServer(t)
-	threads := ghpr.GroupThreads(mustParse(t,
-		`[{"id":1,"path":"a.go","line":3,"side":"RIGHT","body":"fix","user":{"login":"Copilot"}}]`))
-
-	require.Equal(t, 1, s.importComments(threads))
-	assert.Len(t, s.threadsToResolve(nil), 1, "an upstream comment is work like any other")
 }
 
 func TestSnapshotServerDoesNotPoll(t *testing.T) {

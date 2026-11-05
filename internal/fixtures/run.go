@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/ratchet"
 	"github.com/owenrumney/ade/internal/verify"
 )
 
@@ -248,7 +248,7 @@ func measure(ctx context.Context, wt string, expect Expect, text string, checks 
 	}
 	if expect.Comments.MaxLines > 0 {
 		diff, _ := git(ctx, wt, "diff", "--cached", "-U0", "HEAD", "--", "*.go", "*.ts", "*.tsx")
-		for _, over := range bridge.LongComments(strings.Split(diff, "\n"), expect.Comments.MaxLines) {
+		for _, over := range ratchet.LongComments(strings.Split(diff, "\n"), expect.Comments.MaxLines) {
 			failed = append(failed, "comments: "+over)
 		}
 	}

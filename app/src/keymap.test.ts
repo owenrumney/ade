@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keymap, chordOf, merge, shared, DEFAULTS, type Binding } from "./keymap";
 import { BAR } from "../renderer/model";
-import { panelFor } from "../renderer/doing";
+import { panelFor, wired } from "../renderer/doing";
 
 const on = (bindings: Binding[], mac = true) => new Keymap(bindings, mac);
 
@@ -75,7 +75,6 @@ describe("the shipped table", () => {
       expect(map.match({ key: String(i + 1), meta: true }), place).toBe(`place.${place}`);
     }
     expect(map.match({ key: "0", meta: true })).toBe("place.review");
-    expect(map.match({ key: "0", meta: true, shift: true })).toBe("place.code");
   });
 
   // The command has to be one the window's table knows, or the key is
@@ -84,6 +83,16 @@ describe("the shipped table", () => {
     const command = on(DEFAULTS).match({ key: "n", meta: true });
     expect(command).toBe("ade.newSession");
     expect(panelFor(command as string)).toBe("ade.newSession");
+  });
+
+  // A key bound to a command the table does not answer is a dead key.
+  it("binds only commands the window answers", () => {
+    for (const binding of DEFAULTS) expect(wired(binding.command), binding.command).toBeTruthy();
+  });
+
+  it("names the four lists on the bar and nothing that was removed", () => {
+    const places = DEFAULTS.map((b) => b.command).filter((c) => c.startsWith("place."));
+    expect(places).toEqual(["place.waiting", "place.prs", "place.inbox", "place.team", "place.review"]);
   });
 
   it("binds no chord twice", () => {
@@ -96,8 +105,8 @@ describe("the shipped table", () => {
 });
 
 describe("a chord the page gets too", () => {
-  // Escape closes what the page opened — an image in the chat — and the
-  // shell used to swallow it, which took the chat away instead.
+  // Escape closes what a page opened, and the shell used to swallow it,
+  // which took the tab away instead.
   it("is escape, and only escape", () => {
     expect(shared("dismiss")).toBe(true);
     for (const binding of DEFAULTS) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/comments"
@@ -29,7 +29,7 @@ func TestLiveRewriteIsQuick(t *testing.T) {
 		model = m
 	}
 	start := time.Now()
-	turn, err := bridge.OneShot(context.Background(), bridge.OneShotOpts{
+	turn, err := oneshot.Run(context.Background(), oneshot.Opts{
 		Model: model, Dir: ".", Prompt: Prompt(threads),
 		AllowedTools: Tools(), NoMCP: true,
 	})

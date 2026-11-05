@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/outgoing"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
@@ -39,9 +39,8 @@ func TestCommitMessageRequiresStagedChanges(t *testing.T) {
 	assert.False(t, s.agent.State().Running, "a rejected request must not claim the agent")
 }
 
-// Asking while a turn is in flight is the usual case: you stage and describe
-// while the agent is still working. It waits its turn rather than refusing.
-func TestCommitMessageQueuesBehindARunningTurn(t *testing.T) {
+// One cold run at a time: a second is told to wait, not queued behind the first.
+func TestCommitMessageIsRefusedWhileARunIsInFlight(t *testing.T) {
 	s := newTestServer(t)
 	stage(t, s.ws.homeRoot, "a.go", "package main\n\nvar x = 3\n")
 
@@ -50,18 +49,13 @@ func TestCommitMessageQueuesBehindARunningTurn(t *testing.T) {
 	defer s.agent.finish(nil)
 
 	rec := do(t, s, "POST", "/api/commit-message", `{}`)
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "another run is in flight")
 
-	waiting := s.agentState().Waiting
-	require.Len(t, waiting, 1)
-	assert.Equal(t, "Commit message", waiting[0].Kind)
-	assert.Equal(t, "write a commit message", waiting[0].What, "a queue of bare kinds says nothing")
 }
 
-// Nothing staged is still refused outright: the queue is for a busy agent,
-// not for a request that could never run.
-func TestCommitMessageWithNothingStagedDoesNotQueue(t *testing.T) {
+// Nothing staged is refused outright, busy or not: it could never run.
+func TestCommitMessageWithNothingStagedIsRefusedEvenWhileBusy(t *testing.T) {
 	s := newTestServer(t)
 
 	_, ok := s.agent.begin(context.Background(), "review")
@@ -70,25 +64,6 @@ func TestCommitMessageWithNothingStagedDoesNotQueue(t *testing.T) {
 
 	rec := do(t, s, "POST", "/api/commit-message", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, s.agentState().Waiting)
-}
-
-// The index moves while the agent works, so the message describes what is
-// staged when it is written rather than when it was asked for.
-func TestAQueuedCommitMessageWithNothingLeftStagedLetsTheQueueGoOn(t *testing.T) {
-	s := newTestServer(t)
-	stage(t, s.ws.homeRoot, "a.go", "package main\n\nvar x = 3\n")
-
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-	require.Equal(t, http.StatusAccepted, do(t, s, "POST", "/api/commit-message", `{}`).Code)
-
-	unstage(t, s.ws.homeRoot)
-	s.agent.finish(nil)
-	s.drain()
-
-	assert.Empty(t, s.agentState().Waiting, "the entry ran and left")
-	assert.False(t, s.agent.State().Running, "an empty index must not leave the agent claimed")
 }
 
 func unstage(t *testing.T, root string) {
@@ -425,11 +400,11 @@ func TestTheCommitMessageRunsOnTheFastModel(t *testing.T) {
 	s := newTestServer(t)
 	t.Setenv("HOME", t.TempDir())
 
-	var opts bridge.OneShotOpts
+	var opts oneshot.Opts
 	old := runOneShot
-	runOneShot = func(_ context.Context, got bridge.OneShotOpts) (*bridge.Turn, error) {
+	runOneShot = func(_ context.Context, got oneshot.Opts) (*oneshot.Turn, error) {
 		opts = got
-		return &bridge.Turn{Text: "```ade-commit\nfeat: a thing\n```"}, nil
+		return &oneshot.Turn{Text: "```ade-commit\nfeat: a thing\n```"}, nil
 	}
 	t.Cleanup(func() { runOneShot = old })
 	s.agent.mu.Lock()
@@ -538,4 +513,32 @@ func TestTheResolvedBaseReachesTheState(t *testing.T) {
 	var got stateResponse
 	require.NoError(t, json.Unmarshal(do(t, s, "GET", "/api/state", "").Body.Bytes(), &got))
 	assert.Equal(t, "main", got.Meta.Base, "an empty base drew \"Rebase onto the base branch\"")
+}
+
+// Stage all names no files: the button has no selection behind it, and a list
+// the window read three seconds ago would miss what changed since.
+func TestStagingAllTakesEveryFileGitCallsUnstaged(t *testing.T) {
+	s := newTestServer(t)
+	for _, name := range []string{"b.go", "c.go"} {
+		require.NoError(t, os.WriteFile(filepath.Join(s.ws.homeRoot, name), []byte("package main\n"), 0o600))
+	}
+	require.NoError(t, s.refresh(context.Background()))
+
+	rec := do(t, s, "POST", "/api/stage", `{"all":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"staged":2}`, rec.Body.String())
+	staged, err := gitdiff.StagedFiles(context.Background(), s.ws.homeRoot)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b.go", "c.go"}, staged)
+
+	// Everything is across, so a second press has nothing to move.
+	rec = do(t, s, "POST", "/api/stage", `{"all":true}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "no file has unstaged changes")
+
+	rec = do(t, s, "POST", "/api/unstage", `{"all":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	staged, err = gitdiff.StagedFiles(context.Background(), s.ws.homeRoot)
+	require.NoError(t, err)
+	assert.Empty(t, staged)
 }

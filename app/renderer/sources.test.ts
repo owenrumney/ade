@@ -2,45 +2,32 @@ import { describe, expect, it } from "vitest";
 import { SOURCES } from "./sources";
 
 describe("a picker's list", () => {
-  it("reads ade's own answer", () => {
-    expect(SOURCES.model.rows({ models: [{ id: "opus", label: "Opus" }] })).toEqual([
-      { label: "Opus", value: "opus" },
+  it("offers a space to open, and says what an open one holds", () => {
+    const got = {
+      offered: [{ repo: "o/a", sessions: 2, branch: "main" }, { repo: "o/b" }],
+      spaces: [{ repo: "o/c", here: true }, { repo: "o/d", here: false }],
+    };
+    expect(SOURCES.space.rows(got)).toEqual([
+      { label: "o/a", note: "2 sessions · main", value: "o/a" },
+      { label: "o/b", note: "", value: "o/b" },
     ]);
-    expect(SOURCES.role.rows({ roles: [{ name: "oss", about: "maintainer" }] })).toEqual([
-      { label: "oss", note: "maintainer", value: "oss" },
+    expect(SOURCES.openspace.rows(got)).toEqual([
+      { label: "o/c", note: "", value: "o/c" },
+      { label: "o/d", note: "not cloned here", value: "o/d" },
     ]);
   });
 
-  it("offers only a machine that can be started on", () => {
-    const hosts = {
-      hosts: [
-        { name: "owen@here", local: true, connected: true },
-        { name: "pi@pi5.local", connected: false },
-        { name: "owen@bigboy.local", label: "bigboy", connected: true },
+  // A branch could otherwise ship the reviewer that reviews it.
+  it("leaves out an agent the server will not take as a reviewer", () => {
+    const agents = {
+      agents: [
+        { name: "security", description: "trust boundaries", reviews: true, scope: "user" },
+        { name: "writer", reviews: false, scope: "user" },
+        { name: "planted", reviews: true, scope: "project" },
       ],
     };
-    expect(SOURCES.machine.rows(hosts)).toEqual([
-      { label: "bigboy", note: "owen@bigboy.local", value: "owen@bigboy.local" },
-    ]);
-  });
-
-  it("leaves out what the verb cannot act on", () => {
-    const trees = {
-      here: "/a",
-      worktrees: [{ name: "a", path: "/a" }, { name: "b", path: "/b", branch: "fix" }],
-    };
-    expect(SOURCES.worktree.rows(trees)).toEqual([
-      { label: "b", note: "fix", value: { path: "/b" } },
-    ]);
-
-    const threads = {
-      threads: [
-        { id: "1", file: "x.go", line: 4, comments: [{ body: "this\nand more" }] },
-        { id: "2", file: "y.go", line: 1, resolved: true, comments: [] },
-      ],
-    };
-    expect(SOURCES.thread.rows(threads)).toEqual([
-      { label: "x.go:4", note: "this", value: "1" },
+    expect(SOURCES.reviewer.rows(agents)).toEqual([
+      { label: "@security", note: "trust boundaries", value: "security" },
     ]);
   });
 
@@ -77,31 +64,5 @@ describe("a picker's list", () => {
       expect(source.rows({}), name).toEqual([]);
       expect(source.path, name).toMatch(/^\/api\//);
     }
-  });
-});
-
-// The switcher is one list of two kinds: a worktree moves the session, a
-// branch switches the checkout, and each row carries the field it needs.
-describe("the branch switcher", () => {
-  const got = {
-    here: "/a",
-    worktrees: [{ name: "a", path: "/a" }, { name: "b", path: "/b", branch: "fix" }],
-    branches: [
-      { name: "feat/x", at: "2 hours ago" },
-      { name: "old", at: "3 weeks ago", stashed: 4 },
-    ],
-  };
-
-  it("offers worktrees and branches, worktrees first", () => {
-    expect(SOURCES.worktree.rows(got)).toEqual([
-      { label: "b", note: "fix", value: { path: "/b" } },
-      { label: "feat/x", note: "2 hours ago", value: { branch: "feat/x" } },
-      { label: "old", note: "4 files set aside \u00b7 3 weeks ago", value: { branch: "old" } },
-    ]);
-  });
-
-  it("offers branches even where there are no other worktrees", () => {
-    const rows = SOURCES.worktree.rows({ here: "/a", worktrees: [], branches: got.branches });
-    expect(rows.map((r) => r.value)).toEqual([{ branch: "feat/x" }, { branch: "old" }]);
   });
 });

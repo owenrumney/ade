@@ -10,7 +10,6 @@ import (
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/highlight"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/words"
 )
 
@@ -104,23 +103,8 @@ func (s *Server) rootsFrom(ctx context.Context) []DiffRoot {
 	roots := []DiffRoot{{Root: ws.homeRoot, Name: filepath.Base(ws.homeRoot), Home: true}}
 	seen := map[string]bool{home: true}
 
-	// Neither read is fatal: the editor's folders are roots in their own
-	// right, and a sandbox file that will not parse must not take them with it.
-	mounts, err := sandbox.LoadWorkspace(s.agent.workspace)
-	if err != nil {
-		slog.Debug("read the sandbox for diff roots", "err", err)
-	}
-	own, err := sandbox.LoadWorkspace(s.agent.own)
-	if err != nil {
-		slog.Debug("read this session's mounts for diff roots", "err", err)
-	}
-	var paths []string
-	for _, path := range ticked(own, mounts) {
-		// A read-only mount cannot have been edited, so it has nothing to show.
-		if path.RW {
-			paths = append(paths, path.Path)
-		}
-	}
+	// The other repositories this session was started across.
+	paths := s.agent.mem.Worktrees()
 	s.mu.RLock()
 	paths = append(paths, s.folders...)
 	s.mu.RUnlock()
@@ -143,25 +127,6 @@ func (s *Server) rootsFrom(ctx context.Context) []DiffRoot {
 		return nil
 	}
 	return roots
-}
-
-// ticked is own laid over the repository's mounts, this session's own first:
-// Under sorts everything by path, which buries them among the repository's.
-func ticked(own, base sandbox.Workspace) []sandbox.Path {
-	merged := map[string]sandbox.Path{}
-	for _, path := range own.Under(base).Paths {
-		merged[path.Path] = path
-	}
-	out := make([]sandbox.Path, 0, len(merged))
-	seen := map[string]bool{}
-	for _, path := range append(append([]sandbox.Path{}, own.Paths...), base.Paths...) {
-		if seen[path.Path] {
-			continue
-		}
-		seen[path.Path] = true
-		out = append(out, merged[path.Path])
-	}
-	return out
 }
 
 // refreshRoots re-reads each root's branch, changes and open comments. Off the
@@ -365,11 +330,6 @@ func (s *Server) setViewRoot(ctx context.Context, want string) error {
 	}
 	if side != nil {
 		return side
-	}
-
-	// The branch home moved to while the view was away has its own design.
-	if next.branch != current.branch {
-		s.rematchDesign(next.homeRoot, next.branch)
 	}
 
 	sweptComments(next.store.Reanchor(diff))

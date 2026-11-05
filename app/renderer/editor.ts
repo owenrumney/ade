@@ -1,7 +1,7 @@
 import * as monaco from "monaco-editor/editor/editor.api";
 import "monaco-editor/basic-languages/monaco.contribution";
 
-// Monaco, as the Code view. One instance for the window's life, or a
+// Monaco, for editing a file inside its diff. One instance per half, or a
 // redraw would lose the scroll and the selection.
 
 // No workers: `editor.api` plus `basic-languages` leaves out the
@@ -36,13 +36,8 @@ const THEME: monaco.editor.IStandaloneThemeData = {
 export type Half = 0 | 1;
 
 interface Side {
-  made?: monaco.editor.IStandaloneCodeEditor;
-  host?: HTMLElement;
   diffed?: monaco.editor.IStandaloneDiffEditor;
   diffHost?: HTMLElement;
-  // Whichever of the two is on screen: the selection is read off it.
-  active?: monaco.editor.ICodeEditor;
-  picked?: (line: number) => void;
   showing: string;
 }
 
@@ -54,27 +49,10 @@ export function focus(half: Half): void {
   focused = half;
 }
 
-// Asking is how the editor reaches a language server: the window holds
-// the session, so it does the asking and this only says where.
-export interface Asking {
-  hover(path: string, line: number, col: number): Promise<string>;
-  definition(path: string, line: number, col: number): Promise<Where | undefined>;
-}
-
-export interface Where {
-  path: string;
-  line: number;
-}
-
 const models = new Map<string, { model: monaco.editor.ITextModel; base: string }>();
 
 function dirty(held: { model: monaco.editor.ITextModel; base: string }): boolean {
   return held.model.getValue() !== held.base;
-}
-
-// A provider answers about the file it was asked about, not a half.
-function pathOf(model: monaco.editor.ITextModel): string {
-  return decodeURIComponent(model.uri.path).replace(/^\//, "");
 }
 
 // edits is the showing file when it has changes to save.
@@ -89,102 +67,13 @@ export function saved(path: string, source: string): void {
   if (held) held.base = source;
 }
 
-let asking: Asking | undefined;
-let registered = false;
-
-// ask gives the editor its way to the language server. Said once, and
-// the providers are registered the first time it is.
-export function ask(how: Asking): void {
-  asking = how;
-  if (registered) return;
-  registered = true;
-  monaco.languages.registerHoverProvider({ scheme: "*" }, {
-    async provideHover(model, at) {
-      const said = await asking?.hover(pathOf(model), at.lineNumber, at.column);
-      if (!said) return null;
-      return { contents: [{ value: said }] };
-    },
-  });
-  monaco.languages.registerDefinitionProvider({ scheme: "*" }, {
-    async provideDefinition(model, at) {
-      const here = pathOf(model);
-      const found = await asking?.definition(here, at.lineNumber, at.column);
-      if (!found) return null;
-      // A definition in another file is the window's to open: monaco
-      // holds one model and knows nothing of the checkout.
-      if (found.path !== here) {
-        jumped?.(found);
-        return null;
-      }
-      return {
-        uri: model.uri,
-        range: new monaco.Range(found.line, 1, found.line, 1),
-      };
-    },
-  });
-}
-
-let jumped: ((to: Where) => void) | undefined;
-
-// onJump is what opens a definition that is in another file.
-export function onJump(then: (to: Where) => void): void {
-  jumped = then;
-}
-
-// selected is what is highlighted, with where it came from. Empty when
-// nothing is: a verb that asks about a selection has nothing to ask.
-export function selected(): { from: string; text: string } | undefined {
-  const side = sides[focused];
-  const at = side.active?.getSelection();
-  const text = at && side.active?.getModel()?.getValueInRange(at);
-  if (!at || !text?.trim()) return undefined;
-  const lines =
-    at.startLineNumber === at.endLineNumber
-      ? `${at.startLineNumber}`
-      : `${at.startLineNumber}-${at.endLineNumber}`;
-  return { from: `${side.showing}:${lines}`, text };
-}
-
-// mount is the editor's element, ready to be put wherever the window is
-// drawing it now. The element is the same one every time.
-export function mount(
-  half: Half,
-  source: string,
-  path: string,
-  line: number,
-  onLine: (n: number) => void,
-): HTMLElement {
-  const side = sides[half];
-  side.picked = onLine;
-  side.showing = path;
-  if (!side.host) side.host = make(side);
-  const editor = side.made!;
-  side.active = editor;
-  const held = hold(path, source);
-  if (editor.getModel() !== held.model) editor.setModel(held.model);
-  if (line > 0) editor.revealLineInCenterIfOutsideViewport(line);
-  // The element has just been moved in the document, so its size is
-  // whatever it was before the move.
-  queueMicrotask(() => editor.layout());
-  return side.host;
-}
-
 // mountDiff is the file against what the diff's left side has, drawn
 // inline and editable: a fix is typed where the change is read.
-export function mountDiff(
-  half: Half,
-  base: string,
-  source: string,
-  path: string,
-  line: number,
-  onLine: (n: number) => void,
-): HTMLElement {
+export function mountDiff(half: Half, base: string, source: string, path: string, line: number): HTMLElement {
   const side = sides[half];
-  side.picked = onLine;
   side.showing = path;
   if (!side.diffHost) side.diffHost = makeDiff(side);
   const editor = side.diffed!;
-  side.active = editor.getModifiedEditor();
   const held = hold(path, source);
   const was = editor.getModel();
   if (was?.modified !== held.model) {
@@ -206,7 +95,7 @@ export function mountDiff(
 function hold(path: string, source: string): { model: monaco.editor.ITextModel; base: string } {
   let held = models.get(path);
   if (!held) {
-    // The uri is the path, which is how pathOf reads it back.
+    // One uri per path, so a second open finds the same model.
     const uri = monaco.Uri.parse(`file:///${path.split("/").map(encodeURIComponent).join("/")}`);
     held = { model: monaco.editor.createModel(source, languageOf(path), uri), base: source };
     models.set(path, held);
@@ -234,18 +123,6 @@ const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
 
 let themed = false;
 
-function make(side: Side): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "monaco";
-  if (!themed) monaco.editor.defineTheme("ade", THEME);
-  themed = true;
-  side.made = monaco.editor.create(el, OPTIONS);
-  side.made.onMouseDown((e) => {
-    const at = e.target.position?.lineNumber;
-    if (at) side.picked?.(at);
-  });
-  return el;
-}
 
 function makeDiff(side: Side): HTMLElement {
   const el = document.createElement("div");
@@ -258,10 +135,6 @@ function makeDiff(side: Side): HTMLElement {
     originalEditable: false,
     renderOverviewRuler: false,
     hideUnchangedRegions: { enabled: true },
-  });
-  side.diffed.getModifiedEditor().onMouseDown((e) => {
-    const at = e.target.position?.lineNumber;
-    if (at) side.picked?.(at);
   });
   return el;
 }

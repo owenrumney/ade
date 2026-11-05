@@ -1,7 +1,7 @@
 package web
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(dir, ".gitconfig")); err != nil {
 		panic(err)
 	}
-	hostGitHubToken = func(context.Context) string { return "" }
+	launcherBinary = func() (string, error) { return "", errors.New("no launcher is started under test") }
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	if left := Contained(); len(left) > 0 && code == 0 {

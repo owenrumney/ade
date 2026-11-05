@@ -11,8 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/sandbox"
+	"github.com/owenrumney/ade/internal/claudelog"
 	"github.com/owenrumney/ade/internal/term"
 )
 
@@ -44,7 +43,6 @@ func (s *Server) handleAgentTerminal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	// Not argv: a boxed one carries the box's tokens as -e values.
 	writeJSON(w, http.StatusOK, map[string]any{"pane": takeoverPane})
 }
 
@@ -66,7 +64,7 @@ func (s *Server) agentPane(ctx context.Context, prompt string) (*term.Session, e
 	if s.agent.Busy() {
 		return nil, errMidTurn
 	}
-	argv, err := s.agent.takeoverCommand(ctx, prompt, held != nil && held.Started())
+	argv, err := s.agent.takeoverCommand(prompt, held != nil && held.Started())
 	if err != nil {
 		return nil, err
 	}
@@ -143,11 +141,9 @@ func (s *Server) yieldAgentPane(w http.ResponseWriter) bool {
 	return true
 }
 
-// handleAgentTerminalClose ends the takeover, so the next turn starts a bridge again.
-func (s *Server) handleAgentTerminalClose(w http.ResponseWriter, r *http.Request) {
+// handleAgentTerminalClose ends the agent's terminal.
+func (s *Server) handleAgentTerminalClose(w http.ResponseWriter, _ *http.Request) {
 	s.dropPane(paneKeyFor(takeoverPane))
-	// Killing a -t client leaves its container running on the conversation.
-	s.agent.removeTUI(r.Context())
 	s.agent.endTakeover()
 	s.hub.Broadcast("state", nil)
 	w.WriteHeader(http.StatusNoContent)
@@ -155,12 +151,11 @@ func (s *Server) handleAgentTerminalClose(w http.ResponseWriter, r *http.Request
 
 func paneKeyFor(id string) string { return "pane:" + id }
 
-// takeoverCommand is what the takeover pane runs. A sandboxed agent's TUI runs in
-// its box: on a worker only the box has the binary and the hub's loopback.
-func (a *agentRunner) takeoverCommand(ctx context.Context, prompt string, started bool) ([]string, error) {
+// takeoverCommand is what the takeover pane runs.
+func (a *agentRunner) takeoverCommand(prompt string, started bool) ([]string, error) {
 	// Quit before its first message, a TUI left nothing to resume.
 	started = started && a.tuiSpoke()
-	argv, env, boxed, err := a.takeoverArgv(prompt, started)
+	argv, err := a.takeoverArgv(prompt, started)
 	if err != nil {
 		return nil, err
 	}
@@ -168,22 +163,12 @@ func (a *agentRunner) takeoverCommand(ctx context.Context, prompt string, starte
 	if id := a.openedByTUI(); id != "" {
 		a.note(id)
 	}
-	if !boxed {
-		return argv, nil
-	}
-	spec, rt, err := a.sandboxOpts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sandbox: %w", err)
-	}
-	box := bridge.BoxedTUI(*spec, argv, env)
-	box.Name = sandbox.TUIContainerName(a.dir)
-	sandbox.Remove(ctx, rt, box.Name)
-	return append([]string{rt.Bin()}, rt.Args(box)...), nil
+	return argv, nil
 }
 
 // takeoverArgv is the agent's own command line, resuming what ade was in.
 // started is whether its pane has run before, which is a resume and not a start.
-func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []string, boxed bool, err error) {
+func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv []string, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -191,9 +176,8 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 	if a.provider == "codex" {
 		bin = "codex"
 	}
-	boxed = a.sandbox
-	if _, err := exec.LookPath(bin); err != nil && !boxed {
-		return nil, nil, false, fmt.Errorf("%s is not on the PATH of the machine this session runs on", bin)
+	if _, err := exec.LookPath(bin); err != nil {
+		return nil, fmt.Errorf("%s is not on the PATH of the machine this session runs on", bin)
 	}
 	// Resume what ade was in, so the TUI opens on the same conversation.
 	resume := a.current
@@ -201,11 +185,7 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 		resume = a.session
 	}
 	if bin == "codex" {
-		var config []string
-		// A boxed one reaches neither this binary nor this server.
-		if !boxed {
-			config = append([]string{codexNotify()}, a.codexBus()...)
-		}
+		config := append([]string{codexNotify()}, a.codexBus()...)
 		argv = codexArgv(resume, started, config...)
 	} else {
 		argv = a.claudeArgv(resume, started)
@@ -217,10 +197,7 @@ func (a *agentRunner) takeoverArgv(prompt string, started bool) (argv, env []str
 		}
 		argv = append(argv, prompt)
 	}
-	if boxed {
-		env = a.delegateEnv()
-	}
-	return argv, env, boxed, nil
+	return argv, nil
 }
 
 // codexArgv resumes by subcommand. Codex names its own conversations, so one
@@ -246,6 +223,14 @@ func codexArgv(resume string, started bool, config ...string) []string {
 // the first message. Until its pane has run there is nothing to resume.
 func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	argv := []string{"claude"}
+	// A recorded conversation claude no longer holds is started again, not resumed.
+	if resume != "" && resume != a.tuiID && !spokenIn(a.dir, a.provider, resume) {
+		// Only an id of claude's own shape can name a new conversation.
+		if !claudelog.IsID(resume) {
+			resume = ""
+		}
+		a.tuiID, started = resume, false
+	}
 	if resume == "" && a.tuiID == "" {
 		a.tuiID = newUUID()
 	}
@@ -262,8 +247,7 @@ func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	if a.model != "" {
 		argv = append(argv, "--model", a.model)
 	}
-	// A boxed one cannot reach this server's loopback address.
-	if config := a.busConfig(resume); config != "" && !a.sandbox {
+	if config := a.busConfig(resume); config != "" {
 		argv = append(argv, "--mcp-config", config)
 	}
 	settings := map[string]any{}
@@ -271,8 +255,7 @@ func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	if deny := denyRules(a.rules); len(deny) > 0 {
 		settings["permissions"] = map[string]any{"deny": deny}
 	}
-	// A boxed one cannot reach this binary, so it reports nothing.
-	if hooks := badgeHooks(); hooks != nil && !a.sandbox {
+	if hooks := badgeHooks(); hooks != nil {
 		settings["hooks"] = hooks
 	}
 	if encoded, err := json.Marshal(settings); err == nil && len(settings) > 0 {
@@ -292,7 +275,7 @@ func (a *agentRunner) openedByTUI() string {
 func (a *agentRunner) tuiSpoke() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.tuiID == "" || providerTranscriptSize(a.dir, a.provider, a.tuiID) > 0
+	return a.tuiID == "" || spokenIn(a.dir, a.provider, a.tuiID)
 }
 
 // newUUID is a random version 4 id, or empty, and claude then names its own.
@@ -306,22 +289,11 @@ func newUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// releaseForTakeover stops ade's own agent while keeping the session id, so
-// the TUI resumes the conversation rather than starting beside it.
+// releaseForTakeover marks the agent's own interface as holding the conversation.
 func (a *agentRunner) releaseForTakeover() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.dropKeepingSession()
 	a.takenOver = true
-}
-
-func (a *agentRunner) removeTUI(ctx context.Context) {
-	a.mu.Lock()
-	rt, dir, boxed := a.runtime, a.dir, a.sandbox
-	a.mu.Unlock()
-	if boxed {
-		sandbox.Remove(ctx, rt, sandbox.TUIContainerName(dir))
-	}
 }
 
 func (a *agentRunner) endTakeover() {

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,10 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/agentbus"
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/sandbox"
+	"github.com/owenrumney/ade/internal/claudelog"
 	"github.com/owenrumney/ade/internal/term"
-	"github.com/owenrumney/ade/internal/transcripts"
 )
 
 // ade drives a pipe, not a TUI, so the agent's own interface cannot be a view
@@ -50,9 +47,11 @@ func TestGivingTheConversationBackLetsTurnsRunAgain(t *testing.T) {
 
 // The TUI opens on the conversation ade was in, not beside it.
 func TestTheTakeoverResumesWhatAdeWasIn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spoke(t, "sess-1")
 	a := &agentRunner{provider: "claude", model: "opus", current: "sess-1"}
 
-	argv, _, _, err := a.takeoverArgv("", false)
+	argv, err := a.takeoverArgv("", false)
 	if err != nil {
 		t.Skip("claude is not on this machine's PATH")
 	}
@@ -63,9 +62,11 @@ func TestTheTakeoverResumesWhatAdeWasIn(t *testing.T) {
 }
 
 func TestTheTakeoverFallsBackToTheRememberedSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	spoke(t, "remembered")
 	a := &agentRunner{provider: "claude", session: "remembered"}
 
-	argv, _, _, err := a.takeoverArgv("", false)
+	argv, err := a.takeoverArgv("", false)
 	if err != nil {
 		t.Skip("claude is not on this machine's PATH")
 	}
@@ -83,80 +84,67 @@ func TestATurnInFlightIsNotInterrupted(t *testing.T) {
 	assert.False(t, s.agent.TakenOver(), "a refused takeover changes nothing")
 }
 
-// A worker has no claude of its own: the sandboxed agent's is in its box.
-func TestASandboxedTakeoverNeedsNoAgentOnThePath(t *testing.T) {
+// No agent CLI on the PATH is said, not started.
+func TestATakeoverNeedsTheAgentOnThePath(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	a := &agentRunner{provider: "claude", current: "sess-1", sandbox: true}
+	a := &agentRunner{provider: "claude", current: "sess-1"}
 
-	argv, _, boxed, err := a.takeoverArgv("", false)
-	require.NoError(t, err)
-	assert.True(t, boxed)
-	assert.Equal(t, []string{"claude", "--resume", "sess-1"}, argv)
-
-	a.sandbox = false
-	_, _, _, err = a.takeoverArgv("", false)
+	_, err := a.takeoverArgv("", false)
 	assert.ErrorContains(t, err, "not on the PATH")
-}
-
-func TestTheBoxedTakeoverIsATerminalOnTheBoxsServers(t *testing.T) {
-	spec := sandbox.Spec{Name: "x", Image: "img", Env: map[string]string{"HOME": "/h"},
-		Args: []string{"--mcp-config", "/h/.claude/ade-mcp.json"}}
-	box := bridge.BoxedTUI(spec, []string{"claude", "--resume", "s1"}, []string{"ADE_DELEGATE_URL=u"})
-
-	args := strings.Join(sandbox.Docker{Network: "container:ade-hub"}.Args(box), " ")
-	assert.Contains(t, args, "run -i -t --rm")
-	assert.Contains(t, args, "--network container:ade-hub")
-	assert.Contains(t, args, "-e ADE_DELEGATE_URL=u")
-	assert.Contains(t, args, "claude --resume s1 --mcp-config /h/.claude/ade-mcp.json --strict-mcp-config")
-	assert.NotContains(t, strings.Join(sandbox.Docker{}.Args(spec), " "), " -t ", "the agent's stream stays a pipe")
-}
-
-type seenRuntime struct{ spec *sandbox.Spec }
-
-func (seenRuntime) Name() string            { return "seen" }
-func (seenRuntime) Bin() string             { return "/no/such/runtime" }
-func (seenRuntime) HasArgs(string) []string { return []string{"true"} }
-func (r seenRuntime) Args(spec sandbox.Spec) []string {
-	*r.spec = spec
-	return []string{"run", spec.Name}
-}
-
-func TestASandboxedTakeoverRunsTheTUIInItsOwnBox(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	was := sandboxLogin
-	sandboxLogin = func(_ context.Context, home string) (string, error) { return filepath.Join(home, "creds.json"), nil }
-	t.Cleanup(func() { sandboxLogin = was })
-	dir := t.TempDir()
-	seen := &sandbox.Spec{}
-	a := &agentRunner{provider: "claude", current: "sess-1", sandbox: true, dir: dir, runtime: seenRuntime{seen}}
-
-	argv, err := a.takeoverCommand(t.Context(), "", false)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"/no/such/runtime", "run", sandbox.TUIContainerName(dir)}, argv)
-	assert.True(t, seen.TTY)
-	assert.Contains(t, seen.Args, "sess-1")
 }
 
 // A conversation the terminal starts is named up front, so ade knows which
 // transcript is its own before the first message is sent.
 func TestAFreshClaudeIsToldWhatToCallItsConversation(t *testing.T) {
-	a := &agentRunner{provider: "claude", sandbox: true}
+	fakeAgent(t)
+	a := &agentRunner{provider: "claude"}
 
-	argv, _, _, err := a.takeoverArgv("", false)
+	argv, err := a.takeoverArgv("", false)
 	require.NoError(t, err)
-	require.Len(t, argv, 3)
+	require.GreaterOrEqual(t, len(argv), 3)
 	assert.Equal(t, "--session-id", argv[1])
 	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, argv[2])
 	id := argv[2]
 
-	again, _, _, err := a.takeoverArgv("", false)
+	again, err := a.takeoverArgv("", false)
 	require.NoError(t, err)
 	assert.Equal(t, argv, again, "a pane made twice before it ran is the same conversation")
 
-	later, _, _, err := a.takeoverArgv("", true)
+	later, err := a.takeoverArgv("", true)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude", "--resume", id}, later, "once it has run there is something to resume")
+	assert.Equal(t, []string{"claude", "--resume", id}, later[:3], "once it has run there is something to resume")
+}
+
+// A conversation on record that claude has since dropped is begun again:
+// a resume of nothing fails every time.
+func TestARecordedConversationClaudeDroppedIsStartedAgain(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeAgent(t)
+	const id = "fce48a23-8b72-498e-ad48-ba115c0b7491"
+	a := &agentRunner{provider: "claude", current: id}
+
+	argv, err := a.takeoverArgv("", true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude", "--session-id", id}, argv[:3])
+
+	spoke(t, id)
+	later, err := a.takeoverArgv("", true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude", "--resume", id}, later[:3])
+
+	old := &agentRunner{provider: "claude", current: "sess-1"}
+	argv, err = old.takeoverArgv("", true)
+	require.NoError(t, err)
+	assert.Equal(t, "--session-id", argv[1])
+	assert.True(t, claudelog.IsID(argv[2]), "an id claude would refuse is replaced")
+}
+
+// spoke leaves the transcript claude writes once a conversation has a message.
+func spoke(t *testing.T, id string) {
+	t.Helper()
+	path := filepath.Join(os.Getenv("HOME"), ".claude", "projects", "here", id+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("{}\n"), 0o600))
 }
 
 func TestCodexResumesByItsOwnSubcommand(t *testing.T) {
@@ -170,24 +158,26 @@ func TestCodexResumesByItsOwnSubcommand(t *testing.T) {
 		"one started here, unnamed": {"", true, []string{"codex", "resume", "--last"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			a := &agentRunner{provider: "codex", current: tc.current, sandbox: true}
-			argv, _, _, err := a.takeoverArgv("", tc.started)
+			fakeAgent(t)
+			a := &agentRunner{provider: "codex", current: tc.current}
+			argv, err := a.takeoverArgv("", tc.started)
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, argv)
+			assert.Equal(t, tc.want, withoutConfig(argv))
 		})
 	}
 }
 
 func TestTheFirstMessageIsTheLastArgument(t *testing.T) {
-	a := &agentRunner{provider: "codex", sandbox: true}
+	fakeAgent(t)
+	a := &agentRunner{provider: "codex"}
 
-	argv, _, _, err := a.takeoverArgv("  fix the build  ", false)
+	argv, err := a.takeoverArgv("  fix the build  ", false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"codex", "fix the build"}, argv)
+	assert.Equal(t, []string{"codex", "fix the build"}, withoutConfig(argv))
 
-	argv, _, _, err = a.takeoverArgv("--help me", false)
+	argv, err = a.takeoverArgv("--help me", false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"codex", "--", "--help me"}, argv, "a message is never read as a flag")
+	assert.Equal(t, []string{"codex", "--", "--help me"}, withoutConfig(argv), "a message is never read as a flag")
 }
 
 // fakeAgent puts a claude on the PATH that prints its arguments and then
@@ -196,7 +186,9 @@ func fakeAgent(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\necho \"ARGS:$*\"\necho \"BADGE:$ADE_BADGE_URL\"\nexec cat\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700))
+	for _, cli := range []string{"claude", "codex"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, cli), []byte(script), 0o700))
+	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin:/usr/bin")
 }
 
@@ -279,7 +271,7 @@ func TestAnAgentPaneThatExitedComesBackOnItsConversation(t *testing.T) {
 	assert.Contains(t, seen(t, again, "ARGS:"), "--session-id "+id)
 	quit(t, again)
 
-	path := transcripts.ClaudeTranscript(s.agent.dir, id)
+	path := filepath.Join(os.Getenv("HOME"), ".claude", "projects", "here", id+".jsonl")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	require.NoError(t, os.WriteFile(path, []byte("{}\n"), 0o600))
 
@@ -408,7 +400,7 @@ func TestTheAgentsOwnHooksMoveItsBadge(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent,
 		post(BadgePath, "hook-token", `{"hook_event_name":"Stop","session_id":"0199aaaa-bbbb"}`))
-	assert.Equal(t, badgeNeeds, s.agentState().Terminal)
+	assert.Equal(t, badgeNeeds, s.agentBadge())
 	assert.Equal(t, "0199aaaa-bbbb", s.agent.Current(), "the CLI's own name for the conversation is what resumes it")
 
 	assert.Equal(t, http.StatusNoContent, post("/api/agent/seen", "", ""))
@@ -451,9 +443,6 @@ func TestAColdRunDoesNotWaitForTheAgentsTerminal(t *testing.T) {
 	a := &agentRunner{}
 	a.releaseForTakeover()
 
-	_, ok := a.begin(t.Context(), kindChat)
-	assert.False(t, ok, "a turn would be a second process on the transcript")
-
 	for _, kind := range []string{kindReview, kindCommitMessage} {
 		_, ok := a.begin(t.Context(), kind)
 		require.True(t, ok, kind)
@@ -467,7 +456,7 @@ func TestATerminalAgentIsHandedTheBusTools(t *testing.T) {
 	fakeAgent(t)
 	a := &agentRunner{provider: "claude", delegateURL: "http://127.0.0.1:4100/", delegateToken: "tok-1"}
 
-	argv, _, _, err := a.takeoverArgv("", false)
+	argv, err := a.takeoverArgv("", false)
 	require.NoError(t, err)
 	at := slices.Index(argv, "--mcp-config")
 	require.Positive(t, at, "claude is given a config file")
@@ -496,8 +485,6 @@ func TestATerminalAgentIsHandedTheBusTools(t *testing.T) {
 		"resume", "--last",
 	}, codex, "the token is in the environment, not on the command line")
 
-	boxed := &agentRunner{provider: "claude", sandbox: true, delegateURL: "http://127.0.0.1:4100", delegateToken: "tok-1"}
-	assert.Empty(t, boxed.busEnv(), "a box has no route to this server")
 }
 
 func TestAnAnswerFromTheBusIsTypedAtATerminalAgent(t *testing.T) {
@@ -534,4 +521,17 @@ func TestATerminalAgentsBadgeIsItsStandingOnTheBus(t *testing.T) {
 			assert.Equal(t, tc.asking, asking)
 		})
 	}
+}
+
+// withoutConfig drops codex's -c overrides, which name this test binary.
+func withoutConfig(argv []string) []string {
+	var out []string
+	for i := 0; i < len(argv); i++ {
+		if argv[i] == "-c" {
+			i++
+			continue
+		}
+		out = append(out, argv[i])
+	}
+	return out
 }

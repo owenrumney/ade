@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/myday"
+	"github.com/owenrumney/ade/internal/oneshot"
 )
 
 // KindMyDay is the built-in job that says what the day looks like: the pull
@@ -18,16 +18,15 @@ const KindMyDay = "my-day"
 // two GitHub searches and a Linear read.
 const MyDayEstimate = 5 * time.Minute
 
-// MyDayJob is the built-in definition. Weekdays at eight: a Saturday report
-// is a thing to dismiss.
+// MyDayJob is the built-in definition. Nothing fires it on a clock: the
+// window asks for it.
 func MyDayJob() Job {
-	every, _ := ParseSchedule("0 8 * * 1-5")
+
 	return Job{
 		Name:        KindMyDay,
 		Kind:        KindMyDay,
 		Description: "What your day looks like: reviews waiting on you, your pull requests, and your tickets sized",
-		Schedule:    every.Spec(),
-		Every:       every,
+		Schedule:    Manual,
 		Continuity:  Fresh,
 		Allow:       Reads,
 		Scope:       ScopeBuiltin,
@@ -38,7 +37,7 @@ func MyDayJob() Job {
 // outside every checkout, and leaves no transcript to be distilled in turn.
 func MyDayModel(bin, dir string) myday.Model {
 	return func(ctx context.Context, prompt string) (string, float64, error) {
-		turn, err := bridge.OneShot(ctx, bridge.OneShotOpts{
+		turn, err := oneshot.Run(ctx, oneshot.Opts{
 			Bin:                  bin,
 			Dir:                  dir,
 			Prompt:               prompt,

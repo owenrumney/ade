@@ -7,20 +7,10 @@ export type From =
   | "space"
   | "openspace"
   | "scope"
-  | "model"
-  | "role"
-  | "worktree"
-  | "agent"
   | "person"
-  | "thread"
   | "reply"
   | "offer"
-  | "reviewer"
-  | "machine"
-  | "remembered"
-  | "proposed"
-  | "drifted"
-  | "dismissed";
+  | "reviewer";
 
 export type Ask =
   | { ask: "pick"; from: From; as: string; title: string }
@@ -35,16 +25,17 @@ export type Verb =
   | "refresh"
   | "save"
   | "start"
-  | "resume"
-  | "new-chat"
-  | "ask"
-  | "dictate"
-  | "history"
   | "terminal"
   | "agent"
-  | "terminal-mode"
+  | "diff"
+  | "my-day"
+  | "brief"
+  | "brief-send"
+  | "tags"
+  | "import"
+  | "findings"
+  | "close-session"
   | "sidebar"
-  | "float"
   | "review-draft"
   | "review-finish"
   | "open-pr";
@@ -57,11 +48,8 @@ export type Doing =
   | { at: "session"; path: string; body?: Record<string, unknown>; needs?: Ask[]; how?: Method }
   | { at: "panel"; panel: string }
   | { at: "rules" }
-  // A document the window renders through a page's own
-  // builders. `also` is a second read a builder wants.
-  | { at: "report"; from: "launcher" | "session"; path: string; also?: string; render: string }
-  | { at: "find"; from: "launcher" | "session"; path: string; open: string; title: string }
-  | { at: "edit"; what: "pr" }
+  // A document the window renders from one read.
+  | { at: "report"; from: "launcher" | "session"; path: string; render: string }
   // A verdict names the pull request it is on, which only the window
   // knows, so these cannot be a plain path and body.
   | { at: "verdict"; which: "approve" | "request-changes" | "merge" }
@@ -106,78 +94,40 @@ const many = (from: From, as: string, title: string, ticks?: string[]): Ask => (
 });
 
 export const WIRED: Record<string, Doing> = {
-  // ── The window's own, which have no extension command behind them ──
+  // ── The window's own, which the keyboard names ──
   omnibox: W(undefined, "omnibox"),
   dismiss: W(undefined, "dismiss"),
   save: W(undefined, "save"),
-  // The review as GitHub builds one: comments join a draft, a verdict ends it.
-  "ade.addToReview": W(undefined, "review-draft"),
-  "ade.finishReview": W(undefined, "review-finish"),
   "ade.menu": W(undefined, "omnibox"),
-  "place.waiting": W("waiting"),
-  "place.spaces": W("spaces"),
-  "place.agents": W("agents"),
-  "place.prs": W("prs"),
-  "place.designs": W("designs"),
   "place.sessions": W("sessions"),
-  "place.todos": W("todos"),
-  "place.issues": W("issues"),
+  "place.waiting": W("waiting"),
+  "place.prs": W("prs"),
   "place.inbox": W("inbox"),
   "place.team": W("team"),
-  "place.jobs": W("jobs"),
-  "place.review": W("review"),
-  "place.code": W("code"),
-
-  // ── Conversation ──
-  "ade.openChat": { at: "panel", panel: "ade.openChat" },
-  "ade.focusChat": { at: "panel", panel: "ade.focusChat" },
-  "ade.dictate": W(undefined, "dictate"),
-  "ade.arrange": W("waiting"),
-  "ade.dashboard": W("waiting"),
-  "ade.diffTurn": W("review"),
-  "ade.ask": W(undefined, "ask"),
-  // The first message is the verb's: a new conversation with nothing said
-  // is one the session server refuses.
-  "ade.newChat": W(undefined, "new-chat"),
-  "ade.clearChat": S("/api/chat/clear"),
-  "ade.stop": S("/api/cancel"),
-  "ade.stopAgent": S("/api/sides/{id}/cancel", {}, pick("agent", "id", "Stop which agent?")),
-  // An answer named `session` is which session the verb acts on, so this
-  // is the same stop sent somewhere other than the one in the sidebar.
-  "ade.stopElsewhere": S("/api/cancel", {}, pick("session", "session", "Stop which session?")),
-  "ade.showQueue": W("waiting"),
-  "ade.runQueued": S("/api/queue/run"),
-  "ade.pickModel": S("/api/chat/model", {}, pick("model", "model", "Which model?")),
+  "place.issues": W("issues"),
+  "place.spaces": W("spaces"),
+  "place.review": W(undefined, "diff"),
 
   // ── Sessions ──
-  "ade.switchSession": W("sessions"),
-  // One server per checkout, so this moves it: everything pointed at
-  // that server follows.
-  "ade.switchSessionHere": W(undefined, "resume"),
-  "ade.findSession": W(undefined, "omnibox"),
   "ade.newSession": { at: "panel", panel: "ade.newSession" },
-  "ade.closeSession": S("/api/exit"),
+  "ade.newScratch": L("/api/scratch", { terminal: true }),
+  // The three tabs every session has.
+  "ade.openAgent": W(undefined, "agent"),
+  "ade.diffTurn": W(undefined, "diff"),
+  "ade.openTerminal": W(undefined, "terminal"),
   "ade.renameSession": L("/api/sessions/rename", {}, type("title", "Rename this session to…")),
+  "ade.tagSession": W(undefined, "tags"),
+  "ade.importConversation": W(undefined, "import"),
+  "ade.openBrief": W(undefined, "brief"),
+  "ade.sendBrief": W(undefined, "brief-send"),
+  "ade.closeSession": W(undefined, "close-session"),
   "ade.portScratch": S(
     "/api/port",
     { remove: false },
     pick("repo", "target", "Move the work into which repository?"),
     blank("branch", "Branch name, or empty to let ade name it…"),
   ),
-  "ade.newScratch": L("/api/scratch"),
-  "ade.combineSessions": L("/api/sessions/combine", {}, many("session", "ids", "Combine which sessions?")),
-  "ade.switchWorktree": S(
-    "/api/worktrees/switch",
-    {},
-    pick("worktree", "path", "Switch to which branch or worktree?"),
-  ),
-  "ade.worktrees": { at: "panel", panel: "ade.worktrees" },
-  "ade.worktreeGraph": { at: "panel", panel: "ade.worktreeGraph" },
-  "ade.showAllSessions": W("sessions"),
-  "ade.collapseSessions": W("sessions"),
   "ade.refreshSessions": W(undefined, "refresh"),
-  // archived:true, or the default sends false and brings it back instead.
-  "ade.archiveSession": S("/api/sessions/archive", { archived: true }),
 
   // ── Diff ──
   "ade.refreshChanges": W(undefined, "refresh"),
@@ -186,13 +136,11 @@ export const WIRED: Record<string, Doing> = {
   "ade.scopeUncommitted": S("/api/scope", { scope: "uncommitted" }),
   "ade.stageAll": S("/api/stage", { all: true, staged: true }),
   "ade.unstageAll": S("/api/stage", { all: true, staged: false }),
-  "ade.blame": W("code"),
-  "ade.history": W(undefined, "history"),
   "ade.setScope": S("/api/scope", {}, pick("scope", "scope", "Which scope?")),
   "ade.diffRoot": S("/api/diff/root", {}, pick("repo", "root", "Which repository?")),
+  "ade.pullBase": S("/api/base/pull"),
 
   // ── Review ──
-  "ade.reviewBranch": S("/api/review"),
   "ade.review": S("/api/review"),
   // A level is read only where no agent is named, so naming one is the
   // whole of the question.
@@ -201,37 +149,35 @@ export const WIRED: Record<string, Doing> = {
     { level: "" },
     many("reviewer", "agents", "Which agents should review?", ["security", "staff-reviewer"]),
   ),
-  "ade.resolveAll": S("/api/resolve", { all: true }),
-  "ade.resolveHere": S("/api/threads/{id}/resolve", {}, pick("thread", "id", "Resolve which comment?")),
+  "ade.stop": S("/api/cancel"),
+  "ade.sendFindings": W(undefined, "findings"),
+  // The review as GitHub builds one: comments join a draft, a verdict ends it.
+  "ade.addToReview": W(undefined, "review-draft"),
+  "ade.finishReview": W(undefined, "review-finish"),
+  "ade.sendReplies": S("/api/threads/send-replies"),
   // `which` names what the sweep takes; empty is every comment.
   "ade.pruneOrphans": S("/api/threads/reset", { which: "orphaned" }),
   "ade.removeResolved": S("/api/threads/reset", { which: "resolved" }),
   "ade.removeDeclined": S("/api/threads/reset", { which: "declined" }),
   "ade.removeAllComments": S("/api/threads/reset", { which: "" }),
-  "ade.showComments": W("review"),
-  "ade.openReview": W("prs"),
-  "ade.explain": S("/api/explain"),
-  "ade.quizMe": { at: "panel", panel: "ade.quizMe" },
-  "ade.explainThis": { at: "panel", panel: "ade.explainThis" },
-  "ade.pullBase": S("/api/base/pull"),
-  "ade.draftReplies": S("/api/draft-replies"),
-  "ade.sendReplies": S("/api/threads/send-replies"),
 
   // ── Commit and pull request ──
-  "ade.commitPanel": { at: "panel", panel: "ade.commitPanel" },
-  "ade.ship": { at: "panel", panel: "ade.ship" },
-  "ade.audit": { at: "panel", panel: "ade.audit" },
-  // No title keeps the last commit's message, which the server allows
-  // only for an amend.
-  "ade.commitAmend": S(
-    "/api/commit",
-    { amend: true },
-    blank("title", "New message, or empty to keep the old one…"),
-  ),
   "ade.writeCommitMessage": S("/api/commit-message"),
   "ade.push": S("/api/push"),
-  "ade.createPR": S("/api/pr-create", { draft: true }),
-  "ade.showPR": W("prs"),
+  // The window follows the answer onto the session, so not a plain row.
+  "ade.openPRLink": { at: "window", verb: "open-pr" },
+  "ade.approvePR": { at: "verdict", which: "approve" },
+  "ade.requestChanges": { at: "verdict", which: "request-changes" },
+  "ade.mergePR": { at: "verdict", which: "merge" },
+  "ade.refreshChecks": S("/api/checks/refresh"),
+
+  // ── Lists: the five on the bar, and the two with no button ──
+  "ade.well": W("waiting"),
+  "ade.myDay": W(undefined, "my-day"),
+  "ade.pendingPRs": W("prs"),
+  "ade.showInbox": W("inbox"),
+  "ade.team": W("team"),
+  "ade.issues": W("issues"),
   "ade.spaces": W("spaces"),
   "ade.openSpace": L("/api/spaces", undefined, pick("space", "repo", "Open which repository as a space?")),
   "ade.closeSpace": {
@@ -240,90 +186,6 @@ export const WIRED: Record<string, Doing> = {
     how: "DELETE",
     needs: [pick("openspace", "repo", "Close which space? Nothing on disk goes with it…")],
   },
-  // The window follows the answer onto the session, so not a plain row.
-  "ade.openPRLink": { at: "window", verb: "open-pr" },
-  "ade.checkoutPR": S("/api/pr/checkout"),
-  // The title through the box, the description in the sheet: editing
-  // rendered markdown is what the window is for.
-  "ade.editPR": { at: "edit", what: "pr" },
-  "ade.approvePR": { at: "verdict", which: "approve" },
-  "ade.requestChanges": { at: "verdict", which: "request-changes" },
-  "ade.mergePR": { at: "verdict", which: "merge" },
-  "ade.refreshChecks": S("/api/checks/refresh"),
-  "ade.fixChecks": S("/api/checks/fix"),
-
-  // ── Design and jobs ──
-  "ade.concierge": { at: "panel", panel: "ade.concierge" },
-  // The front desk, in a window of its own: it is what you keep
-  // beside the work rather than in front of it.
-  "ade.conciergeFloat": W(undefined, "float"),
-  "ade.well": W("waiting"),
-  "ade.addTodo": L("/api/todos", {}, type("text", "What is the todo?")),
-  "ade.todos": W("todos"),
-  "ade.newDesign": S("/api/design", {}, type("name", "What is the design called?")),
-  "ade.design": W("designs"),
-  "ade.grillDesign": S("/api/design/go", { mode: "grill" }),
-  "ade.condenseDesign": S("/api/design/condense"),
-  "ade.reviewDesign": S("/api/design/review"),
-  "ade.purgeDesigns": { at: "panel", panel: "ade.purgeDesigns" },
-  "ade.build": S("/api/design/go", { mode: "build" }),
-  // The file is the definition, so the box writes one and the document
-  // is where it gets edited afterwards.
-  "ade.newJob": L(
-    "/api/jobs/save",
-    { mode: "create" },
-    type("name", "What is the job called?"),
-    type("schedule", "When should it run?"),
-    type("prompt", "What should it do?"),
-  ),
-  "ade.jobs": W("jobs"),
-  "ade.searchWiki": {
-    at: "find",
-    from: "launcher",
-    path: "/api/wiki/search",
-    open: "/api/wiki/page/",
-    title: "Search the shared wiki",
-  },
-  "ade.runDrift": S("/api/drift"),
-  "ade.drift": { at: "report", from: "session", path: "/api/drift", render: "drift" },
-  // A requirement the change is checked against, and the two ways out:
-  // stop checking it, or start again.
-  "ade.driftDismiss": S(
-    "/api/drift/dismiss",
-    { dismissed: true },
-    pick("drifted", "id", "Stop checking which?"),
-  ),
-  "ade.driftRestore": S(
-    "/api/drift/dismiss",
-    { dismissed: false },
-    pick("dismissed", "id", "Check which again?"),
-  ),
-  "ade.memory": { at: "report", from: "session", path: "/api/project", render: "memory" },
-  // Kept and proposed are different picks: they take different verbs,
-  // and Forget on a proposal is not one of them.
-  "ade.memoryForget": S(
-    "/api/project/entry",
-    { action: "forget" },
-    pick("remembered", "id", "Forget which?"),
-  ),
-  "ade.memoryProposal": S(
-    "/api/project/entry",
-    {},
-    pick("proposed", "id", "Which proposal?"),
-    one(
-      [
-        { label: "Remember this", value: "accept" },
-        { label: "Reject, and do not propose it again", value: "reject" },
-      ],
-      "action",
-      "What with it?",
-    ),
-  ),
-  "ade.distilMemory": S("/api/project/distil"),
-
-  // ── Issues and pull requests ──
-  "ade.issues": W("issues"),
-  "ade.pendingPRs": W("prs"),
 
   // ── Team ──
   // The launcher refuses a review request with no pull request in it.
@@ -345,80 +207,15 @@ export const WIRED: Record<string, Doing> = {
   "ade.dismissReply": S("/api/bus/dismiss", {}, pick("reply", "id", "Clear which answer?")),
   "ade.dismissOffer": S("/api/bus/dismiss", {}, pick("offer", "id", "Dismiss which offer?")),
 
-  // ── Machines and ports ──
-  "ade.machines": { at: "panel", panel: "ade.machines" },
-  "ade.addMachine": L("/api/hosts", {}, type("name", "Which host, as ssh dials it?")),
-  "ade.removeMachine": {
-    at: "launcher",
-    path: "/api/hosts/{name}",
-    how: "DELETE",
-    needs: [pick("machine", "name", "Forget which machine?")],
-  },
-  // Asking a machine for its repositories is what connects it, which the
-  // window has no step for yet, so the directory is typed rather than picked.
-  "ade.startElsewhere": L(
-    "/api/open",
-    {},
-    pick("machine", "machine", "Start on which machine?"),
-    type("dir", "Which directory there?"),
-    blank("prompt", "What to start on, or empty for just a session…"),
-  ),
-  "ade.exposePort": L("/api/ports/expose", {}, type("port", "Which port?")),
-  // xterm in the window, over the session server's own shell.
-  "ade.openTerminal": W(undefined, "terminal"),
-  // The agent's own interface, and the switch back to ade's chat.
-  "ade.openAgent": W(undefined, "agent"),
-  "ade.terminalMode": W(undefined, "terminal-mode"),
-  "ade.toggleSidebar": W(undefined, "sidebar"),
-  "ade.diagnose": S("/api/diagnose/net"),
-
   // ── ade itself ──
-  "ade.showInbox": W("inbox"),
   // A ping is no use when the thing to ping is what is missing.
   "ade.startLauncher": W(undefined, "start"),
   "ade.openSettings": { at: "panel", panel: "ade.openSettings" },
-  "ade.roles": L("/api/roles/default", {}, pick("role", "name", "Which role for new chats?")),
-  "ade.syncModels": S("/api/chat/model", { refetch: true }),
-  // Asked rather than toggled: the window would have to hold the
-  // session's state to know which way a toggle goes.
-  "ade.toggleSandbox": {
-    at: "session",
-    path: "/api/sandbox/on",
-    how: "PUT",
-    needs: [
-      one(
-        [
-          { label: "In a container", value: true },
-          { label: "On the host", value: false },
-        ],
-        "on",
-        "Run the agent where?",
-      ),
-    ],
-  },
-  "ade.toggleFree": S("/api/chat/free"),
-  "ade.checks": S("/api/verify", { run: true }),
-  "ade.sandboxFile": { at: "panel", panel: "ade.sandboxFile" },
-  "ade.sandboxPanel": { at: "panel", panel: "ade.sandboxPanel" },
-  // /api/preview only reads; setting the url is a settings write.
-  // Both of these are fields on the Settings form, which is hosted.
-  "ade.previewURL": { at: "panel", panel: "ade.openSettings" },
-  "ade.showStats": { at: "report", from: "launcher", path: "/api/stats", render: "stats" },
-  "ade.showRepo": { at: "panel", panel: "ade.showRepo" },
-  "ade.showUsage": {
-    at: "report",
-    from: "launcher",
-    path: "/api/limits",
-    also: "/api/limits/window",
-    render: "usage",
-  },
-  "ade.showGraph": { at: "report", from: "launcher", path: "/api/graph", render: "graph" },
-  "ade.syncWorktrees": L("/api/sync", {}, pick("repo", "repo", "Sync which repository's worktrees?")),
-  "ade.purgeWorktrees": { at: "panel", panel: "ade.purgeWorktrees" },
-  "ade.disk": { at: "panel", panel: "ade.disk" },
+  "ade.keys": { at: "panel", panel: "ade.openSettings" },
+  "ade.toggleSidebar": W(undefined, "sidebar"),
+  "sidebar.toggle": W(undefined, "sidebar"),
   "ade.openPermissions": { at: "rules" },
   "ade.reconnect": W(undefined, "refresh"),
-  "ade.keys": { at: "panel", panel: "ade.openSettings" },
   "ade.showLogs": { at: "report", from: "session", path: "/api/logs", render: "logs" },
 };
 

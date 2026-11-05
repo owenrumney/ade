@@ -6,15 +6,8 @@ contextBridge.exposeInMainWorld("ade", {
   onCommand: (then: (command: string) => void) =>
     ipcRenderer.on("command", (_event, command: string) => then(command)),
   keys: () => ipcRenderer.invoke("ade.keys") as Promise<unknown[]>,
-  // What the person just set off. The reach records what came of it.
-  // Never thrown: the trail may not be the reason the window stops.
-  note: (entry: Record<string, unknown>) =>
-    void (ipcRenderer.invoke("ade.note", entry) as Promise<void>).catch(() => {}),
-  audit: (day?: string) => ipcRenderer.invoke("ade.audit", day) as Promise<unknown>,
   // world is everything the sidebar draws, gathered in one round trip.
   world: (dir?: string) => ipcRenderer.invoke("ade.world", dir) as Promise<unknown>,
-  pr: (repo: string, number: number) =>
-    ipcRenderer.invoke("ade.pr", repo, number) as Promise<unknown>,
   start: () => ipcRenderer.invoke("ade.start") as Promise<unknown>,
   // The picked session's event stream, carried to the window.
   watch: (session?: string) => ipcRenderer.invoke("ade.watch", session) as Promise<unknown>,
@@ -29,10 +22,7 @@ contextBridge.exposeInMainWorld("ade", {
   termSend: (pane: string, data: string) => ipcRenderer.send("ade.term.send", pane, data),
   termResize: (pane: string, cols: number, rows: number) =>
     ipcRenderer.send("ade.term.resize", pane, cols, rows),
-  // A window of its own, holding one panel.
   link: (href: string) => ipcRenderer.invoke("ade.link", href) as Promise<unknown>,
-  float: (panel: string, session: string) =>
-    ipcRenderer.invoke("ade.float", panel, session) as Promise<unknown>,
   onTerm: (then: (pane: string, data: string) => void) =>
     ipcRenderer.on("term", (_e, pane: string, data: string) => then(pane, data)),
   onTermClosed: (then: (pane: string, why: string) => void) =>

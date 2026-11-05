@@ -1,4 +1,4 @@
-import type { Comment, Thread } from "./client";
+import type { Said as Comment, Thread } from "../renderer/changes";
 import { wasSent } from "./here";
 
 // pending is what a thread has to say back to GitHub: your own unsent comments

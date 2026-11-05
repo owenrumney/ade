@@ -1,17 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as real from "./real";
-import {
-  ago,
-  byProject,
-  designs,
-  inbox,
-  issues,
-  prs,
-  sessions,
-  status,
-  waiting,
-} from "./real";
-import type { Dash, Design, Repo } from "./real";
+import { ago, byProject, inbox, issues, prs, sessions, status, waiting } from "./real";
+import type { Dash, Repo } from "./real";
 
 const now = Date.parse("2026-10-22T12:00:00Z");
 
@@ -56,7 +46,32 @@ describe("pull requests, as ade answers them", () => {
   });
 });
 
-describe("what is waiting on you", () => {
+describe("what a pull request's line does besides open", () => {
+  // Opening one checks it out as a session, so the website is its own act.
+  it("offers the website, and to put one asked of you aside", () => {
+    expect(prs(DASH).rows[0].acts).toEqual([
+      { label: "Web", what: "pr-web", name: "x" },
+      { label: "Put aside", what: "pr-mute", name: "infracost/cli#412" },
+    ]);
+  });
+
+  it("offers to bring back one that was put aside", () => {
+    const muted = prs(DASH).rows.find((r) => r.id === "infracost/cli#9");
+    expect(muted?.acts?.[1]).toEqual({ label: "Bring back", what: "pr-unmute", name: "infracost/cli#9" });
+  });
+
+  it("offers only the website on one of yours, when it has an address", () => {
+    const mine = [
+      { number: 1, title: "a", mine: true, url: "https://github.com/o/r/pull/1" },
+      { number: 2, title: "b", mine: true },
+    ] as real.Listed[];
+    const [first, second] = prs({}, mine, "o/r", now).rows;
+    expect(first.acts).toEqual([{ label: "Web", what: "pr-web", name: "https://github.com/o/r/pull/1" }]);
+    expect(second.acts).toEqual([]);
+  });
+});
+
+describe("Notifications, what is waiting on you", () => {
   it("is the reviews only you can move", () => {
     expect(waiting(DASH).rows.map((r) => r.id)).toEqual([
       "infracost/cli#412",
@@ -69,44 +84,27 @@ describe("what is waiting on you", () => {
     expect(names).not.toContain("Plan v2");
     expect(names).not.toContain("Muted");
   });
-});
 
-const DESIGNS: Design[] = [
-  { name: "one-window", dir: "/d/a", file: "/d/a/design.md", meta: { repos: ["owenrumney/ade"] }, repo: "owenrumney/ade", here: ["/code/ade"], live: true, branch: "feat/one-window" },
-  { name: "retry-429", dir: "/d/b", file: "/d/b/design.md", meta: { repos: ["infracost/cli", "infracost/infra"], ticket: "FIX-623" }, repo: "infracost/cli", here: ["/code/cli"], missing: ["infracost/infra"] },
-];
+  it("is called Notifications, under the bell", () => {
+    expect(waiting(DASH)).toMatchObject({ id: "waiting", title: "Notifications", icon: "bell" });
+  });
 
-describe("designs, from the store", () => {
-  it("groups by the repository each is home to", () => {
-    expect(designs(DESIGNS).rows.map((r) => r.group)).toEqual([
-      "owenrumney/ade",
-      "infracost/cli",
+  it("is not grouped, and paints nothing, with no offer from the bus", () => {
+    const place = waiting(DASH);
+    expect(place.rows.every((r) => r.group === undefined)).toBe(true);
+    expect(place.alert).toBe(false);
+  });
+
+  // Grouped only when there is a second list to tell the reviews from.
+  it("leads with what teammates asked, and paints the bell for it", () => {
+    const bus: real.Bus = { offers: [{ id: "o1", kind: "ask", from: "liam", question: "Ship it?" }] };
+    const place = waiting(DASH, bus);
+    expect(place.rows.map((r) => [r.id, r.group])).toEqual([
+      ["o1", "Offered to you"],
+      ["infracost/cli#412", "Yours to move"],
+      ["owenrumney/go-sarif#88", "Yours to move"],
     ]);
-  });
-
-  it("warns about one this machine cannot start, and names what is missing", () => {
-    const row = designs(DESIGNS).rows[1];
-    expect(row.icon).toBe("warn");
-    expect(row.tone).toBe("bad");
-    expect(row.meta).toContain("needs infracost/infra");
-    expect(row.meta).toContain("2 repos");
-    expect(row.meta).toContain("FIX-623");
-  });
-
-  // A document in a checkout is that checkout's, not a design: listing both
-  // put the same design on screen twice under two different icons.
-  it("is the store and nothing in a checkout", () => {
-    const rows = designs(DESIGNS).rows;
-    expect(rows.map((r) => r.name)).toEqual(["one-window", "retry-429"]);
-    expect(rows.every((r) => r.icon !== "design")).toBe(true);
-  });
-
-  // The play icon says it is running, so the meta does not say it again.
-  it("marks the one being worked on", () => {
-    const row = designs(DESIGNS).rows[0];
-    expect([row.icon, row.tone]).toEqual(["play", "good"]);
-    expect(row.meta).not.toContain("running");
-    expect(row.meta).toContain("feat/one-window");
+    expect(place.alert).toBe(true);
   });
 });
 
@@ -121,19 +119,81 @@ const REPOS: Repo[] = [
   },
 ];
 
-describe("sessions, flattened out of the scan", () => {
+describe("sessions, the list on the left", () => {
+  const at = (h: number) => new Date(now - h * 3600_000).toISOString();
+  const repos: Repo[] = [
+    {
+      name: "ade",
+      owner: "owenrumney",
+      path: "/r/ade",
+      checkouts: [
+        {
+          name: "ade",
+          path: "/r/ade",
+          sessions: [
+            { id: "old", name: "old", title: "older", dir: "/r/ade", lastUsed: at(40) },
+            { id: "mid", name: "mid", title: "middling", dir: "/r/ade", agent: "codex", lastUsed: at(5) },
+            { id: "gone", name: "gone", dir: "/r/ade", archived: true, lastUsed: at(1) },
+          ],
+        },
+        {
+          name: "fix",
+          path: "/r/ade-fix",
+          worktree: true,
+          sessions: [{ id: "hot", name: "hot", branch: "fix", dir: "/r/ade-fix", live: true, lastUsed: at(1) }],
+        },
+        { name: "empty", path: "/r/ade-empty", worktree: true, sessions: [] },
+      ],
+    },
+    {
+      name: "lazytrivy",
+      path: "/r/lt",
+      checkouts: [{ name: "lt", path: "/r/lt", sessions: [{ id: "lt1", name: "lt1", dir: "/r/lt", lastUsed: at(20) }] }],
+    },
+  ];
+  const place = sessions(repos, now);
+
+  it("is one flat list, with no headings to fold", () => {
+    expect(place).toMatchObject({ id: "sessions", title: "Sessions" });
+    expect(place.rows.every((r) => r.group === undefined)).toBe(true);
+  });
+
+  // By name, running or not: the only order you can point at from memory.
+  it("is in name order, whichever repository each is in", () => {
+    expect(place.rows.map((r) => r.name)).toEqual(["fix", "lt1", "middling", "older"]);
+    expect(place.rows.map((r) => r.id)).toEqual(["hot", "lt1", "mid", "old"]);
+  });
+
   it("leaves out what you archived", () => {
+    expect(place.rows.map((r) => r.id)).not.toContain("gone");
     expect(sessions(REPOS).rows.map((r) => r.id)).toEqual(["s1"]);
   });
 
-  it("marks the one you are in", () => {
-    expect(sessions(REPOS, "/code/ade").rows[0].tag).toEqual({ text: "here", kind: "here" });
-    expect(sessions(REPOS, "/elsewhere").rows[0].tag).toBeUndefined();
+  it("says the repository, the worktree, the agent, and how long ago", () => {
+    const by = (id: string) => place.rows.find((r) => r.id === id);
+    expect(by("old")?.meta).toBe("ade · 40h");
+    expect(by("mid")?.meta).toBe("ade · codex · 5h");
+    expect(by("lt1")?.meta).toBe("lazytrivy · 20h");
   });
 
-  // The running group is read while it is being written to. Ordered by
-  // recency it reshuffles under the pointer, so it is ordered by name.
-  it("keeps the running ones in one order however they speak", () => {
+  // A live one's badge says it is live, so the meta does not say when.
+  it("names the worktree and leaves the age off a live one", () => {
+    expect(place.rows.find((r) => r.id === "hot")?.meta).toBe("ade · fix");
+  });
+
+  it("names a worktree once when it is called what the repository is", () => {
+    const same: Repo[] = [
+      {
+        name: "ade",
+        path: "/r/ade",
+        checkouts: [{ name: "ade", path: "/r/f", worktree: true, sessions: [{ id: "a", name: "a", dir: "/r/f", lastUsed: at(2) }] }],
+      },
+    ];
+    expect(sessions(same, now).rows[0].meta).toBe("ade · 2h");
+  });
+
+  // Ordered by recency the list reshuffles under the pointer as agents write.
+  it("keeps one order however the sessions speak", () => {
     const running: Repo[] = [
       {
         name: "ade",
@@ -156,34 +216,129 @@ describe("sessions, flattened out of the scan", () => {
     expect(sessions(running).rows.map((r) => r.id)).toEqual(order);
   });
 
-  // The scan calls a session live from its transcript's age or the process
-  // table, and a sandboxed agent waiting on you is neither.
-  it("runs what an ade is serving, however old the transcript", () => {
-    const quiet: Repo[] = [
+  it("tells two sessions of one name apart by id, the same way every time", () => {
+    const twins: Repo[] = [
       {
         name: "ade",
-        path: "/code/ade",
+        path: "/r/ade",
         checkouts: [
           {
-            path: "/code/ade-fix",
-            name: "ade-fix",
-            worktree: true,
+            name: "ade",
+            path: "/r/ade",
             sessions: [
-              { id: "s9", name: "fix", dir: "/code/ade-fix", title: "fix it", lastUsed: "2026-10-23T09:00:00Z" },
+              { id: "b", name: "same", dir: "/r/ade" },
+              { id: "a", name: "same", dir: "/r/ade" },
             ],
           },
         ],
       },
     ];
-    expect(sessions(quiet).rows[0].group).not.toBe("Running");
-    const row = sessions(quiet, "", Date.now(), [], [{ id: "s9", dir: "/code/ade-fix", name: "fix" }]).rows[0];
-    expect(row.group).toBe("Running");
-    expect(row.acts?.[0]).toEqual({ label: "Stop…", what: "session-end", name: "s9" });
-    // The point of the change: a finished one is removable from its row too.
-    expect(sessions(quiet).rows[0].acts?.[0]).toMatchObject({
-      label: "Put away…",
-      what: "session-end",
-    });
+    expect(sessions(twins, now).rows.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  // The scan calls a session live from the process table; an ade serving it
+  // says so however old its last word is.
+  it("badges what an ade is serving as live, however long it has been quiet", () => {
+    const quiet = place.rows.find((r) => r.id === "old");
+    expect([quiet?.icon, quiet?.tone]).toEqual(["history", undefined]);
+    const served = sessions(repos, now, [{ id: "old", dir: "/r/ade", name: "old" }]).rows.find((r) => r.id === "old");
+    expect([served?.icon, served?.tone]).toEqual(["play", "good"]);
+    expect(served?.meta).toBe("ade");
+  });
+});
+
+describe("a session's tags", () => {
+  const tagged: Repo[] = [
+    {
+      name: "ade",
+      path: "/r/ade",
+      checkouts: [
+        {
+          name: "ade",
+          path: "/r/ade",
+          sessions: [
+            { id: "t", name: "tagged", dir: "/r/ade", ticket: "DEV-12", brief: "/r/ade/.git/ade/docs/lean.md", tags: ["urgent", "api"] },
+            { id: "p", name: "plain", dir: "/r/ade" },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("are its ticket, its brief, then the ones typed by hand", () => {
+    expect(real.tagsOf(tagged[0].checkouts![0].sessions![0])).toEqual([
+      { text: "DEV-12", kind: "ticket" },
+      { text: "brief", kind: "brief" },
+      { text: "urgent", kind: "own" },
+      { text: "api", kind: "own" },
+    ]);
+  });
+
+  it("are none for a session ade recorded nothing about", () => {
+    expect(real.tagsOf(tagged[0].checkouts![0].sessions![1])).toEqual([]);
+  });
+
+  it("sit on the session's line in the list", () => {
+    const [plain, withTags] = sessions(tagged, now).rows;
+    expect(plain.tags).toEqual([]);
+    expect(withTags.tags?.map((t) => t.text)).toEqual(["DEV-12", "brief", "urgent", "api"]);
+  });
+
+  // Only the tags typed by hand are the box's to edit: the rest are ade's.
+  it("hand the box only the ones typed by hand", () => {
+    expect(real.ownTags(tagged, "t")).toEqual(["urgent", "api"]);
+    expect(real.ownTags(tagged, "p")).toEqual([]);
+    expect(real.ownTags(tagged, "nobody")).toEqual([]);
+  });
+
+  it("name the brief by its path, or nothing when there is none", () => {
+    expect(real.briefOf(tagged, "t")).toBe("/r/ade/.git/ade/docs/lean.md");
+    expect(real.briefOf(tagged, "p")).toBe("");
+    expect(real.briefOf(tagged, "nobody")).toBe("");
+  });
+
+  it("are read from the box with commas or spaces between, once each, without the hash", () => {
+    expect(real.typedTags("  #urgent, api  urgent\nfix ")).toEqual(["urgent", "api", "fix"]);
+    expect(real.typedTags("")).toEqual([]);
+    expect(real.typedTags(" , ")).toEqual([]);
+  });
+});
+
+describe("what a session's line does besides open", () => {
+  const repos: Repo[] = [
+    {
+      name: "ade",
+      path: "/r/ade",
+      checkouts: [
+        {
+          name: "ade",
+          path: "/r/ade",
+          sessions: [
+            { id: "b", name: "briefed", dir: "/r/ade", brief: "/r/ade/.git/ade/docs/lean.md" },
+            { id: "p", name: "plain", dir: "/r/ade" },
+          ],
+        },
+      ],
+    },
+  ];
+  const [briefed, plain] = sessions(repos, now).rows;
+
+  // The rest would crowd the line: they are the context menu's.
+  it("shows Close on hover and keeps Tags to the menu", () => {
+    expect(plain.acts).toEqual([
+      { label: "Close", what: "session-end", name: "p" },
+      { label: "Tags…", what: "session-tags", name: "p", menu: true },
+    ]);
+  });
+
+  it("offers the brief only on a session that has one", () => {
+    expect(briefed.acts?.map((a) => [a.label, a.what, Boolean(a.menu)])).toEqual([
+      ["Close", "session-end", false],
+      ["Tags…", "session-tags", true],
+      ["Open the brief", "brief-open", true],
+      ["Tell the agent to read the brief", "brief-send", true],
+    ]);
+    expect(briefed.acts?.every((a) => a.name === "b")).toBe(true);
   });
 });
 
@@ -226,6 +381,7 @@ describe("how long ago", () => {
   it("says nothing for a stamp that did not come", () => {
     expect(ago(undefined, now)).toBe("");
     expect(ago("not a date", now)).toBe("");
+    expect(ago("0001-01-01T00:00:00Z", now)).toBe("");
   });
 });
 
@@ -267,27 +423,17 @@ describe("the session the window lands on", () => {
   });
 });
 
-describe("designs in the checkout itself", () => {
-  it("are not listed: the row id is always the store's name", () => {
-    const place = real.designs(DESIGNS);
-    expect(place.rows.map((r) => r.id)).toEqual(["one-window", "retry-429"]);
-  });
-});
-
 describe("what the picked session is doing", () => {
   const state = {
     agent: {
       running: true,
       kind: "review",
-      model: "opus",
-      sandbox: true,
-      queued: 2,
       sideRuns: [{ id: "a", name: "security" }, { id: "b", name: "tester" }],
     },
   };
 
   it("names every agent in flight", () => {
-    expect(real.saying(real.doingIn(state))).toBe("@security, @tester · review · 2 queued");
+    expect(real.saying(real.doingIn(state))).toBe("@security, @tester · review");
     expect(real.busy(real.doingIn(state))).toBe(true);
   });
 
@@ -297,189 +443,60 @@ describe("what the picked session is doing", () => {
     expect(real.doingIn(undefined)).toEqual(real.NOTHING);
   });
 
-  it("carries the sandbox and the model into the status bar", () => {
-    const status = real.status({}, [], real.doingIn(state));
-    expect(status.sandboxed).toBe(true);
-    expect(status.model).toBe("opus");
-    expect(status.doing).toContain("@security");
+  // The agent's own terminal runs no turn of ade's, and is still at work.
+  it("counts an agent working in its own terminal as busy", () => {
+    const doing = real.doingIn({ agent: { terminal: "working" } });
+    expect(doing.terminal).toBe("working");
+    expect(real.busy(doing)).toBe(true);
+    expect(real.busy(real.doingIn({ agent: { terminal: "needs" } }))).toBe(false);
+    expect(real.saying(doing)).toBe("");
   });
-});
 
-describe("the conversation the server is in", () => {
-  it("is read beside what the agent is doing", () => {
+  it("reads the scope, the branch, the pull request and how far behind", () => {
     const doing = real.doingIn({
-      agent: { running: false, provider: "claude" },
-      chat: { session: "other-one" },
+      meta: { scope: "branch", branch: "feat/x" },
+      branchPr: { number: 7 },
+      worktree: { behind: 3 },
     });
-    expect(doing.on).toBe("other-one");
-    expect(doing.provider).toBe("claude");
+    expect(doing).toMatchObject({ scope: "branch", branch: "feat/x", pr: 7, behind: 3 });
   });
 
-  it("is empty when the session server said nothing about it", () => {
-    expect(real.doingIn({ agent: {} }).on).toBe("");
-  });
-});
-
-describe("sessions, under the repository each is in", () => {
-  const at = (h: number) => new Date(Date.parse("2026-10-22T12:00:00Z") - h * 3600_000).toISOString();
-  const repos = [
-    {
-      name: "ade",
-      owner: "owenrumney",
-      path: "/r/ade",
-      checkouts: [
-        {
-          name: "ade",
-          path: "/r/ade",
-          sessions: [
-            { id: "old", name: "old", title: "older", dir: "/r/ade", lastUsed: at(40) },
-            { id: "mid", name: "mid", title: "middling", dir: "/r/ade", lastUsed: at(5) },
-            { id: "gone", name: "gone", dir: "/r/ade", archived: true, lastUsed: at(1) },
-          ],
-        },
-        {
-          name: "fix",
-          path: "/r/ade-fix",
-          worktree: true,
-          sessions: [{ id: "hot", name: "hot", branch: "fix", dir: "/r/ade-fix", live: true, lastUsed: at(1) }],
-        },
-        { name: "empty", path: "/r/ade-empty", worktree: true, sessions: [] },
-      ],
-    },
-    {
-      name: "lazytrivy",
-      path: "/r/lt",
-      checkouts: [{ name: "lt", path: "/r/lt", sessions: [{ id: "lt1", name: "lt1", dir: "/r/lt", lastUsed: at(20) }] }],
-    },
-  ] as unknown as real.Repo[];
-
-  const place = real.sessions(repos, "/r/ade-fix", Date.parse("2026-10-22T12:00:00Z"));
-
-  it("groups by repository, so three worktrees of ade are one heading", () => {
-    expect([...new Set(place.rows.map((r) => r.group))]).toEqual([
-      "Running",
-      "lazytrivy",
-      "owenrumney/ade",
-    ]);
+  it("carries all of it into the status bar", () => {
+    const doing = real.doingIn({ ...state, meta: { scope: "branch", branch: "feat/x" }, branchPr: { number: 7 } });
+    const bar = real.status({}, [], doing);
+    expect(bar.doing).toContain("@security");
+    expect(bar).toMatchObject({ scope: "branch", branch: "feat/x", pr: 7 });
   });
 
-  // What is up is what you are coming back to, so it is never hunted
-  // for; the rest is alphabetical, which is the only order you can
-  // point at from memory.
-  it("puts what is running first, then the repositories by name", () => {
-    expect(place.rows.map((r) => r.id)).toEqual(["hot", "lt1", "mid", "old"]);
+  // The session's own branch wins: the scan's is the checkout's.
+  it("falls back to the live checkout's branch when the session names none", () => {
+    const repos = [
+      { name: "ade", path: "/r", checkouts: [{ name: "ade", path: "/r", branch: "main", sessions: [{ id: "s", name: "s", dir: "/r", live: true }] }] },
+    ] as Repo[];
+    expect(real.status({}, repos).branch).toBe("main");
   });
 
-  it("leaves out an archived session and a repository with none", () => {
-    expect(place.rows.map((r) => r.id)).not.toContain("gone");
-    expect(place.rows.some((r) => r.group === "ade · empty")).toBe(false);
-  });
-
-  it("names the worktree on the row, since the heading no longer does", () => {
-    const hot = place.rows[0];
-    expect(hot.tag).toEqual({ text: "here", kind: "here" });
-    expect(hot.meta).toBe("fix · fix · 1h");
-  });
-
-  it("says nothing of a worktree for a session in the main checkout", () => {
-    expect(place.rows.find((r) => r.id === "mid")?.meta).toBe("5h");
-  });
-
-  it("names the main checkout on a running row", () => {
-    const up = real.sessions(
-      [{ name: "ci", path: "/r/ci", checkouts: [{ name: "ci", path: "/r/ci", sessions: [{ id: "c", name: "c", dir: "/r/ci", live: true, lastUsed: at(2) }] }] }] as unknown as real.Repo[],
-      "",
-      Date.parse("2026-10-22T12:00:00Z"),
-    );
-    expect(up.rows[0].meta).toBe("ci · 2h");
-  });
-
-  it("keeps what is running in a repository outside the spaces", () => {
-    const spaced = real.sessions(repos, "", Date.parse("2026-10-22T12:00:00Z"), [], [], (r) => r.name === "lazytrivy");
-    expect(spaced.rows.map((r) => r.id)).toEqual(["hot", "lt1"]);
-  });
-
-  it("names a worktree once when its branch matches its name", () => {
-    const same = real.sessions(
-      [{ name: "ade", path: "/r/ade", checkouts: [{ name: "fix", path: "/r/f", branch: "fix", worktree: true, sessions: [{ id: "a", name: "a", branch: "fix", dir: "/r/f", lastUsed: at(2) }] }] }] as unknown as real.Repo[],
-      "",
-      Date.parse("2026-10-22T12:00:00Z"),
-    );
-    expect(same.rows[0].meta).toBe("fix · 2h");
+  it("counts what teammates asked in what is waiting", () => {
+    const bus: real.Bus = { offers: [{ id: "o1", kind: "ask", from: "liam", question: "Ship it?" }] };
+    expect(real.status(DASH, REPOS, real.NOTHING, bus).waiting).toBe(3);
   });
 });
 
-describe("sessions on another machine", () => {
-  const machines = [
-    {
-      machine: "mini",
-      label: "the mini",
-      repos: [
-        {
-          name: "ade",
-          path: "/far/ade",
-          checkouts: [
-            {
-              name: "ade",
-              path: "/far/ade",
-              sessions: [
-                { id: "far1", name: "far1", title: "Bump the pin", dir: "/far/ade", live: true },
-                { id: "far0", name: "far0", title: "An older one", dir: "/far/ade", archived: true },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-  ] as unknown as real.Machine[];
-
-  it("lists them after this machine's, under the machine", () => {
-    const place = real.sessions([], "", Date.now(), machines);
-    expect(place.rows.map((r) => [r.id, r.group, r.tag?.text])).toEqual([
-      ["far1", "the mini", "mini"],
-    ]);
-  });
-
-  it("leaves an archived one out there too", () => {
-    const place = real.sessions([], "", Date.now(), machines);
-    expect(place.rows.map((r) => r.id)).not.toContain("far0");
+describe("whether an agent is in the middle of something", () => {
+  it("is when it is working or asking, which is when closing asks first", () => {
+    expect(real.running("working")).toBe(true);
+    expect(real.running("asking")).toBe(true);
+    expect(real.running("idle")).toBe(false);
+    expect(real.running("failed")).toBe(false);
   });
 });
 
-describe("the todo list", () => {
-  const now = Date.parse("2026-10-22T12:00:00Z");
-  const items = [
-    { id: "1", text: "Send the review replies", due: "2026-10-21T09:00:00Z" },
-    { id: "2", text: "Bump the editor pin", from: "@architect", note: "monthly" },
-    { id: "3", text: "Already done", doneAt: "2026-10-20T09:00:00Z" },
-    { id: "4", text: "Being worked on", started: "sess-1" },
-  ] as real.Todo[];
-
-  it("leaves out what is finished", () => {
-    expect(real.todos(items, now).rows.map((r) => r.id)).toEqual(["1", "2", "4"]);
-  });
-
-  it("marks one that is late, and one that is under way", () => {
-    const [late, , going] = real.todos(items, now).rows;
-    expect(late.tone).toBe("bad");
-    expect(late.meta).toContain("overdue");
-    expect(going.tone).toBe("good");
-  });
-
-  it("says who filed it", () => {
-    expect(real.todos(items, now).rows[1].meta).toBe("monthly · @architect");
-  });
-
-  it("offers to start one, and not one already under way", () => {
-    const [late, , going] = real.todos(items, now).rows;
-    expect(late.acts?.[0]).toEqual({ label: "Start", what: "todo-start", name: "1" });
-    expect(going.acts?.map((a) => a.what)).not.toContain("todo-start");
-  });
-
-  it("takes one off the list from the context menu, and nowhere else", () => {
-    const [late] = real.todos(items, now).rows;
-    const menu = (late.acts ?? []).filter((a) => a.menu).map((a) => a.what);
-    expect(menu).toEqual(["todo-done", "todo-drop"]);
+describe("the window with no launcher behind it", () => {
+  it("says why where the sessions would be, and counts nothing", () => {
+    const world = real.offline("ade is not running. Start it from a checkout.");
+    expect(world.places.map((p) => p.id)).toEqual(["sessions"]);
+    expect(world.places[0].rows[0]).toMatchObject({ tone: "bad", name: "ade is not running. Start it from a checkout." });
+    expect(world.status.waiting).toBe(0);
   });
 });
 
@@ -541,34 +558,6 @@ describe("your own pull requests", () => {
     expect(failing.tone).toBe("bad");
     expect(draft.meta).toContain("approved");
     expect(draft.tag).toEqual({ text: "draft", kind: "draft" });
-  });
-});
-
-describe("a row that does something besides open", () => {
-  it("offers to start a design the machine can check out", () => {
-    const [one] = real.designs([{ ...DESIGNS[0], live: false }] as Design[]).rows;
-    expect(one.acts).toEqual([{ label: "Start work", what: "design-start", name: "one-window" }]);
-  });
-
-  it("offers nothing for one already being worked on", () => {
-    expect(real.designs([DESIGNS[0]]).rows[0].acts).toEqual([]);
-  });
-
-  it("offers nothing for one this machine is missing a repository for", () => {
-    expect(real.designs([DESIGNS[1]]).rows[0].acts).toEqual([]);
-  });
-
-  it("says which checkout holds a changed copy, and offers to read it again", () => {
-    const [one] = real.designs([
-      { ...DESIGNS[0], live: false, changed: "/Users/owen/code/owenrumney/ade" },
-    ] as Design[]).rows;
-    expect(one.meta).toContain("the copy in ade has changed");
-    expect(one.acts).toContainEqual({
-      label: "Re-import",
-      what: "design-again",
-      name: "one-window",
-      menu: true,
-    });
   });
 });
 
@@ -691,132 +680,6 @@ describe("the team, as agentbus has it", () => {
   });
 });
 
-describe("the jobs list", () => {
-  const now = Date.parse("2026-10-22T12:00:00Z");
-  const all = [
-    { name: "editor-bump", schedule: "monthly", nextDue: "2026-11-01T09:00:00Z" },
-    { name: "morning-brief", schedule: "weekdays at 08:00", paused: true },
-    { name: "drift", schedule: "nightly", failing: true, lastFired: "2026-10-22T02:00:00Z" },
-  ] as real.Job[];
-
-  it("counts the ones that are failing", () => {
-    expect(real.jobs(all, now).count).toBe(1);
-  });
-
-  it("offers to run one now, and to stop it running itself", () => {
-    const [bump, paused] = real.jobs(all, now).rows;
-    expect(bump.acts?.map((a) => a.label)).toEqual(["Run now", "Pause"]);
-    expect(paused.acts?.map((a) => a.label)).toEqual(["Run now", "Resume"]);
-  });
-
-  it("says when it next goes, or that it is paused", () => {
-    const [bump, paused, failing] = real.jobs(all, now).rows;
-    expect(bump.meta).toContain("next");
-    expect(paused.meta).toContain("paused");
-    expect(failing.tone).toBe("bad");
-  });
-
-  it("paints the icon for a report nobody has read", () => {
-    const unread = [
-      ...all,
-      {
-        name: "my-day",
-        schedule: "0 8 * * 1-5",
-        outcomes: [{ firedAt: "2026-10-22T08:00:00Z", millis: 900, report: "# My Day" }],
-      },
-    ] as real.Job[];
-    const place = real.jobs(unread, now);
-    expect(place.alert).toBe(true);
-    expect(place.count).toBe(1);
-    expect(place.rows[3].meta).toContain("1 unread");
-  });
-
-  it("is quiet once the reports have been read", () => {
-    const read = [
-      {
-        name: "my-day",
-        schedule: "0 8 * * 1-5",
-        outcomes: [{ firedAt: "2026-10-22T08:00:00Z", millis: 900, report: "# My Day", seen: true }],
-      },
-    ] as real.Job[];
-    expect(real.jobs(read, now).alert).toBeFalsy();
-  });
-
-  it("opens recorded failures as run history", () => {
-    expect(real.jobReport({
-      name: "drift",
-      schedule: "nightly",
-      outcomes: [{ firedAt: "2026-10-22T02:00:00Z", millis: 1, error: "exit status 1" }],
-    })).toContain("**Failed:** exit status 1");
-  });
-});
-
-describe("the queue, under Waiting on you", () => {
-  const stacked: real.Active[] = [
-    {
-      id: "one",
-      dir: "/r/a",
-      name: "a",
-      repo: "ade",
-      agent: {
-        running: true,
-        stacked: [
-          { id: "q1", kind: "message", what: "look at the sandbox size" },
-          { id: "q2", kind: "review" },
-        ],
-      },
-    },
-    {
-      id: "two",
-      dir: "/r/b",
-      name: "b",
-      repo: "squealer",
-      agent: { running: true, stacked: [{ id: "q3", kind: "message" }] },
-    },
-  ];
-
-  it("numbers them in the order they will run", () => {
-    const rows = real.waiting({}, stacked).rows;
-    expect(rows.map((r) => r.meta)).toEqual([
-      "1 · message",
-      "2 · review",
-      "1 · message",
-    ]);
-  });
-
-  it("says which session each is waiting on, since they are not one queue", () => {
-    const rows = real.waiting({}, stacked).rows;
-    expect(rows.map((r) => r.group)).toEqual([
-      "Queued · ade",
-      "Queued · ade",
-      "Queued · squealer",
-    ]);
-  });
-
-  it("numbers each session's queue from its own front", () => {
-    const rows = real.waiting({}, stacked).rows;
-    // q3 is third in the list and first in its own session.
-    expect(rows[2].acts).toEqual([]);
-  });
-
-  it("offers to move one up, but not the one already next", () => {
-    const [first, second] = real.waiting({}, stacked).rows;
-    expect(first.acts).toEqual([]);
-    // The session rides along: this queue is not the picked session's.
-    expect(second.acts?.[0]).toEqual({
-      label: "Next",
-      what: "queue-first",
-      name: "q2",
-      on: "one",
-    });
-  });
-
-  it("is not grouped when there is nothing queued", () => {
-    const dash = { reviews: [{ repo: "o/r", number: 1, title: "t", author: "a", url: "", review: { state: "ready" } }] } as real.Dash;
-    expect(real.waiting(dash).rows[0].group).toBeUndefined();
-  });
-});
-
 describe("landing on a session with nothing live", () => {
   it("takes the one touched last, not the first repository scanned", () => {
     const repos = [
@@ -835,68 +698,34 @@ describe("landing on a session with nothing live", () => {
   });
 });
 
-describe("the agents tree", () => {
-  const active: real.Active[] = [
-    { id: "quiet", dir: "/r/a", name: "a", repo: "alpha", agent: { running: false } },
+
+describe("the session a restarted window opens on", () => {
+  const repos = [
     {
-      id: "busy",
-      dir: "/r/b",
-      name: "b",
-      repo: "beta",
-      branch: "feat/x",
-      agent: {
-        running: true,
-        model: "opus",
-        sideRuns: ["security"],
-        children: [{ kind: "agent", name: "explore", doing: "reading web.go" }],
-      },
+      name: "ade",
+      path: "/r/ade",
+      checkouts: [
+        { name: "ade", path: "/r/ade", sessions: [{ id: "cold", name: "cold", dir: "/r/ade", lastUsed: "2026-11-01T09:00:00Z" }] },
+        { name: "fix", path: "/r/ade-fix", sessions: [{ id: "hot", name: "hot", dir: "/r/ade-fix", live: true }] },
+      ],
     },
-    { id: "stuck", dir: "/r/c", name: "c", repo: "gamma", agent: { running: true, asking: 1 } },
-  ];
+  ] as unknown as real.Repo[];
+  const known = new Set(["cold", "hot"]);
 
-  it("names the same five states as internal/machine", () => {
-    expect(real.stateOf(undefined)).toBe("idle");
-    expect(real.stateOf({ error: "boom", running: true, asking: 1 })).toBe("failed");
-    expect(real.stateOf({ queued: 2 })).toBe("wedged");
-    expect(real.stateOf({ running: true, asking: 1 })).toBe("asking");
-    expect(real.stateOf({ running: true, queued: 2 })).toBe("working");
-    expect(real.stateOf({ running: true })).toBe("working");
+  it("goes back to the one the last run was in", () => {
+    expect(real.landAgain(repos, known, "", "cold")).toBe("cold");
   });
 
-  it("goes red for a turn that is yours and not for a long one", () => {
-    expect(real.attention("asking")).toBe(true);
-    expect(real.attention("failed")).toBe(true);
-    expect(real.attention("wedged")).toBe(true);
-    expect(real.attention("working")).toBe(false);
-    expect(real.attention("idle")).toBe(false);
+  it("falls back when that conversation is gone, or there was none", () => {
+    expect(real.landAgain(repos, known, "", "closed")).toBe("hot");
+    expect(real.landAgain(repos, known, "", "")).toBe("hot");
   });
 
-  it("keeps the sessions in name order and hangs what each called under it", () => {
-    const place = real.agents(active);
-    expect(place.rows.map((r) => r.name)).toEqual([
-      "alpha",
-      "beta",
-      "@security",
-      "explore",
-      "gamma",
-    ]);
-    expect(place.rows.map((r) => r.depth ?? 0)).toEqual([0, 0, 1, 1, 0]);
-    expect(place.alert).toBe(true);
-    expect(place.count).toBe(1);
-  });
-
-  it("stays quiet when nothing is waiting on you", () => {
-    const place = real.agents(active.filter((a) => a.id !== "stuck"));
-    expect(place.alert).toBe(false);
-    expect(place.count).toBe(0);
-  });
-
-  it("says a sub-agent's session in its id, so the row opens that chat", () => {
-    const place = real.agents(active);
-    expect(place.rows.find((r) => r.name === "explore")?.id).toBe("busy:child:explore");
+  // `ade .` names a checkout on purpose, which outranks where you were.
+  it("yields to the checkout ade was opened on", () => {
+    expect(real.landAgain(repos, known, "/r/ade", "hot")).toBe("cold");
   });
 });
-
 describe("keeping the session you picked", () => {
   const repos = [
     {
@@ -907,39 +736,24 @@ describe("keeping the session you picked", () => {
   ] as unknown as real.Repo[];
   const active: real.Active[] = [
     { id: "announced", dir: "/elsewhere/ade", name: "ade", repo: "ade" },
-    { id: "far", dir: "/on/mini", name: "go-lsp", repo: "go-lsp", machine: "mini" },
+    { id: "nowhere", dir: "", name: "x" },
   ];
 
   it("places an announced session the scan never saw, so it can be started", () => {
     const where = real.whereSessionsAre(repos, active);
     expect(where.get("announced")).toBe("/elsewhere/ade");
+    expect(where.get("scanned")).toBe("/r/ade");
   });
 
-  it("gives no path for one on another machine, since starting it is not ours", () => {
-    expect(real.whereSessionsAre(repos, active).has("far")).toBe(false);
+  it("gives no path for one that announced no directory", () => {
+    expect(real.whereSessionsAre(repos, active).has("nowhere")).toBe(false);
   });
 
   it("knows a session it cannot place, so the pick is not thrown away", () => {
     const known = real.knownSessions(repos, active);
-    expect(known.has("far")).toBe(true);
+    expect(known.has("nowhere")).toBe(true);
     expect(known.has("scanned")).toBe(true);
     expect(known.has("nobody")).toBe(false);
-  });
-
-  it("counts another machine's listed sessions as known", () => {
-    const machines = [
-      {
-        machine: "mini",
-        repos: [
-          {
-            name: "go-lsp",
-            path: "/on/mini",
-            checkouts: [{ name: "go-lsp", path: "/on/mini", sessions: [{ id: "remote", name: "r" }] }],
-          },
-        ],
-      },
-    ] as unknown as real.Machine[];
-    expect(real.knownSessions(repos, [], machines).has("remote")).toBe(true);
   });
 });
 
@@ -960,52 +774,6 @@ describe("what a verb came back with", () => {
   it("takes an answer with nothing in it as success", () => {
     expect(real.answered({})).toEqual({ error: "", body: {} });
     expect(real.answered(undefined)).toEqual({ error: "", body: undefined });
-  });
-});
-
-describe("keeping the session you picked", () => {
-  const repos = [
-    {
-      name: "ade",
-      path: "/r/ade",
-      checkouts: [{ name: "ade", path: "/r/ade", sessions: [{ id: "scanned", name: "s" }] }],
-    },
-  ] as unknown as real.Repo[];
-  const active: real.Active[] = [
-    { id: "announced", dir: "/elsewhere/ade", name: "ade", repo: "ade" },
-    { id: "far", dir: "/on/mini", name: "go-lsp", repo: "go-lsp", machine: "mini" },
-  ];
-
-  it("places an announced session the scan never saw, so it can be started", () => {
-    const where = real.whereSessionsAre(repos, active);
-    expect(where.get("announced")).toBe("/elsewhere/ade");
-  });
-
-  it("gives no path for one on another machine, since starting it is not ours", () => {
-    expect(real.whereSessionsAre(repos, active).has("far")).toBe(false);
-  });
-
-  it("knows a session it cannot place, so the pick is not thrown away", () => {
-    const known = real.knownSessions(repos, active);
-    expect(known.has("far")).toBe(true);
-    expect(known.has("scanned")).toBe(true);
-    expect(known.has("nobody")).toBe(false);
-  });
-
-  it("counts another machine's listed sessions as known", () => {
-    const machines = [
-      {
-        machine: "mini",
-        repos: [
-          {
-            name: "go-lsp",
-            path: "/on/mini",
-            checkouts: [{ name: "go-lsp", path: "/on/mini", sessions: [{ id: "remote", name: "r" }] }],
-          },
-        ],
-      },
-    ] as unknown as real.Machine[];
-    expect(real.knownSessions(repos, [], machines).has("remote")).toBe(true);
   });
 });
 
@@ -1187,49 +955,32 @@ describe("a checkout an ade is serving with nothing said in it", () => {
     { id: "pending-abc", dir: "/r/infra-pr-1535", name: "infra-pr-1535", repo: "infra", branch: "feat/x" },
   ] as real.Active[];
 
-  // Opening a pull request makes a worktree and an ade in it, and names
-  // no conversation. Without a row there is nothing to pick, so Review
-  // has nothing to follow — which is the whole point of opening it.
-  it("is a row, so it can be picked", () => {
-    const row = real.sessions(repos, "", Date.now(), [], up).rows.find((r) => r.id === "pending-abc");
+  // Opening a pull request makes a worktree and an ade in it. Without a
+  // line there is nothing to pick, so the Diff has nothing to follow.
+  it("is a line, so it can be picked", () => {
+    const row = sessions(repos, now, up).rows.find((r) => r.id === "pending-abc");
     expect(row?.name).toBe("feat/x");
-    expect(row?.meta).toBe("infra-pr-1535 · no conversation yet");
-    // An ade is up in it, so it belongs with what is up.
-    expect(row?.group).toBe("Running");
-    expect(row?.acts?.[0]).toMatchObject({ label: "Stop…", what: "session-end" });
+    expect(row?.meta).toBe("infra · starting");
+    expect([row?.icon, row?.tone]).toEqual(["play", "good"]);
+    expect(row?.acts?.[0]).toEqual({ label: "Close", what: "session-end", name: "pending-abc" });
   });
 
-  // ade create names the worktree after the branch, so the heading has
-  // already said it; the repeat pushed "no conversation yet" off the end.
-  it("does not say the worktree's name twice", () => {
-    const same = JSON.parse(JSON.stringify(repos)) as real.Repo[];
-    same[0].checkouts![1] = {
-      ...same[0].checkouts![1],
-      name: "ci-check-quota-issues",
-      path: "/r/ci-check-quota-issues",
-      branch: "ci-check-quota-issues",
-    };
-    const here = [
-      { id: "pending-abc", dir: "/r/ci-check-quota-issues", name: "x", repo: "infra", branch: "ci-check-quota-issues" },
-    ] as real.Active[];
-    const row = real.sessions(same, "", Date.now(), [], here).rows.find((r) => r.id === "pending-abc");
-    expect(row?.name).toBe("ci-check-quota-issues");
-    expect(row?.meta).toBe("no conversation yet");
+  it("is named by its checkout, then its id, when it announced no branch", () => {
+    const bare = [{ id: "pending-x", dir: "/r/x", name: "x-checkout" }, { id: "pending-y", dir: "/r/y", name: "" }];
+    expect(sessions([], now, bare).rows.map((r) => r.name)).toEqual(["pending-y", "x-checkout"]);
   });
 
-  it("is not a second row once something is said in it", () => {
-    const spoken = JSON.parse(JSON.stringify(repos)) as real.Repo[];
-    spoken[0].checkouts![1].sessions = [
-      { id: "real", dir: "/r/infra-pr-1535", name: "infra-pr-1535", branch: "feat/x" },
+  it("is not a second line once the list names it", () => {
+    const listed = JSON.parse(JSON.stringify(repos)) as real.Repo[];
+    listed[0].checkouts![1].sessions = [
+      { id: "pending-abc", dir: "/r/infra-pr-1535", name: "infra-pr-1535", branch: "feat/x" },
     ] as never;
-    const ids = real.sessions(spoken, "", Date.now(), [], up).rows.map((r) => r.id);
-    expect(ids).toContain("real");
-    expect(ids).not.toContain("pending-abc");
+    const ids = sessions(listed, now, up).rows.map((r) => r.id);
+    expect(ids.filter((id) => id === "pending-abc")).toHaveLength(1);
   });
 
   it("is nothing when no ade is serving that checkout", () => {
-    const ids = real.sessions(repos, "", Date.now(), [], []).rows.map((r) => r.id);
-    expect(ids).toEqual(["old"]);
+    expect(sessions(repos, now, []).rows.map((r) => r.id)).toEqual(["old"]);
   });
 });
 
@@ -1318,62 +1069,6 @@ describe("what an add to the review said", () => {
   });
 });
 
-// One verb on an agent row covers the whole session: the run, the ade under
-// it, and whether the conversation stays in the lists at all.
-describe("ending a session from the agents list", () => {
-  const working: real.Active[] = [
-    { id: "s1", dir: "/code/ade", name: "ade", agent: { running: true } },
-  ];
-
-  it("offers the row the verb, named for what it will do first", () => {
-    expect(real.agents(working).rows[0].acts).toEqual([
-      { label: "Stop…", what: "session-end", name: "s1" },
-    ]);
-    const idle: real.Active[] = [{ id: "s1", dir: "/code/ade", name: "ade" }];
-    expect(real.agents(idle).rows[0].acts?.[0].label).toBe("Put away…");
-  });
-
-  // Another machine's session is stopped where it runs, not from here.
-  it("offers nothing on a row from elsewhere", () => {
-    const away: real.Active[] = [{ id: "s2", dir: "/code/ade", name: "ade", machine: "mini" }];
-    expect(real.agents(away).rows[0].acts).toEqual([]);
-  });
-
-  it("only offers to stop a run when there is one", () => {
-    expect(real.endings("working").map((e) => e.value)).toEqual([
-      "agent",
-      "ade",
-      "done",
-      "archive",
-      "delete",
-    ]);
-    expect(real.endings("idle").map((e) => e.value)).toEqual(["ade", "done", "archive", "delete"]);
-  });
-
-  it("offers only the stops when no conversation is behind the row", () => {
-    expect(real.endings("idle", false).map((e) => e.value)).toEqual(["ade"]);
-    expect(real.endings("working", false).map((e) => e.value)).toEqual(["agent", "ade"]);
-    expect(real.endings("idle", false)[0].note).toMatch(/nothing has been said/);
-  });
-
-  it("knows which ids have a transcript behind them", () => {
-    const repos = [
-      { name: "ade", path: "/r/ade", checkouts: [{ path: "/r/ade", name: "ade", sessions: [{ id: "s1" }] }] },
-    ] as unknown as real.Repo[];
-    expect(real.spoken(repos, "s1")).toBe(true);
-    expect(real.spoken(repos, "pending-abc")).toBe(false);
-    expect(real.spoken([], "s1")).toBe(false);
-  });
-
-  it("does not claim it removed something it did not", () => {
-    expect(real.ended("delete", { removed: 0 })).toMatch(/nothing to delete/);
-    expect(real.ended("delete", { removed: 1 })).toBe("deleted");
-    expect(real.ended("archive", { changed: 0 })).toMatch(/nothing to archive/);
-    expect(real.ended("archive", { changed: 2 })).toBe("archived");
-    expect(real.ended("ade")).toBe("ade stopped here");
-  });
-});
-
 // The set has to empty as reads agree, or a session archived and brought back
 // would stay invisible.
 describe("what this window has archived but not yet read back", () => {
@@ -1437,17 +1132,15 @@ describe("what a comment sweep reports", () => {
 });
 
 describe("My Day, behind the calendar icon", () => {
-  const now = Date.parse("2026-11-02T12:00:00Z");
-  const job = (outcomes: unknown[]): real.Job =>
-    ({ name: "my-day", schedule: "0 8 * * 1-5", outcomes }) as real.Job;
+  const at = Date.parse("2026-11-02T12:00:00Z");
+  const job = (outcomes: real.Outcome[]): real.Job => ({ name: "my-day", outcomes });
 
-  it("is found by the name the built-in job has", () => {
-    expect(real.myDay([job([]), { name: "other", schedule: "@daily" }])?.name).toBe("my-day");
-    expect(real.myDay([{ name: "other", schedule: "@daily" }])).toBeUndefined();
+  it("is found by the name the built-in report has", () => {
+    expect(real.myDay([job([]), { name: "other" }])?.name).toBe("my-day");
+    expect(real.myDay([{ name: "other" }])).toBeUndefined();
   });
 
-  // The Jobs place keeps the run of them; the icon is this morning only.
-  it("draws the newest fire and not the ones before it", () => {
+  it("draws the newest build and not the ones before it", () => {
     const body = real.myDayReport(
       job([
         { firedAt: "2026-11-01T08:00:00Z", millis: 900, report: "# My Day · Sun 1 Nov" },
@@ -1458,23 +1151,42 @@ describe("My Day, behind the calendar icon", () => {
     expect(body).not.toContain("Sun 1 Nov");
   });
 
+  it("puts the builds latest first, whatever order they were kept in", () => {
+    const kept = [
+      { firedAt: "2026-11-01T08:00:00Z", millis: 1 },
+      { firedAt: "2026-11-03T08:00:00Z", millis: 1 },
+      { firedAt: "2026-11-02T08:00:00Z", millis: 1 },
+    ];
+    expect(real.newest(kept).map((o) => o.firedAt.slice(8, 10))).toEqual(["03", "02", "01"]);
+    expect(kept[0].firedAt).toContain("-01T");
+  });
+
   it("says which of the quiet cases it is", () => {
-    expect(real.myDayReport(undefined)).toContain("no my-day job");
-    expect(real.myDayReport(job([]))).toContain("has not run yet");
+    expect(real.myDayReport(undefined)).toContain("no My Day report");
+    expect(real.myDayReport(job([]))).toContain("has not been built yet");
     expect(
       real.myDayReport(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, error: "gh timed out" }])),
-    ).toContain("gh timed out");
-    // Render answers an empty morning with an empty string, not a report.
+    ).toContain("**It failed:** gh timed out");
+    // An empty morning is an empty string, not a report.
     expect(real.myDayReport(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, report: "" }])))
       .toContain("Nothing waiting");
   });
 
   // The tab title is fixed so the tab is reused; the age goes on the tooltip.
-  it("carries how old the fire is on the button, not in the tab", () => {
-    expect(real.myDayTitle(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, report: "x" }]), now))
+  it("carries how old the build is on the button, not in the tab", () => {
+    expect(real.myDayTitle(job([{ firedAt: "2026-11-02T08:00:00Z", millis: 10, report: "x" }]), at))
       .toBe("My Day · 4h");
-    expect(real.myDayTitle(job([]), now)).toBe("My Day");
-    expect(real.myDayTitle(undefined, now)).toBe("My Day");
+    expect(real.myDayTitle(job([]), at)).toBe("My Day");
+    expect(real.myDayTitle(undefined, at)).toBe("My Day");
+  });
+
+  it("counts a build that said something, or failed, until it is read", () => {
+    const said = { firedAt: "2026-11-02T08:00:00Z", millis: 1, report: "# My Day" };
+    const failed = { firedAt: "2026-11-01T08:00:00Z", millis: 1, error: "gh timed out" };
+    const empty = { firedAt: "2026-10-31T08:00:00Z", millis: 1, report: "  " };
+    expect(real.jobUnread(job([said, failed, empty]))).toBe(2);
+    expect(real.jobUnread(job([{ ...said, seen: true }, { ...failed, seen: true }]))).toBe(0);
+    expect(real.jobUnread({ name: "my-day" })).toBe(0);
   });
 });
 
@@ -1505,7 +1217,7 @@ describe("a live session's badge", () => {
   ];
 
   it("is amber at work, red when it is your turn, green when idle", () => {
-    const rows = real.sessions(repos, "", Date.now(), [], active).rows;
+    const rows = sessions(repos, now, active).rows;
     const by = (id: string) => rows.find((row) => row.id === id);
     expect(by("busy")).toMatchObject({ icon: "play", tone: "warn" });
     expect(by("stuck")).toMatchObject({ icon: "bell", tone: "bad" });
@@ -1517,20 +1229,25 @@ describe("a live session's badge", () => {
   it("is green for one that has said nothing about itself", () => {
     expect(real.badge(undefined)).toEqual({ icon: "play", tone: "good" });
   });
+
+  it("is red for an agent that failed, whatever its terminal says", () => {
+    expect(real.badge({ error: "boom", terminal: "working" })).toEqual({ icon: "bell", tone: "bad" });
+  });
 });
 
 describe("when opening the window builds My Day", () => {
   const thursday = new Date(2026, 10, 5, 9, 30);
-  const job = (over: Partial<real.Job> = {}): real.Job => ({ name: real.MY_DAY, schedule: "", ...over });
-  const fired = (at: Date): real.Job => job({ outcomes: [{ firedAt: at.toISOString(), millis: 1 }] });
+  const job = (over: Partial<real.Job> = {}): real.Job => ({ name: real.MY_DAY, ...over });
+  const built = (at: Date): real.Job => job({ outcomes: [{ firedAt: at.toISOString(), millis: 1 }] });
 
-  it("builds on a weekday with nothing fired today", () => {
+  it("builds on a weekday with nothing built today", () => {
     expect(real.myDayDue(job(), thursday)).toBe(true);
-    expect(real.myDayDue(fired(new Date(2026, 10, 4, 8, 0)), thursday)).toBe(true);
+    expect(real.myDayDue(built(new Date(2026, 10, 4, 8, 0)), thursday)).toBe(true);
   });
 
   it("leaves a report already built today alone", () => {
-    expect(real.myDayDue(fired(new Date(2026, 10, 5, 8, 0)), thursday)).toBe(false);
+    expect(real.myDayDue(built(new Date(2026, 10, 5, 8, 0)), thursday)).toBe(false);
+    expect(real.myDayDue(job({ lastFired: new Date(2026, 10, 5, 8, 0).toISOString() }), thursday)).toBe(false);
   });
 
   it("does nothing at the weekend", () => {
@@ -1538,8 +1255,7 @@ describe("when opening the window builds My Day", () => {
     expect(real.myDayDue(job(), new Date(2026, 10, 8, 9, 30))).toBe(false);
   });
 
-  it("leaves a paused job, a running one and a machine without one alone", () => {
-    expect(real.myDayDue(job({ paused: true }), thursday)).toBe(false);
+  it("leaves a build in flight and a machine without the report alone", () => {
     expect(real.myDayDue(job({ running: true }), thursday)).toBe(false);
     expect(real.myDayDue(undefined, thursday)).toBe(false);
   });
@@ -1564,13 +1280,92 @@ describe("what teammates asked of you over agentbus", () => {
     expect(rows[1].name).toBe("Ship it?");
   });
 
-  it("lists them in Waiting on you, first, so the bell counts them", () => {
-    const place = real.waiting({}, [], bus);
+  it("lists them in Notifications, first, so the bell counts them", () => {
+    const place = real.waiting({}, bus);
     expect(place.rows.map((row) => row.id)).toEqual(["o1", "o2", "o3"]);
-    expect(real.waiting({}, []).rows).toEqual([]);
+    expect(real.waiting({}).rows).toEqual([]);
   });
 
   it("lists them in Team as before", () => {
     expect(real.team(bus).rows.slice(0, 3).map((row) => row.id)).toEqual(["o1", "o2", "o3"]);
+  });
+});
+
+describe("the conversations claude keeps on this machine", () => {
+  const now = Date.parse("2026-11-05T20:00:00Z");
+  const one = {
+    id: "7fea93ea-06ff-4930-85cd-83f21e2e85be",
+    title: "Lean terminal host",
+    dir: "/Users/owen/code/owenrumney/ade",
+    used: "2026-11-05T19:30:00Z",
+    running: false,
+    here: false,
+    checkout: true,
+  };
+
+  it("names each by its title, then its folder and how it stands", () => {
+    const rows = real.conversationRows(
+      [
+        { ...one, running: true },
+        { ...one, id: "feae2ed8-9d59-4995-9e80-a2602b60fcbe", title: "", running: true, here: true },
+        { ...one, dir: "/Users/owen", checkout: false },
+        one,
+      ],
+      now,
+    );
+    expect(rows[0]).toEqual({ label: "Lean terminal host", note: "ade · open in another terminal · 30m", value: one.id });
+    expect(rows[1].label).toBe("feae2ed8");
+    // Its claude is ade's own, which is not another terminal.
+    expect(rows[1].note).toBe("ade · already in ade · 30m");
+    expect(rows[2].note).toBe("owen · not a git checkout · 30m");
+    expect(rows[3].note).toBe("ade · 30m");
+  });
+});
+
+describe("a review by named agents", () => {
+  const started = "2026-11-05T20:43:48Z";
+  const run = {
+    running: true,
+    startedAt: started,
+    endedAt: "0001-01-01T00:00:00Z",
+    stage: "1 of 3 reviewers finished",
+    summary: "",
+    reviewers: [
+      { name: "security", state: "done", doing: "", why: "", found: 3, endedAt: "2026-11-05T20:45:00Z" },
+      { name: "staff-reviewer", state: "running", doing: "Read web.go", why: "", found: 0, endedAt: "" },
+      { name: "tester", state: "failed", doing: "", why: "exit status 1", found: 0, endedAt: "2026-11-05T20:44:00Z" },
+      { name: "simplifier", state: "stopped", doing: "", why: "", found: 1, endedAt: "2026-11-05T20:44:10Z" },
+    ],
+  };
+  const now = Date.parse("2026-11-05T20:45:53Z");
+
+  it("says how each reviewer stands", () => {
+    const review = real.doingIn({ reviewRun: run }).review;
+    expect(review).toBeDefined();
+    expect(real.reviewLines(review!, now)).toEqual([
+      { name: "@security", state: "done", note: "3 points · 1m 12s" },
+      { name: "@staff-reviewer", state: "running", note: "2m 05s · Read web.go" },
+      { name: "@tester", state: "failed", note: "failed: exit status 1" },
+      { name: "@simplifier", state: "stopped", note: "stopped · 1 point" },
+    ]);
+  });
+
+  it("carries the stage to the status bar and keeps the window asking", () => {
+    const doing = real.doingIn({ agent: { sideRuns: [{ id: "a", name: "security" }] }, reviewRun: run });
+    expect(real.saying(doing)).toBe("1 of 3 reviewers finished");
+    expect(real.busy(real.doingIn({ reviewRun: run }))).toBe(true);
+  });
+
+  it("is over when the server says so, and says how long it took", () => {
+    const over = { ...run, running: false, stage: "", endedAt: "2026-11-05T20:46:03Z" };
+    const doing = real.doingIn({ reviewRun: over });
+    expect(real.reviewHead(doing.review!)).toBe("Review · finished in 2m 15s");
+    expect(real.reviewHead(real.doingIn({ reviewRun: run }).review!)).toBe("Review · running");
+    expect(real.saying(doing)).toBe("");
+    expect(real.busy(doing)).toBe(false);
+  });
+
+  it("is not there when no review has run", () => {
+    expect(real.doingIn({ agent: {} }).review).toBeUndefined();
   });
 });

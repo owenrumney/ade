@@ -38,6 +38,8 @@ export function open(
   }
   if (it.on !== session) {
     it.on = session;
+    // A new socket starts at the pty default, so the next size is sent whatever it is.
+    it.cols = it.rows = 0;
     it.term.reset();
     connect(it, session, say);
   }
@@ -78,6 +80,8 @@ function connect(it: Pane, session: string, say: (why: string) => void): void {
 
 // force resends after a reconnect, which starts at the pty default.
 function resize(it: Pane, force = false): void {
+  // Not on screen, its size reads as the CSS "100%", and a fit makes it ten columns.
+  if (!it.host.clientWidth || !it.host.clientHeight) return;
   it.fit.fit();
   const { cols, rows } = it.term;
   if (!cols || !rows) return;

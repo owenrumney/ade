@@ -3,17 +3,7 @@
 package jobs
 
 import (
-	"bufio"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
-	"sort"
-	"strings"
-
-	"github.com/owenrumney/ade/internal/memory"
-	"github.com/owenrumney/ade/internal/statedir"
 )
 
 // nameRE is what a job may be called: it names a state file and is typed at
@@ -51,10 +41,7 @@ type Job struct {
 	// launcher rather than a model with tools.
 	Kind string `json:"kind,omitempty"`
 
-	// Schedule is the cron expression or interval as written, and Every the
-	// parsed form the clock asks.
-	Schedule string   `json:"schedule"`
-	Every    Schedule `json:"-"`
+	Schedule string `json:"schedule"`
 
 	// Project is the normalised origin remote of the repository to run in, or
 	// empty for a job that belongs to no project.
@@ -76,39 +63,6 @@ type Skipped struct {
 	Error string `json:"error"`
 }
 
-// Load reads the jobs visible from a checkout: the repository's own, then the
-// user's. A repository job shadows a user job of the same name.
-func Load(root, home string) []Job {
-	list, _ := LoadAll(root, home)
-	return list
-}
-
-// LoadAll is Load, and the files it could not read as jobs.
-func LoadAll(root, home string) ([]Job, []Skipped) {
-	seen := map[string]bool{}
-	var out []Job
-	var skipped []Skipped
-	for _, where := range []struct{ dir, scope string }{
-		{repoDir(root), ScopeRepo},
-		{userDir(home), ScopeUser},
-	} {
-		if where.dir == "" {
-			continue
-		}
-		found, bad := readDir(where.dir, where.scope)
-		skipped = append(skipped, bad...)
-		for _, job := range found {
-			if seen[job.Name] {
-				continue
-			}
-			seen[job.Name] = true
-			out = append(out, job)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, skipped
-}
-
 // Find is the job called name, if there is one.
 func Find(list []Job, name string) (Job, bool) {
 	for _, job := range list {
@@ -119,141 +73,8 @@ func Find(list []Job, name string) (Job, bool) {
 	return Job{}, false
 }
 
-func repoDir(root string) string {
-	if root == "" {
-		return ""
-	}
-	return filepath.Join(root, ".ade", "jobs")
-}
+// ScopeBuiltin is a job ade defines itself rather than reads from a file.
+const ScopeBuiltin = "builtin"
 
-func userDir(home string) string {
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(statedir.Home(home), "jobs")
-}
-
-// Parse reads one definition. The frontmatter is the same simple kind an agent
-// definition uses — one "key: value" per line between two "---" lines.
-func Parse(path, scope string, data []byte) (Job, error) {
-	job := Job{Path: path, Scope: scope, Continuity: Fresh, Allow: Reads}
-	head, body, err := split(string(data))
-	if err != nil {
-		return job, err
-	}
-	job.Prompt = strings.TrimSpace(body)
-
-	scanner := bufio.NewScanner(strings.NewReader(head))
-	for scanner.Scan() {
-		key, value, found := strings.Cut(scanner.Text(), ":")
-		if !found {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		switch key {
-		case "name":
-			job.Name = value
-		case "description":
-			job.Description = value
-		case "schedule":
-			job.Schedule = value
-		case "project":
-			job.Project = value
-		case "continuity":
-			job.Continuity = strings.ToLower(value)
-		case "allow":
-			job.Allow = strings.ToLower(value)
-		}
-	}
-	if job.Name == "" {
-		job.Name = strings.TrimSuffix(filepath.Base(path), ".md")
-	}
-	return job, validate(&job)
-}
-
-// split separates the frontmatter from the body. A "schedule" line inside a
-// fenced block below is body, so only the leading block is read.
-func split(text string) (head, body string, err error) {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	if !strings.HasPrefix(text, "---\n") {
-		return "", "", errors.New("no frontmatter")
-	}
-	rest := text[len("---\n"):]
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return "", "", errors.New("frontmatter never closes")
-	}
-	head, body = rest[:end], rest[end+len("\n---"):]
-	if i := strings.Index(body, "\n"); i >= 0 {
-		body = body[i+1:]
-	} else {
-		body = ""
-	}
-	return head, body, nil
-}
-
-func validate(job *Job) error {
-	if !nameRE.MatchString(job.Name) {
-		return fmt.Errorf("job name %q: letters, digits, - and _ only", job.Name)
-	}
-	if strings.TrimSpace(job.Prompt) == "" {
-		return errors.New("no prompt: the body of the file is what the job runs")
-	}
-	every, err := ParseSchedule(job.Schedule)
-	if err != nil {
-		return err
-	}
-	job.Every = every
-	if job.Project != "" {
-		normalised := memory.Normalise(job.Project)
-		if normalised == "" {
-			return fmt.Errorf("project %q is not a remote ade can identify", job.Project)
-		}
-		job.Project = normalised
-	}
-	switch job.Continuity {
-	case Fresh, Summary:
-	case History:
-		return errors.New("continuity: history is not built yet; use summary, which is its floor")
-	default:
-		return fmt.Errorf("unknown continuity %q: fresh or summary", job.Continuity)
-	}
-	switch job.Allow {
-	case Reads:
-	case Writes:
-		if job.Continuity != Fresh {
-			return errors.New("a writes job keeps its memory in its branch; use continuity: fresh")
-		}
-	default:
-		return fmt.Errorf("unknown allow %q: reads or writes", job.Allow)
-	}
-	return nil
-}
-
-func readDir(dir, scope string) ([]Job, []Skipped) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, nil
-	}
-	var out []Job
-	var skipped []Skipped
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path) // #nosec G304 -- a file under a directory we chose
-		if err != nil {
-			skipped = append(skipped, Skipped{Path: path, Error: err.Error()})
-			continue
-		}
-		job, err := Parse(path, scope, data)
-		if err != nil {
-			skipped = append(skipped, Skipped{Path: path, Error: err.Error()})
-			continue
-		}
-		out = append(out, job)
-	}
-	return out, skipped
-}
+// Manual is the schedule of a job with no clock behind it.
+const Manual = "manual"

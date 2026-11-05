@@ -12,44 +12,6 @@ import (
 	"github.com/owenrumney/ade/internal/ghpr"
 )
 
-// handleEditPR saves a new title and description on the pull request under
-// review. This and the merge are the only two things ade changes upstream, and
-// both are about your own change rather than anything said to a reviewer.
-func (s *Server) handleEditPR(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-
-	pr := s.currentBranchPR()
-	if pr == nil {
-		writeError(w, http.StatusBadRequest, "there is no pull request to edit")
-		return
-	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		writeError(w, http.StatusBadRequest, "a pull request needs a title")
-		return
-	}
-	if !strings.EqualFold(pr.State, "OPEN") {
-		writeError(w, http.StatusConflict,
-			fmt.Sprintf("#%d is %s, so it can no longer be edited", pr.Number, strings.ToLower(pr.State)))
-		return
-	}
-
-	if err := ghpr.Edit(r.Context(), s.space().homeRoot, pr.Number, title, req.Body); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-
-	s.refreshBranchPR(s.ctx)
-	s.hub.Broadcast("state", nil)
-	writeJSON(w, http.StatusOK, map[string]any{"pr": s.currentBranchPR()})
-}
-
 // handleMergePR merges the pull request under review.
 func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 	var req struct {

@@ -1,4 +1,3 @@
-import { isChat } from "./dock";
 import type { View } from "./model";
 
 // What is open in the editor area. A tab is named by what it holds, so
@@ -40,21 +39,39 @@ export function settled(tabs: Tab[]): { tabs: Tab[]; split: boolean } {
   return { tabs: tabs.map((t) => ({ ...t, group: 0 as Group })), split: false };
 }
 
-// The agent's tab, and the pane the server runs its interface in.
+// The three tabs every session has, in this order: its agent, its diff, a shell.
 export const AGENT = "agent";
+export const DIFF = "diff";
+export const SHELL = "term";
 
 export function agentTab(): Tab {
   return { id: AGENT, title: "Agent", icon: "session", what: { kind: "agent", title: "Agent" } };
 }
 
-// withAgent puts the agent first in a session's tabs when it is not there.
-export function withAgent(tabs: Tab[]): Tab[] {
-  return tabs.some((t) => t.id === AGENT) ? tabs : [agentTab(), ...tabs];
+export function diffTab(): Tab {
+  return { id: DIFF, title: "Diff", icon: "diff", what: { kind: "diff", title: "Diff" } };
+}
+
+export function shellTab(): Tab {
+  return { id: SHELL, title: "Shell", icon: "terminal", what: { kind: "term", title: "Shell" } };
+}
+
+// standing is one of the three: it has no close, and a sweep leaves it.
+export function standing(id: string): boolean {
+  return id === AGENT || id === DIFF || id === SHELL;
+}
+
+// seated puts the three first, keeping what each already holds.
+export function seated(tabs: Tab[]): Tab[] {
+  const first = [agentTab(), diffTab(), shellTab()].map(
+    (made) => tabs.find((t) => t.id === made.id) ?? made,
+  );
+  return [...first, ...tabs.filter((t) => !standing(t.id))];
 }
 
 // The panel ids that hold the New session screen, seeded or not.
 export function newSessionPanel(panel: string): boolean {
-  return panel === "ade.newSession" || panel.startsWith("todo:") || panel.startsWith("in:");
+  return panel === "ade.newSession" || panel.startsWith("in:");
 }
 
 // startIn is the checkout a New session run from this tab should open with
@@ -68,12 +85,12 @@ export function startIn(tab: Tab | undefined): string {
 export function idOf(what: Tab["what"]): string {
   if ("panel" in what) return `panel:${what.panel}`;
   switch (what.kind) {
-    case "code":
-      return `code:${what.title}`;
+    // One Diff tab: the file it shows changes, the tab does not.
+    case "diff":
     case "hunks":
-      return `hunks:${what.file.path}`;
+      return DIFF;
     case "term":
-      return "term";
+      return SHELL;
     case "agent":
       return AGENT;
     case "rules":
@@ -81,7 +98,6 @@ export function idOf(what: Tab["what"]): string {
     case "space":
       return `space:${what.seen.space.repo}`;
     case "doc":
-    case "pr":
     case "person":
       return `doc:${what.title}`;
     default:
@@ -156,7 +172,7 @@ export function live(tab: Tab): boolean {
 // reads the key: vim, less and fzf all want it.
 export function dismissable(tab: Tab | undefined): boolean {
   if (!tab || "panel" in tab.what) return false;
-  return tab.what.kind !== "term" && tab.what.kind !== "agent";
+  return !standing(tab.id);
 }
 
 // Pane is a built tab. `waiting` is one that could only say why it
@@ -195,18 +211,8 @@ export function trimmed(kept: Map<string, Layout>, first: string, max = 20): [st
   return out.slice(0, max);
 }
 
-// What is worth remembering between runs: a tab the window can open
-// again from its id alone, which a one-off read is not.
+// What is worth remembering between runs: a panel, which opens again from its
+// id alone, and which half each standing tab was in. A read is one-off.
 export function keepable(tabs: Tab[]): string[] {
-  return tabs
-    .filter((t) =>
-      "panel" in t.what
-        ? !isChat(t.what.panel)
-        : t.what.kind === "term" ||
-          t.what.kind === "agent" ||
-          t.what.kind === "code" ||
-          t.what.kind === "hunks",
-    )
-    .map((t) => t.id);
+  return tabs.filter((t) => "panel" in t.what || standing(t.id)).map((t) => t.id);
 }
-

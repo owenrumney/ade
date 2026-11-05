@@ -1,51 +1,78 @@
 package web
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/owenrumney/ade/internal/permissions"
 )
 
-func TestThePermissionsPageIsSelfContained(t *testing.T) {
-	page := string(rulesPage)
-	// Served whole from the binary, so it must not reach for the app's bundle:
-	// it opens in an editor panel that has no Vite behind it.
-	require.NotEmpty(t, page)
-	assert.NotContains(t, page, "/assets/")
-	assert.NotContains(t, page, "<script src")
-	assert.Contains(t, page, RulesAPI, "the page has no api to read")
-	assert.Contains(t, page, "X-Ade-Token", "the page would not be let in")
+// denyServer is a server over a home of its own, with the deny list open.
+func denyServer(t *testing.T) *Server {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	s := newTestServer(t)
+	s.agent.setHook("http://127.0.0.1:1", "hook")
+	require.NotNil(t, s.agent.rulesStore())
+	return s
 }
 
-func TestThePermissionsPageCanBeFiltered(t *testing.T) {
-	page := string(rulesPage)
-	assert.Contains(t, page, `id="find"`, "the page has no filter box")
-	for _, list := range []string{"shown.session", "shown.allow", "shown.deny"} {
-		assert.Contains(t, page, "matching("+list+")", list+" is drawn unfiltered")
-	}
+func denied(t *testing.T, body []byte) rulesView {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &raw))
+	assert.NotContains(t, raw, "allow", "the allow list has no page left")
+	assert.NotContains(t, raw, "free")
+	var view rulesView
+	require.NoError(t, json.Unmarshal(body, &view))
+	return view
 }
 
-func TestThePermissionsPageIsNeverCached(t *testing.T) {
-	assert.Contains(t, read(t, "rules.go"), `"Cache-Control", "no-store"`,
-		"an editor webview would keep drawing the page the old binary embedded")
+func TestThePermissionsRouteAnswersTheDenyListAndItsFile(t *testing.T) {
+	s := denyServer(t)
+
+	rec := do(t, s, "GET", RulesAPI, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	view := denied(t, rec.Body.Bytes())
+	assert.NotNil(t, view.Deny, "the page reads a list, never null")
+	assert.True(t, strings.HasSuffix(view.File, "permissions.json"), view.File)
 }
 
-func TestThePermissionsPageSortsEachGroup(t *testing.T) {
-	// Every group goes through matching(), so the sort belongs there.
-	assert.Contains(t, string(rulesPage), ".sort(",
-		"the groups are drawn in whatever order the rules were granted")
+func TestADenyRuleIsAddedAndWithdrawn(t *testing.T) {
+	s := denyServer(t)
+	rule := permissions.Rule("Bash(git push --force:*)")
+
+	rec := do(t, s, "POST", RulesAPI, `{"rule":"Bash(git push --force:*)"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, denied(t, rec.Body.Bytes()).Deny, rule)
+
+	file, _ := s.agent.rulesStore().Rules()
+	assert.Contains(t, file.Deny, rule)
+	assert.NotContains(t, file.Allow, rule, "a rule added here is only ever a deny")
+
+	rec = do(t, s, "POST", RulesAPI, `{"rule":"Bash(git push --force:*)","forget":true}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, denied(t, rec.Body.Bytes()).Deny, rule)
 }
 
-func TestThePermissionsRoutesAreMountedWhereTheExtensionLooks(t *testing.T) {
+func TestSomethingThatIsNotARuleIsRefused(t *testing.T) {
+	s := denyServer(t)
+
+	rec := do(t, s, "POST", RulesAPI, `{"rule":""}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+func TestThePermissionsRoutesAreMountedWhereTheWindowLooks(t *testing.T) {
 	source := read(t, "web.go")
 	for _, route := range []string{
-		`mux.HandleFunc("GET ` + RulesPath + `"`,
 		`mux.HandleFunc("GET ` + RulesAPI + `"`,
 		`mux.HandleFunc("POST ` + RulesAPI + `"`,
-		`mux.HandleFunc("POST ` + HookPath + `"`,
 	} {
 		assert.Contains(t, source, route,
 			"the mount table has to spell the path out: the route guard reads it as text")

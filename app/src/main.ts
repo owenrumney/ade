@@ -6,14 +6,11 @@ import { StringDecoder } from "node:string_decoder";
 // Electron 33's main is Node 20: no WebSocket global without a flag.
 import WebSocket from "ws";
 import { Keymap, merge, shared, type Binding } from "./keymap";
-import { askForLocalNetwork } from "./localnetwork";
 import { keeper } from "./held";
 import { wire } from "./contextmenu";
 import { away } from "./away";
-import { named, note, prune, read as auditRead, days as auditDays } from "./audit";
 import { shellPath } from "./shellpath";
-import { ask, found, tell, type At } from "./launcher";
-import { events } from "../pages/launcher";
+import { ask, events, found, tell, type At } from "./launcher";
 import { declare, hold, panelOf, serve } from "./webview";
 import { launcherArgs, start } from "../pages/start";
 
@@ -144,43 +141,6 @@ const gatherWait = 10_000;
 
 const kept = keeper(why);
 
-// The intent a call is put under: whatever the person set off last, if it
-// was recent. A press and the calls it makes are milliseconds apart.
-let lately = { trace: "", at: 0 };
-const TRACE_MS = 2_000;
-
-// logged is one reach into ade, as the trail records it: the route and the
-// field names it carried, never a value — a settings write holds tokens.
-function logged(
-  method: string,
-  path: string,
-  body: unknown,
-  session: string | undefined,
-  began: number,
-  why?: string,
-): void {
-  note({
-    at: new Date().toISOString(),
-    kind: "http",
-    what: `${method} ${path.split("?")[0]}`,
-    trace: Date.now() - lately.at < TRACE_MS ? lately.trace : undefined,
-    session,
-    ok: !why,
-    why: why || undefined,
-    ms: Date.now() - began,
-    fields: named(body),
-  });
-}
-
-function parsed(body?: string): unknown {
-  if (!body) return undefined;
-  try {
-    return JSON.parse(body);
-  } catch {
-    return undefined;
-  }
-}
-
 async function gather(dir = ""): Promise<unknown> {
   const where = await found();
   if (!where) {
@@ -189,33 +149,12 @@ async function gather(dir = ""): Promise<unknown> {
   // A part that fails says so by name. Swallowing it draws an empty list,
   // which reads as ade having nothing rather than as a broken read.
   const trouble: Record<string, string> = {};
-  const [dash, designs, repos, hosts, todos, jobs, active, spaces, limits] = await Promise.all([
+  const [dash, repos, jobs, active, spaces] = await Promise.all([
     ask(where, "/api/dash", gatherWait).catch((e: Error) => ({ error: e.message })),
-    kept(
-      "designs",
-      dir,
-      ask<{ designs?: unknown[] }>(where, "/api/designs/all", gatherWait).then((d) => d.designs ?? []),
-      trouble,
-    ),
     kept(
       "sessions",
       "",
       ask<{ repos?: unknown[] }>(where, "/api/repos", gatherWait).then((r) => r.repos ?? []),
-      trouble,
-    ),
-    // The machines already connected, and what they have checked out.
-    // Nothing is dialled for this.
-    ask<{ hosts?: unknown[] }>(where, "/api/hosts/repos", gatherWait)
-      .then((h) => h.hosts ?? [])
-      .catch(() => []),
-    kept(
-      "todos",
-      dir,
-      ask<{ items?: unknown[] }>(
-        where,
-        dir ? `/api/todos?dir=${encodeURIComponent(dir)}` : "/api/todos",
-        gatherWait,
-      ).then((t) => t.items ?? []),
       trouble,
     ),
     kept(
@@ -224,11 +163,8 @@ async function gather(dir = ""): Promise<unknown> {
       ask<{ jobs?: unknown[] }>(where, "/api/jobs", gatherWait).then((j) => j.jobs ?? []),
       trouble,
     ),
-    // Every announced session and what its agent is doing, this machine
-    // and every host the launcher is connected to.
+    // Every announced session and what its agent is doing.
     kept("agents", "", ask<unknown[]>(where, "/api/serving", gatherWait).then((a) => a ?? []), trouble),
-    // The repositories kept open. A launcher too old to know of them
-    // answers 404, which is no spaces and not a failure to read.
     kept(
       "spaces",
       dir,
@@ -239,18 +175,14 @@ async function gather(dir = ""): Promise<unknown> {
       ).then((s) => s.spaces ?? []),
       trouble,
     ),
-    // The plan windows. No reading is no item on the bar, not a zero.
-    ask<unknown>(where, "/api/limits", gatherWait).catch(() => undefined),
   ]);
-  return { dash, designs, repos, hosts, todos, jobs, active, spaces, limits, trouble };
+  return { dash, repos, jobs, active, spaces, trouble };
 }
 
 void app.whenReady().then(async () => {
   if (mac) {
-    void askForLocalNetwork();
     process.env.PATH = (await shellPath()) ?? process.env.PATH;
   }
-  void prune();
   const map = keys();
   const ico = mark();
   if (ico && app.dock) app.dock.setIcon(ico);
@@ -351,6 +283,8 @@ void app.whenReady().then(async () => {
   // The terminal's sockets, in the shell: the server refuses a websocket
   // from a non-loopback origin, and the shell sends none. One per pane.
   const terms = new Map<string, WebSocket>();
+  // The last size each pane asked for: one sent before its socket opened is sent again then.
+  const sizes = new Map<string, string>();
   const closeTerm = (pane: string) => {
     terms.get(pane)?.close();
     terms.delete(pane);
@@ -368,6 +302,10 @@ void app.whenReady().then(async () => {
     terms.set(pane, ws);
     // A character may be split across two chunks.
     const decoder = new StringDecoder("utf8");
+    ws.on("open", () => {
+      const size = sizes.get(pane);
+      if (size) ws.send(size);
+    });
     ws.on("message", (data: Buffer | string) => {
       e.sender.send("term", pane, typeof data === "string" ? data : decoder.write(data));
     });
@@ -388,63 +326,16 @@ void app.whenReady().then(async () => {
     if (ws?.readyState === WebSocket.OPEN) ws.send(Buffer.from(data, "utf8"), { binary: true });
   });
   ipcMain.on("ade.term.resize", (_e, pane: string, cols: number, rows: number) => {
+    const size = JSON.stringify({ type: "resize", cols, rows });
+    sizes.set(pane, size);
     const ws = terms.get(pane);
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
-  });
-  // float is a second window holding one panel, which is what the
-  // concierge wants: over the work rather than in the editor area.
-  ipcMain.handle("ade.float", (_e, panel: string, session: string) => {
-    const win = new BrowserWindow({
-      width: 420,
-      height: 640,
-      alwaysOnTop: true,
-      title: "ade",
-      icon: mark(),
-      backgroundColor: "#0d1017",
-      webPreferences: {
-        preload: join(__dirname, "preload.js"),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    wire(win, panelOf);
-    away(win);
-    void win.loadFile(join(__dirname, "..", "renderer", "index.html"), {
-      query: { only: panel, session },
-    });
-    // The keyboard is the shell's here too, or ⌘K in the float would
-    // be whatever the page decided.
-    win.webContents.on("before-input-event", (event, input) => {
-      const command = map.match(input);
-      if (!command) return;
-      if (!shared(command)) event.preventDefault();
-      win.webContents.send("command", command);
-    });
-    return { ok: true };
+    if (ws?.readyState === WebSocket.OPEN) ws.send(size);
   });
   // A link in a panel leaves for the browser. Nothing else does: a
   // page of ade's never navigates the window it is in.
   ipcMain.handle("ade.link", (_e, href: string) => {
     if (/^https?:\/\//i.test(href)) void shell.openExternal(href);
   });
-  // What the person set off, said by the window itself: a command, or a
-  // row's verb. The reach below says what it then did.
-  ipcMain.handle("ade.note", (_e, entry: Record<string, unknown>) => {
-    lately = { trace: Math.random().toString(36).slice(2, 8), at: Date.now() };
-    note({
-      at: new Date().toISOString(),
-      trace: lately.trace,
-      kind: entry.kind === "verb" ? "verb" : entry.kind === "panel" ? "panel" : "command",
-      what: String(entry.what ?? ""),
-      where: entry.where ? String(entry.where) : undefined,
-      session: entry.session ? String(entry.session) : undefined,
-      dir: entry.dir ? String(entry.dir) : undefined,
-    });
-  });
-  ipcMain.handle("ade.audit", async (_e, day?: string) => ({
-    days: await auditDays(),
-    entries: await auditRead(day || undefined),
-  }));
   ipcMain.handle("ade.keys", () => map.listed());
   ipcMain.handle("ade.world", (_e, dir?: string) => gather(dir));
   // act performs one verb from the table; this only knows how to reach
@@ -465,14 +356,11 @@ void app.whenReady().then(async () => {
         return { error: "pick a session first; this acts on one" };
       }
       const full = at === "session" ? `/s/${session}${path}` : path;
-      const began = Date.now();
       try {
         const got = ((await tell(where, full, body ?? {}, method)) ?? {}) as { error?: string };
-        logged(method ?? "POST", path, body, session, began, got.error);
         return got;
       } catch (err) {
         const why = String(err instanceof Error ? err.message : err);
-        logged(method ?? "POST", path, body, session, began, why);
         return { error: why };
       }
     },
@@ -494,20 +382,15 @@ void app.whenReady().then(async () => {
       if (!where) return { status: 0, error: "ade is not running" };
       if (at === "session" && !session) return { status: 0, error: "no session picked" };
       const full = at === "session" ? `/s/${session}${path}` : path;
-      const began = Date.now();
       try {
         const res = await fetch(where.base + full, {
           method,
           headers: { "X-Ade-Token": where.token, "Content-Type": "application/json" },
           body,
         });
-        if (method !== "GET") {
-          logged(method, path, parsed(body), session, began, res.ok ? "" : String(res.status));
-        }
         return { status: res.status, ok: res.ok, text: await res.text() };
       } catch (err) {
         const why = String(err instanceof Error ? err.message : err);
-        if (method !== "GET") logged(method, path, parsed(body), session, began, why);
         return { status: 0, error: why };
       }
     },
@@ -526,12 +409,6 @@ void app.whenReady().then(async () => {
       }));
     },
   );
-  ipcMain.handle("ade.pr", async (_e, repo: string, number: number) => {
-    const where = await found();
-    if (!where) return { error: "ade is not running" };
-    const at = `/api/pr?repo=${encodeURIComponent(repo)}&number=${number}`;
-    return ask(where, at).catch((e: Error) => ({ error: why(e) }));
-  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) make(map);
   });

@@ -205,11 +205,11 @@ func (a *agentRunner) badgeAfter(quiet time.Duration) string {
 func (a *agentRunner) badgeEnv() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.hookURL == "" {
+	if a.hookBase == "" {
 		return nil
 	}
 	return []string{
-		gate.BadgeURLVar + "=" + strings.TrimSuffix(a.hookURL, HookPath) + BadgePath,
+		gate.BadgeURLVar + "=" + strings.TrimSuffix(a.hookBase, "/") + BadgePath,
 		gate.TokenVar + "=" + a.hookToken,
 	}
 }

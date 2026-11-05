@@ -1,99 +1,83 @@
-// Package runlog remembers, for one checkout, which Claude session the agent
-// is in.
-//
-// The design document, the review comments and the conversation all survive a
-// restart. The agent did not: it came back with no memory of the work and no
-// way to be told about it, so the first thing you did after restarting was
-// explain yourself again.
+// Package runlog is ade's own record of the session in one checkout: which
+// agent CLI, which of its conversations, and what Owen tagged it with.
 package runlog
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/owenrumney/ade/internal/statedir"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
+
+	"github.com/owenrumney/ade/internal/statedir"
 )
 
-// Log is a checkout's agent memory, kept in memory and written through to a
-// file.
-//
-// A nil Log, and one opened on an empty path, both remember nothing and write
-// nothing. That is what a server with no checkout behind it has, and it saves
-// every caller a nil check.
+// Record is the file's shape. One per checkout: a worktree has its own git
+// dir, so its record is its own.
+type Record struct {
+	// Session is the CLI's own conversation id, Provider claude or codex.
+	Session  string `json:"session,omitempty"`
+	Provider string `json:"provider,omitempty"`
+
+	Ticket string   `json:"ticket,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
+	// Worktrees are the other checkouts a session across repositories holds.
+	Worktrees []string `json:"worktrees,omitempty"`
+
+	Used time.Time `json:"used,omitzero"`
+}
+
+// Log is one checkout's record, read once and written through. A nil Log and
+// one with no path remember nothing and write nothing.
 type Log struct {
 	mu       sync.Mutex
 	path     string
 	session  string
 	provider string
-	draft    string
 }
 
-// stored is the file's shape.
-type stored struct {
-	Session  string `json:"session,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Draft    string `json:"wiki_draft,omitempty"`
-}
-
-// Open reads the memory at path, or starts an empty one. A missing or
-// unreadable file is an empty memory rather than a failure: refusing to start
-// because an old file will not parse would be worse than forgetting it.
-//
-// An empty path is a memory that is never written, for a server with no
-// checkout behind it.
 func Open(path string) *Log {
-	l := &Log{path: path}
-	if path == "" {
-		return l
-	}
+	held := Read(path)
+	return &Log{path: path, session: held.Session, provider: held.Provider}
+}
 
+// Read is the record at path. A missing or unreadable file is an empty one.
+func Read(path string) Record {
+	var held Record
+	if path == "" {
+		return held
+	}
 	data, err := os.ReadFile(path) // #nosec G304 -- derived from the repo's own git dir
 	if err != nil {
-		return l
+		return held
 	}
-	var held stored
 	if err := json.Unmarshal(data, &held); err != nil {
-		return l
+		return Record{}
 	}
-	l.session = held.Session
-	l.provider = held.Provider
-	l.draft = held.Draft
-	return l
+	return held
 }
 
-// WikiDraft is the opaque draft owned by this checkout's active agent.
-func (l *Log) WikiDraft() string {
-	if l == nil {
-		return ""
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.draft
-}
+// writing serialises Update within this process; the rename keeps a reader whole.
+var writing sync.Mutex
 
-// SetWikiDraft records the draft independently of the provider session.
-func (l *Log) SetWikiDraft(id string) error {
-	if l == nil {
+// Update changes the record at path, read fresh so another writer's fields stay.
+func Update(path string, change func(*Record)) error {
+	if path == "" {
 		return nil
 	}
-	l.mu.Lock()
-	if l.draft == id {
-		l.mu.Unlock()
-		return nil
-	}
-	l.draft = id
-	data, err := l.encode()
-	l.mu.Unlock()
+	writing.Lock()
+	defer writing.Unlock()
+	held := Read(path)
+	change(&held)
+	data, err := json.MarshalIndent(held, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encode the session record: %w", err)
 	}
-	return l.write(data)
+	return writeFile(path, data)
 }
 
-// Session is the conversation this checkout was last in, if any.
 func (l *Log) Session() string {
 	if l == nil {
 		return ""
@@ -103,7 +87,6 @@ func (l *Log) Session() string {
 	return l.session
 }
 
-// Provider is the agent that owns the remembered session.
 func (l *Log) Provider() string {
 	if l == nil {
 		return ""
@@ -113,30 +96,28 @@ func (l *Log) Provider() string {
 	return l.provider
 }
 
-// SetSession records a Claude session for compatibility with existing callers.
+func (l *Log) Worktrees() []string {
+	if l == nil {
+		return nil
+	}
+	return Read(l.path).Worktrees
+}
+
 func (l *Log) SetSession(id string) error { return l.SetAgentSession(id, "claude") }
 
-// SetAgentSession records the conversation and its provider.
+// SetAgentSession records the conversation and its CLI, and that it was used.
 func (l *Log) SetAgentSession(id, provider string) error {
 	if l == nil {
 		return nil
 	}
 	l.mu.Lock()
-	if l.session == id && l.provider == provider {
-		l.mu.Unlock()
-		return nil
-	}
 	l.session, l.provider = id, provider
-	data, err := l.encode()
 	l.mu.Unlock()
-
-	if err != nil {
-		return err
-	}
-	return l.write(data)
+	return Update(l.path, func(r *Record) {
+		r.Session, r.Provider, r.Used = id, provider, time.Now()
+	})
 }
 
-// Path is where this memory is written.
 func (l *Log) Path() string {
 	if l == nil {
 		return ""
@@ -144,13 +125,12 @@ func (l *Log) Path() string {
 	return l.path
 }
 
-// Clear forgets the session and removes the file.
 func (l *Log) Clear() error {
 	if l == nil {
 		return nil
 	}
 	l.mu.Lock()
-	l.session, l.provider, l.draft = "", "", ""
+	l.session, l.provider = "", ""
 	path := l.path
 	l.mu.Unlock()
 
@@ -158,61 +138,72 @@ func (l *Log) Clear() error {
 		return nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove agent memory: %w", err)
+		return fmt.Errorf("remove the session record: %w", err)
 	}
 	return nil
 }
 
-// encode renders the memory. The caller holds the lock.
-func (l *Log) encode() ([]byte, error) {
-	data, err := json.MarshalIndent(stored{Session: l.session, Provider: l.provider, Draft: l.draft}, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("encode agent memory: %w", err)
-	}
-	return data, nil
-}
-
-// write replaces the file atomically, so a crash mid-write cannot leave half a
-// memory behind.
-func (l *Log) write(data []byte) error { return writeFile(l.path, data) }
-
+// writeFile replaces the file atomically, so a crash cannot leave half of one.
 func writeFile(path string, data []byte) error {
-	if path == "" {
-		return nil
-	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create agent memory dir: %w", err)
+		return fmt.Errorf("create the session record dir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".ade-agent-*")
 	if err != nil {
-		return fmt.Errorf("create temp agent memory: %w", err)
+		return fmt.Errorf("create a temp session record: %w", err)
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("write agent memory: %w", err)
+		return fmt.Errorf("write the session record: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return fmt.Errorf("close the session record: %w", err)
 	}
 	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
-		return fmt.Errorf("chmod agent memory: %w", err)
+		return fmt.Errorf("chmod the session record: %w", err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("replace agent memory: %w", err)
+		return fmt.Errorf("replace the session record: %w", err)
 	}
 	return nil
 }
 
-// Path is where a checkout's agent memory lives. It is keyed by the git dir
-// alone, not by branch: Claude Code keys transcripts by working directory, so a
-// checkout is in one conversation whatever branch it is on. A worktree has its
-// own git dir, so its memory is its own.
+// Path is where a checkout's record lives, keyed by its git dir alone.
 func Path(gitDir string) string {
 	if gitDir == "" {
 		return ""
 	}
 	return filepath.Join(statedir.Git(gitDir), "agent.json")
+}
+
+// Brief is the newest file under a git dir's ade/docs, the first dir that has
+// one: the worktree's own before the repository's.
+func Brief(gitDirs ...string) string {
+	for _, gitDir := range gitDirs {
+		if gitDir == "" {
+			continue
+		}
+		if found := newestIn(filepath.Join(statedir.Git(gitDir), "docs")); found != "" {
+			return found
+		}
+	}
+	return ""
+}
+
+func newestIn(dir string) string {
+	var found string
+	var at time.Time
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().After(at) {
+			found, at = path, info.ModTime()
+		}
+		return nil
+	})
+	return found
 }

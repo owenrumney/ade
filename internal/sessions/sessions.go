@@ -7,7 +7,6 @@ package sessions
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,22 +18,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/owenrumney/ade/internal/linear"
-	"github.com/owenrumney/ade/internal/settings"
-	"github.com/owenrumney/ade/internal/transcripts"
 )
-
-// max bounds the list. It is a way back to something you were doing, not an
-// archive; sm itself is the archive.
-const max = 60
-
-// age is how far back to look. Older than this and you are not switching back
-// to it, you are going looking for it.
-const age = 14 * 24 * time.Hour
 
 // Session is one agent conversation you could return to.
 type Session struct {
@@ -47,9 +35,10 @@ type Session struct {
 	Title    string    `json:"title,omitempty"`
 	LastUsed time.Time `json:"lastUsed"`
 
-	// Path is the transcript on disk, for a reader that needs what was said
-	// rather than what is listed. Not sent to the browser.
-	Path string `json:"-"`
+	Ticket string   `json:"ticket"`
+	Tags   []string `json:"tags"`
+	// Brief is the newest file under the checkout's .git/ade/docs.
+	Brief string `json:"brief"`
 
 	// Resumable is false for agents ade cannot resume. Their directory still
 	// opens; the conversation does not come with it.
@@ -63,108 +52,8 @@ type Session struct {
 	// brought back, but the page hides it unless asked.
 	Archived bool `json:"archived,omitempty"`
 
-	// Live sessions still have an agent attached and cannot be combined.
+	// Live is a session whose checkout has a server running.
 	Live bool `json:"live,omitempty"`
-
-	// Group names the combined-session card this session is shown under.
-	Group string `json:"group,omitempty"`
-
-	// Pinned is one imported by id, which the window does not bound.
-	Pinned bool `json:"pinned,omitempty"`
-
-	// From is where the transcript was recorded, when another checkout took it.
-	From string `json:"from,omitempty"`
-}
-
-// Window bounds what List answers; zero in a field is unbounded. A switcher
-// wants the shortlist, a search what the shortlist did not have.
-type Window struct {
-	Max int
-	Age time.Duration
-}
-
-func Recent() Window     { return Window{Max: max, Age: age} }
-func Everything() Window { return Window{} }
-
-// List returns the recent sessions, newest first.
-func List(here string) []Session { return ListIn(here, Recent()) }
-
-func ListIn(here string, window Window) []Session {
-	cutoff := time.Time{}
-	if window.Age > 0 {
-		cutoff = time.Now().Add(-window.Age)
-	}
-	archived := settings.Archived()
-	hidden := settings.Hidden()
-	pinned := settings.Imported()
-
-	titles := settings.Titles()
-	scanned := transcripts.Scan()
-	live := transcripts.Liveness(scanned)
-	var out []Session
-	// A pin does not spend the budget the window bounds.
-	unpinned, wanted := 0, len(pinned)
-	for _, found := range scanned {
-		if found.CWD == "" || hidden[found.ID] {
-			continue
-		}
-		held := pinned[found.ID]
-		if held == "" && found.LastUsed.Before(cutoff) {
-			continue
-		}
-		// A named agent's run has a transcript of its own, but it is a reply
-		// inside a conversation rather than one to go back to.
-		if found.Subagent != "" {
-			continue
-		}
-		// So is a one-shot ade wrote the whole of: 18 of 60 rows, measured.
-		if transcripts.Machine(found) {
-			continue
-		}
-		// Where it is listed and would open: a pin names the checkout that took it.
-		dir := cmp.Or(held, found.CWD)
-		// A transcript outlives the directory it was recorded in — a rename or a
-		// removed worktree leaves one behind. Offering it would start a server
-		// somewhere that is not there.
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			continue
-		}
-		if window.Max > 0 && unpinned == window.Max {
-			if wanted == 0 {
-				break
-			}
-			if held == "" {
-				continue
-			}
-		}
-		from := ""
-		if held != "" && held != found.CWD {
-			from = found.CWD
-		}
-		out = append(out, Session{
-			ID:        found.ID,
-			Agent:     string(found.Agent),
-			Model:     found.Model,
-			Path:      found.Path,
-			Dir:       dir,
-			Name:      filepath.Base(dir),
-			Branch:    found.Branch,
-			Title:     cmp.Or(titles[found.ID], Title(found)),
-			LastUsed:  found.LastUsed,
-			Resumable: found.Agent == transcripts.AgentClaude || found.Agent == transcripts.AgentCodex,
-			Here:      here != "" && dir == here,
-			Archived:  archived[found.ID],
-			Live:      live[found.Path],
-			Pinned:    held != "",
-			From:      from,
-		})
-		if held != "" {
-			wanted--
-			continue
-		}
-		unpinned++
-	}
-	return out
 }
 
 // Find picks a session out of a list. Callers match against what the scan
@@ -206,13 +95,7 @@ func OpenAgentIn(ctx context.Context, dir, agent, sessionID string) (string, err
 
 // OpenOn is that, on a named model. Empty model leaves the CLI's own default.
 func OpenOn(ctx context.Context, dir, agent, model, sessionID string) (string, error) {
-	return OpenAs(ctx, dir, agent, model, sessionID, "")
-}
-
-// OpenAs is OpenOn in a named role. A session can only be started in one: a
-// role picked afterwards has already missed the first message.
-func OpenAs(ctx context.Context, dir, agent, model, sessionID, role string) (string, error) {
-	return OpenWith(ctx, dir, Start{Agent: agent, Model: model, Session: sessionID, Role: role})
+	return OpenWith(ctx, dir, Start{Agent: agent, Model: model, Session: sessionID})
 }
 
 // Start is what a session begins on, beyond the checkout it is in.
@@ -220,9 +103,6 @@ type Start struct {
 	Agent   string
 	Model   string
 	Session string
-	Role    string
-	// Sandbox, when set, is the container said rather than remembered.
-	Sandbox *bool
 }
 
 func OpenWith(ctx context.Context, dir string, st Start) (string, error) {
@@ -231,7 +111,7 @@ func OpenWith(ctx context.Context, dir string, st Start) (string, error) {
 		return "", fmt.Errorf("find the ade binary: %w", err)
 	}
 
-	args := append(openArgs(st.Agent, st.Model, st.Session), startArgs(st.Role, st.Sandbox)...)
+	args := openArgs(st.Agent, st.Model, st.Session)
 
 	cmd := exec.CommandContext(ctx, self, args...) // #nosec G204 -- this binary, in a directory the scan found
 	cmd.Dir = dir
@@ -299,19 +179,6 @@ func CreateIn(ctx context.Context, dir, ticket string) (string, error) {
 	return url, nil
 }
 
-// startArgs is the part of a start the flags spell out: the role, and the
-// container when it was said rather than left to what the checkout chose.
-func startArgs(role string, sandbox *bool) []string {
-	var args []string
-	if role != "" {
-		args = append(args, "--role", role)
-	}
-	if sandbox != nil {
-		args = append(args, "--sandbox="+strconv.FormatBool(*sandbox))
-	}
-	return args
-}
-
 // Work is what `ade create` is asked for beyond the name: what the session
 // starts on, and the other checkouts it may edit.
 type Work struct {
@@ -323,15 +190,8 @@ type Work struct {
 	Model  string
 	// Base branches the worktree from this ref rather than a fetched main.
 	Base string
-	// Role is the machine-wide prompt this session starts under.
-	Role string
 	// Also are checkouts that get a worktree each on the same branch.
 	Also []string
-	// Docs is where this session's design document lives, for one kept in
-	// the shared store rather than beside the checkout.
-	Docs string
-	// Sandbox, when set, is the container said rather than remembered.
-	Sandbox *bool
 }
 
 // CreateNamed runs `ade create <name>` in a checkout: the document, the
@@ -382,12 +242,8 @@ func CreateWork(ctx context.Context, dir string, w Work) (string, string, error)
 	if w.Base != "" {
 		args = append(args, "--base", w.Base)
 	}
-	args = append(args, startArgs(w.Role, w.Sandbox)...)
 	for _, also := range w.Also {
 		args = append(args, "--also", also)
-	}
-	if w.Docs != "" {
-		args = append(args, "--docs", w.Docs)
 	}
 	if len(from) > 0 {
 		// The flag names the document itself, so there is no positional name.
@@ -494,30 +350,4 @@ func errorIn(body []byte) string {
 func LastLine(out string) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
-}
-
-// Title is what a session is called when nobody has named it.
-func Title(found *transcripts.Session) string {
-	if t := strings.TrimSpace(found.Title); t != "" {
-		return t
-	}
-	return truncate(said(found.FirstPrompt), 120)
-}
-
-// said is what the user asked, out of the prompt ade wrapped it in. Untitled
-// rows read "We are working on this repository together in ade" without it.
-func said(prompt string) string {
-	for _, part := range transcripts.Unwrap(prompt) {
-		if part.Role == transcripts.RoleUser && strings.TrimSpace(part.Body) != "" {
-			return strings.TrimSpace(part.Body)
-		}
-	}
-	return strings.TrimSpace(prompt)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }

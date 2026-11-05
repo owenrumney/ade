@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/review"
-	"github.com/owenrumney/ade/internal/sandbox"
+	"github.com/owenrumney/ade/internal/runlog"
 )
 
 // otherRepo builds a second repository with an uncommitted edit, which is the
@@ -55,22 +55,17 @@ func otherRepo(t *testing.T, name string) string {
 	return dir
 }
 
-// mount writes the sandbox file the roots are snapshotted from.
-func mount(t *testing.T, s *Server, paths ...sandbox.Path) {
+// mount puts the other checkouts on the session record the roots are read from.
+func mount(t *testing.T, s *Server, paths ...string) {
 	t.Helper()
-	file := s.agent.workspace
-	require.NotEmpty(t, file, "the server should have a sandbox file to write")
-	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o750))
-	data, err := json.Marshal(sandbox.Workspace{Paths: paths})
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(file, data, 0o600))
+	require.NoError(t, runlog.Update(s.agent.mem.Path(), func(r *runlog.Record) { r.Worktrees = paths }))
 }
 
-// withRoot is a server whose sandbox mounts other read-write, snapshotted.
+// withRoot is a server whose session also holds other, snapshotted.
 func withRoot(t *testing.T, other string) *Server {
 	t.Helper()
 	s := newTestServer(t)
-	mount(t, s, sandbox.Path{Path: other, RW: true})
+	mount(t, s, other)
 	s.snapshotRoots(context.Background())
 	return s
 }
@@ -105,12 +100,11 @@ func TestSwitchingRootServesTheOtherRepositorysDiff(t *testing.T) {
 func TestSwitchingRootLeavesTheAgentWhereItWas(t *testing.T) {
 	other := otherRepo(t, "ci")
 	s := withRoot(t, other)
-	home, docs := s.space().homeRoot, s.docsDir
+	home := s.space().homeRoot
 
 	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
 
 	assert.Equal(t, home, s.agent.dir, "the agent must not follow the diff")
-	assert.Equal(t, docs, s.docsDir, "design documents stay with the session")
 	assert.Equal(t, home, s.space().homeRoot)
 	assert.Equal(t, other, s.space().viewRoot)
 }
@@ -121,11 +115,11 @@ func TestFixingAForeignFindingIsRefused(t *testing.T) {
 	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
 
 	for _, route := range []struct{ method, path, body string }{
-		{"POST", "/api/checks/fix", `{}`},
-		{"POST", "/api/drift", `{}`},
-		{"POST", "/api/pr-create", `{}`},
-		{"PUT", "/api/pr", `{"body":"x"}`},
-		{"POST", "/api/worktrees/prune", `{}`},
+		{"PUT", "/api/source", `{}`},
+		{"POST", "/api/base/catch-up", `{}`},
+		{"POST", "/api/threads/send-replies", `{}`},
+		{"POST", "/api/pr/merge", `{}`},
+		{"DELETE", "/api/prs", ``},
 	} {
 		rec := do(t, s, route.method, route.path, route.body)
 		assert.Equalf(t, http.StatusConflict, rec.Code, "%s %s", route.method, route.path)
@@ -135,34 +129,7 @@ func TestFixingAForeignFindingIsRefused(t *testing.T) {
 
 	// And they work again on the way back.
 	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":""}`).Code)
-	assert.NotEqual(t, http.StatusConflict, do(t, s, "POST", "/api/pr-create", `{}`).Code)
-}
-
-// TestResolvingAForeignFindingEditsThatRepository is the case an earlier draft
-// of the design refused. The run is a one-shot, so its directory is an
-// argument, and the threads it answers are that repository's own.
-func TestResolvingAForeignFindingEditsThatRepository(t *testing.T) {
-	other := otherRepo(t, "ci")
-	s := withRoot(t, other)
-	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
-	createThread(t, s, `{"scope":"repo","body":"the publish step runs before the tests"}`)
-
-	var got bridge.OneShotOpts
-	done := make(chan struct{})
-	was := runOneShot
-	runOneShot = func(_ context.Context, opts bridge.OneShotOpts) (*bridge.Turn, error) {
-		got = opts
-		close(done)
-		return &bridge.Turn{Text: "done"}, nil
-	}
-	t.Cleanup(func() { runOneShot = was })
-
-	rec := do(t, s, "POST", "/api/resolve", `{}`)
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	<-done
-
-	assert.Equal(t, other, got.Dir, "the fix belongs in the repository the comment is about")
-	assert.Contains(t, got.SystemPrompt, other, "and it is told it is not the session's")
+	assert.NotEqual(t, http.StatusConflict, do(t, s, "PUT", "/api/source", `{}`).Code)
 }
 
 // TestGitAndReviewFollowTheDiffRoot holds the other half of the rule: what
@@ -233,14 +200,14 @@ func TestThreadsFiledAwayFromHomeLandInThatRepository(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "the home store should be untouched")
 }
 
-func TestSandboxFileWrittenAfterStartGrantsNoRoot(t *testing.T) {
+func TestARecordWrittenAfterStartGrantsNoRoot(t *testing.T) {
 	other := otherRepo(t, "ci")
 	s := newTestServer(t)
 	s.snapshotRoots(context.Background())
 	require.Empty(t, s.currentRoots(), "nothing is mounted yet")
 
-	// The agent can write this file mid-turn. Nothing reads it until asked to.
-	mount(t, s, sandbox.Path{Path: other, RW: true})
+	// The record can be written mid-turn. Nothing reads it until asked to.
+	mount(t, s, other)
 
 	rec := do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
@@ -258,7 +225,7 @@ func TestRootsResolveThroughSymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink(other, link))
 
 	s := newTestServer(t)
-	mount(t, s, sandbox.Path{Path: other, RW: true}, sandbox.Path{Path: link, RW: true})
+	mount(t, s, other, link)
 	s.snapshotRoots(context.Background())
 
 	assert.Len(t, s.currentRoots(), 2, "a symlink and its target are one repository")
@@ -271,16 +238,14 @@ func TestRootsResolveThroughSymlinks(t *testing.T) {
 	assert.Equal(t, resolveRoot(other), s.space().viewRoot)
 }
 
-func TestOnlyReadWriteGitRootsAreOffered(t *testing.T) {
+func TestOnlyGitRootsAreOffered(t *testing.T) {
 	repo := otherRepo(t, "ci")
 	plain := t.TempDir()
-	readOnly := otherRepo(t, "docs")
 
 	s := newTestServer(t)
 	mount(t, s,
-		sandbox.Path{Path: repo, RW: true},
-		sandbox.Path{Path: plain, RW: true},
-		sandbox.Path{Path: readOnly},
+		repo,
+		plain,
 	)
 	s.snapshotRoots(context.Background())
 
@@ -289,24 +254,6 @@ func TestOnlyReadWriteGitRootsAreOffered(t *testing.T) {
 		names = append(names, root.Name)
 	}
 	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "ci"}, names)
-}
-
-func TestTheSessionsOwnRepositoriesAreDiffRootsToo(t *testing.T) {
-	repo := otherRepo(t, "worker")
-	s := newTestServer(t)
-	require.NotEmpty(t, s.agent.own, "the server should have a session file to read")
-	require.NoError(t, os.MkdirAll(filepath.Dir(s.agent.own), 0o750))
-	data, err := json.Marshal(sandbox.Workspace{Paths: []sandbox.Path{{Path: repo, RW: true}}})
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(s.agent.own, data, 0o600))
-
-	s.snapshotRoots(context.Background())
-
-	var names []string
-	for _, root := range s.currentRoots() {
-		names = append(names, root.Name)
-	}
-	assert.Equal(t, []string{filepath.Base(s.space().homeRoot), "worker"}, names)
 }
 
 func TestEachRootCarriesItsOwnCounts(t *testing.T) {
@@ -397,9 +344,8 @@ func TestAReviewAwayFromHomeIsToldWhereItIs(t *testing.T) {
 	other := otherRepo(t, "ci")
 	s := withRoot(t, other)
 
-	// At home it is the session's design and the session's memory.
+	// At home there is nothing to say.
 	assert.Empty(t, s.elsewhereNote())
-	assert.Equal(t, s.currentDocPath(), s.reviewDocPath())
 
 	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
 
@@ -407,9 +353,6 @@ func TestAReviewAwayFromHomeIsToldWhereItIs(t *testing.T) {
 	assert.Contains(t, note, other)
 	assert.Contains(t, note, "not the repository this ade session is working in")
 
-	// The session's design document is not what a change in ci implements.
-	assert.Empty(t, s.reviewDocPath())
-	assert.Equal(t, note, s.sideProject(), "and its project memory is not ci's either")
 }
 
 func TestTheColdReviewerCarriesTheNote(t *testing.T) {
@@ -417,11 +360,11 @@ func TestTheColdReviewerCarriesTheNote(t *testing.T) {
 	s := withRoot(t, other)
 	require.Equal(t, http.StatusOK, do(t, s, "POST", "/api/diff/root", `{"root":"`+other+`"}`).Code)
 
-	var got bridge.OneShotOpts
+	var got oneshot.Opts
 	was := runOneShot
-	runOneShot = func(_ context.Context, opts bridge.OneShotOpts) (*bridge.Turn, error) {
+	runOneShot = func(_ context.Context, opts oneshot.Opts) (*oneshot.Turn, error) {
 		got = opts
-		return &bridge.Turn{Text: "[]"}, nil
+		return &oneshot.Turn{Text: "[]"}, nil
 	}
 	t.Cleanup(func() { runOneShot = was })
 

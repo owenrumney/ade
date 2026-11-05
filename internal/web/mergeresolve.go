@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/gitdiff"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/outgoing"
 	"github.com/owenrumney/ade/internal/prompt"
 	"github.com/owenrumney/ade/internal/safepath"
@@ -56,7 +56,7 @@ func (s *Server) resolveOne(ctx context.Context, dir, name string) error {
 	}
 
 	var reply strings.Builder
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
+	turn, err := s.oneShot(ctx, oneshot.Opts{
 		Bin:    s.agent.bin,
 		Model:  outgoing.FastModel,
 		Dir:    dir,
@@ -65,7 +65,7 @@ func (s *Server) resolveOne(ctx context.Context, dir, name string) error {
 		// so nothing it says can reach the checkout except through this.
 		Tools:   []string{},
 		NoMCP:   true,
-		OnEvent: func(ev bridge.Event) { reply.WriteString(ev.Text) },
+		OnEvent: func(ev oneshot.Event) { reply.WriteString(ev.Text) },
 	})
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", name, err)

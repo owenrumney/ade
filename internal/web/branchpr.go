@@ -2,14 +2,13 @@ package web
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/owenrumney/ade/internal/checks"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
+	"github.com/owenrumney/ade/internal/render"
 )
 
 // branchPRInterval is how often the pull request and its checks are re-read. It
@@ -164,9 +163,6 @@ func (s *Server) refreshBranchPR(ctx context.Context) {
 
 	s.adoptPRBase(ctx, ws, pr.BaseRef)
 
-	// Publishing clones and pushes, so it never runs on the refresh's goroutine.
-	go s.recordMerge(context.WithoutCancel(ctx), pr)
-
 	found, err := ghpr.Checks(ctx, ws.homeRoot, pr.Number)
 	if err != nil {
 		slog.Debug("read pr checks", "err", err)
@@ -285,77 +281,6 @@ func (s *Server) handleRefreshChecks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"pr": s.currentBranchPR()})
 }
 
-// handleFixChecks sends the failing checks to the agent to investigate and fix.
-func (s *Server) handleFixChecks(w http.ResponseWriter, _ *http.Request) {
-	pr := s.currentBranchPR()
-	if pr == nil {
-		writeError(w, http.StatusBadRequest, "this branch has no pull request")
-		return
-	}
-	failing := failingChecks(pr.Checks)
-	if len(failing) == 0 {
-		writeError(w, http.StatusBadRequest, "nothing is failing")
-		return
-	}
-	// Fixing a check edits files. On a pull request that is not checked out they
-	// would land on whatever is, which is the same reason Resolve is refused.
-	if blocked := s.space().pr; blocked != nil && blocked.ResolveBlocked != "" {
-		writeError(w, http.StatusConflict, blocked.ResolveBlocked)
-		return
-	}
-	runCtx, ok := s.agent.begin(s.ctx, kindFixChecks)
-	if !ok {
-		// Refusing sent you back for something still failing when you returned.
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"queued": s.stackOnce(queued{kind: kindFixChecks}), "checks": len(failing),
-		})
-		s.hub.Broadcast("agent", nil)
-		return
-	}
-
-	s.spawn(func() { s.runFixChecks(runCtx, pr.Number, failing) })
-	s.hub.Broadcast("agent", nil)
-	writeJSON(w, http.StatusAccepted, map[string]any{"running": true, "checks": len(failing)})
-}
-
-func failingChecks(all []ghpr.Check) []ghpr.Check {
-	var out []ghpr.Check
-	for _, check := range all {
-		if check.Failed() {
-			out = append(out, check)
-		}
-	}
-	return out
-}
-
-func (s *Server) runFixChecks(ctx context.Context, number int, failing []ghpr.Check) {
-	defer s.recoverRun("fix-checks")
-
-	err := s.fixChecksOnce(ctx, number, failing)
-	s.agent.finish(err)
-	if err != nil {
-		slog.Warn("fix checks failed", "err", err)
-	}
-	s.refreshBranchPR(s.ctx)
-	if refreshErr := s.refresh(s.ctx); refreshErr != nil {
-		slog.Debug("refresh after fixing checks", "err", refreshErr)
-	}
-	s.hub.Broadcast("agent", nil)
-	s.hub.Broadcast("state", nil)
-}
-
-func (s *Server) fixChecksOnce(ctx context.Context, number int, failing []ghpr.Check) error {
-	claude, err := s.agent.ensure(s.ctx, s.onAgentEvent)
-	if err != nil {
-		return err
-	}
-
-	s.agent.step(fmt.Sprintf("fixing %d failing check(s) on #%d", len(failing), number))
-	// The reply streams into the conversation as it is said.
-	_, err = claude.Send(ctx, checks.Prompt(number, failing))
-	return err
-}
-
 func (s *Server) setOpenPRs(listed []ghpr.Listed) {
 	s.mu.Lock()
 	changed := len(listed) != len(s.openPRs)
@@ -375,4 +300,13 @@ func (s *Server) currentOpenPRs() []ghpr.Listed {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]ghpr.Listed(nil), s.openPRs...)
+}
+
+// markdownHTML renders a pull request's body for the page.
+func markdownHTML(body string) string {
+	html, err := render.Markdown([]byte(body), render.Options{Theme: render.ThemeDark})
+	if err != nil {
+		return ""
+	}
+	return string(html)
 }

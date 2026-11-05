@@ -1,14 +1,15 @@
 package sessions
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/provision"
+	"github.com/owenrumney/ade/internal/runlog"
+	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/settings"
 )
 
@@ -29,9 +30,7 @@ type Dir struct {
 	// new in, so they are listed rather than hidden.
 	LastUsed time.Time `json:"lastUsed,omitempty"`
 
-	Sessions   []Session   `json:"sessions"`
-	Groups     []Group     `json:"groups,omitempty"`
-	Suggestion *Suggestion `json:"suggestion,omitempty"`
+	Sessions []Session `json:"sessions"`
 
 	// Main is the repository's main checkout, which is this path unless this is
 	// a worktree. It is what groups worktrees under the thing they are of.
@@ -88,11 +87,7 @@ type Repo struct {
 // else — a scratch repository under the temp directory, most often — attaches
 // to nothing and is left out; widen the roots if you want it.
 func Repos(roots []string, ignored func(string) bool) []Repo {
-	return ReposIn(roots, ignored, Recent())
-}
-
-func ReposIn(roots []string, ignored func(string) bool, window Window) []Repo {
-	dirs := DirsIn(roots, ignored, window)
+	dirs := Dirs(roots, ignored)
 
 	byMain := map[string]*Repo{}
 	var order []string
@@ -182,10 +177,6 @@ func FindCheckout(repos []Repo, path string) (Dir, bool) {
 
 // Dirs lists every checkout under roots, worktrees included and unaggregated.
 func Dirs(roots []string, ignored func(string) bool) []Dir {
-	return DirsIn(roots, ignored, Recent())
-}
-
-func DirsIn(roots []string, ignored func(string) bool, window Window) []Dir {
 	if ignored == nil {
 		ignored = func(string) bool { return false }
 	}
@@ -205,29 +196,12 @@ func DirsIn(roots []string, ignored func(string) bool, window Window) []Dir {
 		}
 	}
 
-	for _, session := range ListIn("", window) {
-		dir, seen := found[session.Dir]
-		if !seen {
-			continue
-		}
-		dir.Sessions = append(dir.Sessions, session)
-		if session.LastUsed.After(dir.LastUsed) {
-			dir.LastUsed = session.LastUsed
-			// The transcript knows which branch it was on, which saves reading
-			// it off disk for every checkout on the machine. "HEAD" is what a
-			// detached checkout reports, and is not a branch.
-			if session.Branch != "" && session.Branch != "HEAD" {
-				dir.Branch = session.Branch
-			}
-		}
-	}
-
-	records := settings.SessionGroups()
-	dismissed := settings.DismissedSessionGroupSuggestions()
+	titles, archived := settings.Titles(), settings.Archived()
 	out := make([]Dir, 0, len(found))
 	for _, dir := range found {
-		attachGroups(dir, records)
-		attachSuggestion(dir, dismissed)
+		if held, ok := sessionIn(dir, titles, archived); ok {
+			dir.Sessions, dir.LastUsed = []Session{held}, held.LastUsed
+		}
 		out = append(out, *dir)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -259,38 +233,13 @@ func newDir(path string) *Dir {
 	return dir
 }
 
-// ownerOf is the directory a checkout sits in, or, under a session id, origin.
+// ownerOf is the directory a checkout sits in.
 func ownerOf(path string) string {
 	parent := filepath.Base(filepath.Dir(path))
-	// provision owns the shape of that name, so it is asked rather than matched.
-	if provision.SessionDir(parent) {
-		owner, _ := gitdiff.ParseRemote(originURL(path))
-		return owner
-	}
 	if parent == "." || parent == string(filepath.Separator) {
 		return ""
 	}
 	return parent
-}
-
-// originURL reads .git/config rather than shelling out, as branchOf does.
-func originURL(path string) string {
-	raw, err := os.ReadFile(filepath.Join(path, ".git", "config")) // #nosec G304 -- scanned checkout
-	if err != nil {
-		return ""
-	}
-	origin := false
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			origin = strings.HasPrefix(line, `[remote "origin"]`)
-			continue
-		}
-		if key, value, ok := strings.Cut(line, "="); origin && ok && strings.TrimSpace(key) == "url" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 // checkouts walks a root for git checkouts, stopping at each one: what is
@@ -400,4 +349,29 @@ func gitPointer(dir string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(pointer), true
+}
+
+// sessionIn is the session ade recorded for a checkout. No record, no session.
+func sessionIn(dir *Dir, titles map[string]string, archived map[string]bool) (Session, bool) {
+	gitDir := GitDir(dir.Path)
+	held := runlog.Read(runlog.Path(gitDir))
+	if held.Session == "" {
+		return Session{}, false
+	}
+	rec, serving := session.Read(session.Path(gitDir))
+	return Session{
+		ID:        held.Session,
+		Agent:     cmp.Or(held.Provider, "claude"),
+		Dir:       dir.Path,
+		Name:      dir.Name,
+		Branch:    dir.Branch,
+		Title:     titles[held.Session],
+		LastUsed:  held.Used,
+		Ticket:    held.Ticket,
+		Tags:      append([]string{}, held.Tags...),
+		Brief:     runlog.Brief(gitDir, filepath.Join(dir.Main, ".git")),
+		Resumable: true,
+		Archived:  archived[held.Session],
+		Live:      serving && session.Running(rec.PID),
+	}, true
 }

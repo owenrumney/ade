@@ -80,3 +80,40 @@ export async function tell<T>(
   if (!res.ok) throw new Error(await said(res, path));
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
+
+// The server pings every 20s, so this is three missed pings.
+const stale = 60_000;
+
+// events names each event in an SSE body and throws when the stream goes
+// quiet: a half-open socket delivers nothing and never errors.
+export async function events(
+  body: ReadableStream<Uint8Array>,
+  named: (event: string) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let rest = "";
+  for (;;) {
+    let tick: ReturnType<typeof setTimeout> | undefined;
+    const quiet = new Promise<never>((_, fail) => {
+      tick = setTimeout(() => fail(new Error("ade stopped sending events")), stale);
+    });
+    let got: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      got = await Promise.race([reader.read(), quiet]);
+    } catch (err) {
+      void reader.cancel().catch(() => undefined);
+      throw err;
+    } finally {
+      clearTimeout(tick);
+    }
+    if (got.done) return;
+    rest += decoder.decode(got.value, { stream: true });
+    const frames = rest.split("\n\n");
+    rest = frames.pop() ?? "";
+    for (const frame of frames) {
+      const name = /^event: (\w+)$/m.exec(frame);
+      if (name) named(name[1]);
+    }
+  }
+}
