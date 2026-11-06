@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Drives the built ade against a fixture home and captures named views.",
   "dependencies": {
-    "puppeteer-core": "^23.0.0"
+    "puppeteer-core": "^25.16.0"
   }
 }
