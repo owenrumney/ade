@@ -35,11 +35,15 @@ var seeds = []Rule{
 	"Bash(git branch:*)",
 }
 
+// commitDeny keeps an agent from committing: ade commits, on a click.
+const commitDeny Rule = "Bash(git commit:*)"
+
 // seedDeny is what a seeded file refuses outright. Narrow on purpose: a deny
 // rule nobody chose has to be something nobody would choose.
 var seedDeny = []Rule{
 	"Bash(git push --force:*)",
 	"Bash(rm -rf /:*)",
+	commitDeny,
 }
 
 // seeded is the file a first run writes.

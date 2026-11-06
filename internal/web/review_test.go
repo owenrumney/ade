@@ -2,32 +2,32 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/owenrumney/ade/internal/agents"
 	"github.com/owenrumney/ade/internal/comments"
+	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/review"
 )
 
-func TestReviewQueuesBehindAConcurrentRun(t *testing.T) {
+func TestReviewIsRefusedWhileARunIsInFlight(t *testing.T) {
 	s := newTestServer(t)
 
-	_, ok := s.agent.begin(context.Background(), "resolve")
+	_, ok := s.agent.begin(context.Background(), kindCommitMessage)
 	require.True(t, ok)
 	defer s.agent.finish(nil)
 
 	rec := do(t, s, "POST", "/api/review", `{"level":"medium"}`)
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-
-	// The level is the ask, so a review at another depth is another entry.
-	rec = do(t, s, "POST", "/api/review", `{"level":"medium"}`)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-	rec = do(t, s, "POST", "/api/review", `{"level":"high"}`)
-	assert.Contains(t, rec.Body.String(), `"queued":2`)
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "a run is already going here")
 }
 
 func TestReviewRejectsAnEmptyDiff(t *testing.T) {
@@ -49,18 +49,19 @@ func TestFileFindings(t *testing.T) {
 	require.True(t, ok)
 	defer s.agent.finish(nil)
 
+	var said []string
 	added := s.fileFindings([]review.Finding{
 		{File: "a.go", Line: 3, Category: "correctness", Summary: "x is magic", FailureScenario: "always"},
 		{File: "a.go", Line: 5, Category: "style", Summary: "near miss"},
 		{File: "a.go", Line: 900, Category: "correctness", Summary: "way off"},
 		{File: "ghost.go", Line: 1, Category: "correctness", Summary: "not in the diff"},
-	}, comments.AuthorAgent, s.agent.step)
-	assert.Len(t, added, 4, "no finding should be silently dropped")
+	}, comments.AuthorAgent, func(line string) { said = append(said, line) })
+	assert.Len(t, added, 2, "only what the diff touches is filed")
 
-	// Three threads, not four: the near miss snaps onto line 3, where a
+	// One thread, not two: the near miss snaps onto line 3, where a
 	// finding already is, so it joins it rather than opening a second.
 	threads := s.ws.store.List()
-	require.Len(t, threads, 3)
+	require.Len(t, threads, 1)
 	bySummary := map[string]comments.Thread{}
 	for _, thread := range threads {
 		for _, comment := range thread.Comments {
@@ -85,29 +86,16 @@ func TestFileFindings(t *testing.T) {
 		assert.Equal(t, "near miss", got.Comments[1].Body, "filed as a reply, not a second thread")
 	})
 
-	t.Run("a distant line is kept but orphaned", func(t *testing.T) {
-		got := bySummary["way off"]
-		assert.True(t, got.Orphaned)
-		assert.Equal(t, 900, got.Line, "the reported line is preserved")
+	// Only the change is under review: a point on code it did not write is
+	// said, so nothing is lost silently, and not filed as an orphan.
+	t.Run("a distant line and a file outside the diff are said, not filed", func(t *testing.T) {
+		_, filed := bySummary["way off"]
+		assert.False(t, filed)
+		_, filed = bySummary["not in the diff"]
+		assert.False(t, filed)
+		assert.Contains(t, said, "a.go:900 — outside the diff, not filed")
+		assert.Contains(t, said, "ghost.go:1 — outside the diff, not filed")
 	})
-
-	t.Run("a file outside the diff is kept but orphaned", func(t *testing.T) {
-		got := bySummary["not in the diff"]
-		assert.True(t, got.Orphaned)
-		assert.Equal(t, "ghost.go", got.File)
-	})
-}
-
-func TestFileFindingsIsResolvable(t *testing.T) {
-	s := newTestServer(t)
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-	s.agent.finish(nil)
-
-	s.fileFindings([]review.Finding{{File: "a.go", Line: 3, Summary: "fix me"}}, comments.AuthorAgent, s.agent.step)
-
-	// A filed finding must be picked up by Resolve like any hand-written comment.
-	assert.Len(t, s.threadsToResolve(nil), 1)
 }
 
 func TestReconcile(t *testing.T) {
@@ -158,6 +146,12 @@ func TestReconcile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t)
+			// b.go and c.go join the diff: only what it touches is filed.
+			for _, name := range []string{"b.go", "c.go"} {
+				require.NoError(t, os.WriteFile(filepath.Join(s.startRoot, name), []byte("package main\n\nvar y = 1\n"), 0o600))
+			}
+			commitEverything(t, s.startRoot, "more files")
+			require.NoError(t, s.refresh(context.Background()))
 			_, ok := s.agent.begin(context.Background(), "review")
 			require.True(t, ok)
 			defer s.agent.finish(nil)
@@ -223,21 +217,26 @@ func TestResetThreadsTakesOnlyWhatTheBodyNames(t *testing.T) {
 	assert.False(t, left[0].Resolved)
 }
 
-// Four left behind with no word why is the whole of what this reports.
-func TestResetThreadsSaysHowManyItHadToLeave(t *testing.T) {
+// "Remove every comment" removed every comment but the pull request's, and
+// the import poll would have refiled those a minute later anyway.
+func TestResetOfEverythingTakesThePullRequestsCommentsAndKeepsThemOut(t *testing.T) {
 	s := newTestServer(t)
 	createThread(t, s, `{"file":"a.go","side":"right","line":3,"body":"mine"}`)
 	_, err := s.ws.store.Add(comments.Thread{
-		File: "a.go", Side: comments.SideRight, Line: 4, ExternalID: "gh-1",
+		File: "a.go", Side: comments.SideRight, Line: 3, ExternalID: "41",
 		Comments: []comments.Comment{{Body: "from the pull request"}},
 	})
 	require.NoError(t, err)
 
 	rec := do(t, s, "POST", "/api/threads/reset", `{"which":""}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), `"removed":1`)
-	assert.Contains(t, rec.Body.String(), `"kept":1`)
-	assert.Len(t, s.ws.store.List(), 1, "what came from the pull request stays")
+	assert.Contains(t, rec.Body.String(), `"removed":2`)
+	assert.Contains(t, rec.Body.String(), `"kept":0`)
+	assert.Empty(t, s.ws.store.List())
+
+	again := []ghpr.Thread{{Root: ghpr.ReviewComment{ID: 41, Path: "a.go", Side: "right", Line: 3, Body: "from the pull request"}}}
+	assert.Zero(t, s.importComments(again), "the poll does not bring it back")
+	assert.Empty(t, s.ws.store.List())
 }
 
 func TestResetThreadsRefusesWhileTheAgentRuns(t *testing.T) {
@@ -251,4 +250,78 @@ func TestResetThreadsRefusesWhileTheAgentRuns(t *testing.T) {
 	rec := do(t, s, "POST", "/api/threads/reset", "")
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Len(t, s.ws.store.List(), 1, "a run part way through filing keeps its comments")
+}
+
+// Reviewers are handed the diff as ade holds it, so the base is fetched
+// first: a stale origin/main puts main's own commits in front of them.
+func TestReviewFetchesTheBaseFirst(t *testing.T) {
+	s := newTestServer(t)
+	moved := originWithMovedMain(t, s.startRoot)
+	rec := do(t, s, "POST", "/api/review", `{"agents":["nobody-by-that-name"]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the fetch comes before the agents are looked up")
+	assert.Equal(t, moved, originMain(t, s.startRoot))
+}
+
+// The test repo's only change is "var x = 2" on line 3 of a.go. A point on a
+// line the change did not write used to be filed as an orphan.
+func TestAFindingOffTheDiffIsSaidNotFiled(t *testing.T) {
+	s := newTestServer(t)
+	f := s.newFiler(agents.Agent{Name: "security", Reviews: true}, "", "")
+	f.push("```ade-finding\n{\"file\": \"a.go\", \"line\": 3, \"summary\": \"on the change\"}\n```\n")
+	f.push("```ade-finding\n{\"file\": \"a.go\", \"line\": 400, \"summary\": \"old code\"}\n```\n")
+	f.push("```ade-finding\n{\"file\": \"elsewhere.go\", \"line\": 1, \"summary\": \"not in the diff\"}\n```\n")
+
+	require.Len(t, s.ws.store.List(), 1, "only the point on the change is a comment")
+	assert.Equal(t, 3, s.ws.store.List()[0].Line)
+	assert.Len(t, f.aside, 2)
+}
+
+func TestAWholeBranchReviewWritesItsFindingsToAFile(t *testing.T) {
+	s := newTestServer(t)
+	batch := s.newBatch([]string{"security"}, true)
+	undo := s.reviewBegan(batch, []string{"security"})
+	defer undo()
+	f := s.newFiler(agents.Agent{Name: "security", Reviews: true}, "", batch)
+	f.whole = true
+	f.push("```ade-finding\n{\"file\": \"elsewhere.go\", \"line\": 9, \"severity\": \"high\", \"summary\": \"anywhere counts\"}\n```\n")
+	s.batchDrained(batch)
+
+	assert.Empty(t, s.ws.store.List(), "nothing lands on the diff")
+	raw, err := os.ReadFile(filepath.Join(s.ws.gitDir, "ade", foundFile))
+	require.NoError(t, err)
+	var got struct {
+		Scope    string `json:"scope"`
+		Findings []struct {
+			File string `json:"file"`
+			Line int    `json:"line"`
+			By   string `json:"by"`
+		} `json:"findings"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Equal(t, "branch", got.Scope)
+	require.Len(t, got.Findings, 1)
+	assert.Equal(t, "elsewhere.go", got.Findings[0].File)
+	assert.Equal(t, "security", got.Findings[0].By)
+	run := s.currentReviewRun()
+	require.NotNil(t, run)
+	assert.False(t, run.Running)
+	assert.Contains(t, run.Summary, foundFile)
+}
+
+func TestAWholeBranchReviewNamesItsReviewers(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "POST", "/api/review", `{"scope":"branch"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "names its reviewers")
+}
+
+func commitEverything(t *testing.T, dir, message string) {
+	t.Helper()
+	for _, args := range [][]string{{"add", "."}, {"commit", "-qm", message}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
 }

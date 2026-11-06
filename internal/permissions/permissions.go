@@ -48,12 +48,12 @@ type Store struct {
 }
 
 // Version is the shape of the file on disk, so a later change can tell.
-const Version = 1
+const Version = 3
 
 const name = "permissions.json"
 
 // Open reads the rule file, seeding it on first run. A file that exists is
-// taken as it is: nothing adds a rule the user cannot see.
+// taken as it is, but for the one copy of the user's own Claude denies.
 func Open() (*Store, error) {
 	dir, err := settings.Dir()
 	if err != nil {
@@ -178,11 +178,16 @@ func openAt(path string) (*Store, error) {
 		if err := json.Unmarshal(data, &s.file); err != nil {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
+		if s.file.Version < Version {
+			s.upgrade()
+			return s, s.save()
+		}
 		return s, nil
 	case !os.IsNotExist(err):
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	s.file = seeded()
+	s.adopt()
 	if err := s.save(); err != nil {
 		return nil, err
 	}

@@ -226,27 +226,3 @@ func TestMarkRepoHereFlagsBothLevels(t *testing.T) {
 		}
 	}
 }
-
-func TestAWorkerSessionDirectoryIsNotAnOwner(t *testing.T) {
-	root := t.TempDir()
-	// What provision.Clone makes: /srv/ade/<random hex>/<name>.
-	dir := repo(t, filepath.Join(root, "80a6ccb2de7fe172", "dashboard"), "master")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"),
-		[]byte("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:infracost/dashboard.git\n"), 0o600))
-	// One with no origin to read falls back to no owner, never to the hex.
-	repo(t, filepath.Join(root, "0123456789abcdef", "orphan"), "main")
-
-	got := map[string]Dir{}
-	for _, one := range Dirs([]string{root}, nil) {
-		got[one.Name] = one
-	}
-	require.Contains(t, got, "dashboard")
-	assert.Equal(t, "infracost", got["dashboard"].Owner)
-	assert.Empty(t, got["orphan"].Owner)
-
-	repos := map[string]Repo{}
-	for _, one := range Repos([]string{root}, nil) {
-		repos[one.Name] = one
-	}
-	assert.Equal(t, "infracost", repos["dashboard"].Owner)
-}

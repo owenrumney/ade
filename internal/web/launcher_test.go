@@ -1,10 +1,8 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -129,44 +127,6 @@ func TestAnAnnouncementIsSaidAgainUntilTheLauncherTakesIt(t *testing.T) {
 	assert.Equal(t, int32(3), tries.Load())
 }
 
-// The launcher's list names each worker launcher with its token in the URL.
-// The page picks a machine by name and posts nowhere else, so it is given the
-// name and not the credential.
-func TestTheMachineListKeepsTheLauncherTokensOffThePage(t *testing.T) {
-	s := newTestServer(t)
-	stubLauncher(t, func(context.Context, string, string, string, time.Duration) ([]byte, error) {
-		return []byte(`{"hosts":[{"name":"linux","label":"Build worker","connected":true,` +
-			`"url":"http://127.0.0.1:29233/?t=SECRET-WORKER-TOKEN","state":"connected","sessions":2}]}`), nil
-	})
-
-	rec := do(t, s, "GET", "/api/hosts", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotContains(t, rec.Body.String(), "SECRET-WORKER-TOKEN")
-	assert.NotContains(t, rec.Body.String(), "29233")
-
-	var got struct {
-		Hosts []hostChoice `json:"hosts"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Len(t, got.Hosts, 1)
-	assert.Equal(t, "linux", got.Hosts[0].Name)
-	assert.Equal(t, "Build worker", got.Hosts[0].Label)
-	assert.True(t, got.Hosts[0].Connected)
-	assert.Equal(t, 2, got.Hosts[0].Sessions)
-}
-
-// No launcher is not an error: a session with none can still build here.
-func TestTheMachineListIsEmptyWithoutALauncher(t *testing.T) {
-	s := newTestServer(t)
-	stubLauncher(t, func(context.Context, string, string, string, time.Duration) ([]byte, error) {
-		return nil, errors.New("no launcher is running on this machine")
-	})
-
-	rec := do(t, s, "GET", "/api/hosts", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"hosts":[]}`, rec.Body.String())
-}
-
 // A checkout opened from a terminal has no agent session until the first turn,
 // and a rail keyed on session ids would have no tile for it at all.
 func TestTheRailIDIsProvisionalUntilTheAgentNamesASession(t *testing.T) {
@@ -179,22 +139,6 @@ func TestTheRailIDIsProvisionalUntilTheAgentNamesASession(t *testing.T) {
 
 	s.agent.current = "11111111-2222-3333-4444-555555555555"
 	assert.Equal(t, s.agent.current, s.railID(), "the agent's own id wins once there is one")
-}
-
-// `ade --session <id>` is how the launcher opens a tile, and the tile of a
-// session not yet named carries the provisional id back here.
-func TestResumingTheIDThisServerIsAlreadyOnIsANoOp(t *testing.T) {
-	s := newTestServer(t)
-	s.agent.session, s.agent.current = "", ""
-
-	body, err := json.Marshal(map[string]string{"id": s.pendingID, "provider": "claude"})
-	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/resume", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	s.handleChatResume(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code, "asked for the session it is already serving")
-	assert.JSONEq(t, `{"session":"`+s.pendingID+`"}`, rec.Body.String())
 }
 
 // A session on a worker records the container's own port, which nothing on the

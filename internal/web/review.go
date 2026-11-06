@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/owenrumney/ade/internal/agents"
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/design"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/review"
 )
 
@@ -35,9 +33,20 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		// cold reviewer that files findings as comments.
 		Agents []string `json:"agents"`
 		Agent  string   `json:"agent"`
+		// Scope is "diff", the default, or "branch": the repository as it
+		// stands, every finding written to a file rather than the diff.
+		Scope string `json:"scope"`
 	}
 	if !decode(w, r, &req) {
 		return
+	}
+	whole := req.Scope == "branch"
+	// Against origin's base as last fetched: stale, the diff carries the
+	// base's own commits, and the reviewers would review those.
+	if !s.space().snapshot {
+		if _, err := s.pullBase(r.Context()); err != nil {
+			slog.Debug("fetch the base before a review", "err", err)
+		}
 	}
 	s.mu.RLock()
 	diff := s.diff
@@ -47,11 +56,15 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	names := reviewers(req.Agents, req.Agent)
+	if whole && len(names) == 0 {
+		writeError(w, http.StatusBadRequest, "a review of the whole branch names its reviewers")
+		return
+	}
 	if len(names) == 0 {
 		level := strings.TrimSpace(req.Level)
 		runCtx, ok := s.agent.begin(s.ctx, kindReview)
 		if !ok {
-			s.queueBehind(w, queued{kind: kindReview, level: level})
+			writeError(w, http.StatusConflict, "a run is already going here; wait for it, or stop it")
 			return
 		}
 		s.spawn(func() { s.runReview(runCtx, level) })
@@ -64,7 +77,7 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 	// under review could otherwise ship .claude/agents/security.md and
 	// supply the reviewer that reviews it.
 	list := s.userAgentsList()
-	batch := s.newBatch(names)
+	batch := s.newBatch(names, whole)
 	calls := make([]sideCall, 0, len(names))
 	mentions := make([]string, 0, len(names))
 	for _, name := range names {
@@ -87,19 +100,25 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "@"+name+" can edit a checkout, so it does not review one this session is not in")
 			return
 		}
-		calls = append(calls, sideCall{agent: agent, prompt: design.DiffReviewPrompt(name, s.reviewDocPath(), review.RenderDiff(diff)), batch: batch})
+		prompt := review.DiffReviewPrompt(name, review.RenderDiff(diff))
+		if whole {
+			prompt = review.BranchReviewPrompt(name, review.RenderSummary(diff))
+		}
+		calls = append(calls, sideCall{agent: agent, prompt: prompt, batch: batch, whole: whole})
 		mentions = append(mentions, "@"+name)
 	}
-	s.say(ChatMessage{Kind: chat.KindYou, Body: fmt.Sprintf("%s review the diff (%d files)", strings.Join(mentions, " "), len(diff.Files))})
+	s.tell(fmt.Sprintf("%s review the diff (%d files)", strings.Join(mentions, " "), len(diff.Files)))
 	// No slots held: the reviewers file their own findings, so there is no
 	// @commenter hand-off to keep room for. A review costs one slot per
 	// reviewer rather than two, which is what let three of them be refused
 	// against a cap of four.
+	undo := s.reviewBegan(batch, names)
 	started := s.startSides(calls)
 	s.hub.Broadcast("agent", nil)
 	s.hub.Broadcast("state", nil)
 	if !started {
 		s.dropBatch(batch)
+		undo()
 		writeError(w, http.StatusConflict, fmt.Sprintf("no room for another agent; %d at most, and one is kept for a rewrite. Wait for one, or stop them", maxSides))
 		return
 	}
@@ -161,7 +180,7 @@ func (s *Server) reviewOnce(ctx context.Context, level string) ([]review.Finding
 	streamer := review.NewStreamer()
 	streamed := map[string]filed{}
 
-	onEvent := func(ev bridge.Event) {
+	onEvent := func(ev oneshot.Event) {
 		s.onAgentEvent(ev)
 		found := streamer.Push(ev.Text)
 		if len(found) == 0 {
@@ -171,7 +190,7 @@ func (s *Server) reviewOnce(ctx context.Context, level string) ([]review.Finding
 		s.hub.Broadcast("state", nil)
 	}
 
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
+	turn, err := s.oneShot(ctx, oneshot.Opts{
 		Bin:          s.agent.bin,
 		Model:        s.agent.model,
 		Dir:          w.diffRoot(),
@@ -284,6 +303,12 @@ func (s *Server) fileFindings(findings []review.Finding, author string, note fun
 	out := make(map[string]filed, len(findings))
 	for _, f := range findings {
 		anchor, line, ok := comments.LocateNearest(diff, f.File, comments.SideRight, f.Line, snapWindow)
+		// Only the change is under review: a point on a line it did not
+		// touch is said, not filed.
+		if !ok {
+			note(fmt.Sprintf("%s:%d — outside the diff, not filed", f.File, f.Line))
+			continue
+		}
 		thread := comments.Thread{
 			File:     f.File,
 			Side:     comments.SideRight,
@@ -302,10 +327,8 @@ func (s *Server) fileFindings(findings []review.Finding, author string, note fun
 		switch {
 		case merged:
 			note(fmt.Sprintf("%s:%d — %s, added to the comment already there", f.File, line, f.Severity))
-		case ok:
-			note(fmt.Sprintf("%s:%d — %s %s", f.File, line, f.Severity, f.Category))
 		default:
-			note(fmt.Sprintf("%s:%d — not in the diff, filed as orphaned", f.File, f.Line))
+			note(fmt.Sprintf("%s:%d — %s %s", f.File, line, f.Severity, f.Category))
 		}
 		out[review.Key(f)] = filed{id: added.ID, finding: f, merged: merged}
 	}

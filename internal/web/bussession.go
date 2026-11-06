@@ -99,7 +99,8 @@ func (b *busSession) close() {
 // and goes when it stops, so `who` says what is running rather than what exists.
 func (s *Server) sessionOnBus(ctx context.Context) {
 	run := s.agent.State()
-	if !run.Running {
+	// A terminal agent is on the bus for as long as its process lives.
+	if !run.Running && !s.agentAlive() {
 		s.busRun.close()
 		return
 	}

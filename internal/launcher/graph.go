@@ -1,61 +1,18 @@
 package launcher
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/owenrumney/ade/internal/machine"
 	"github.com/owenrumney/ade/internal/sessions"
 )
-
-// handleGraph is the machine right now: every checkout, and what is running
-// on each. Drawn by the page rather than listed, so a glance says where the
-// work is.
-func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	if machine := strings.TrimSpace(r.URL.Query().Get("machine")); machine != "" {
-		s.graphOnHost(w, r, machine)
-		return
-	}
-	repos, err := s.repos()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"repos": sessions.Graph(r.Context(), repos, s.probe)})
-}
-
-// handleGraphCancel stops what a ade is running, from the graph. One on a
-// worker is cancelled by asking that worker, as a stop is.
-func (s *Server) handleGraphCancel(w http.ResponseWriter, r *http.Request) {
-	if machine, dir, ok := stopElsewhere(r); ok {
-		s.tellHost(w, r, machine, dir, "/api/graph/cancel", "cancel")
-		return
-	}
-	dir, ok := s.graphTarget(w, r)
-	if !ok {
-		return
-	}
-	if err := sessions.CancelAgent(r.Context(), dir); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
 
 // handleGraphStop shuts a ade down, from the graph or the rail. A session on a
 // worker is stopped by asking that worker, which is the only one that has it.
 func (s *Server) handleGraphStop(w http.ResponseWriter, r *http.Request) {
-	if machine, dir, ok := stopElsewhere(r); ok {
-		s.tellHost(w, r, machine, dir, "/api/graph/stop", "stop")
-		return
-	}
 	dir, ok := s.graphTarget(w, r)
 	if !ok {
 		return
@@ -65,25 +22,6 @@ func (s *Server) handleGraphStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// stopElsewhere reads the machine a stop names, rewinding the body for the
-// local path.
-func stopElsewhere(r *http.Request) (string, string, bool) {
-	body, err := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	if err != nil {
-		return "", "", false
-	}
-	var req struct {
-		Machine string `json:"machine"`
-		Dir     string `json:"dir"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return "", "", false
-	}
-	machine := strings.TrimSpace(req.Machine)
-	return machine, req.Dir, machine != ""
 }
 
 // graphTarget reads the checkout a graph action names, and refuses one the
@@ -183,21 +121,4 @@ func (s *Server) liveKey(ctx context.Context) string {
 		return ""
 	}
 	return string(key)
-}
-
-// watchMachine leaves the graph in ~/.ade/machine, for a reader with no port
-// to ask. Its own loop: watchLive sweeps only while a page is open.
-func (s *Server) watchMachine(ctx context.Context) {
-	dir, err := machine.Dir()
-	if err != nil {
-		slog.Debug("machine snapshot: no state directory", "err", err)
-		return
-	}
-	src := machine.Source{
-		Dir:    dir,
-		Writer: machine.Writer{PID: os.Getpid(), Kind: "launcher"},
-		Repos:  s.repos,
-		Probe:  s.probe,
-	}
-	src.Loop(ctx)
 }

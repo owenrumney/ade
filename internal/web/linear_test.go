@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/linear"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/settingsapi"
 )
@@ -146,59 +144,4 @@ func TestLinearIssuesAreOnTheStateWhenAKeyIsSet(t *testing.T) {
 	require.NoError(t, settings.Save(settings.Settings{ScanDirs: []string{"~/code"}}))
 	s.board.RefreshTickets(context.Background())
 	assert.Nil(t, s.board.Tickets())
-}
-
-func TestTheGlobalSandboxIsSavedAndItsPathsChecked(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	dir := t.TempDir()
-
-	body := fmt.Sprintf(`{"scanDirs":["~/code"],"sandboxPaths":[{"path":%q,"rw":true}],"sandboxEnv":{"CI":"1"}}`, dir)
-	rec := do(t, s, "PUT", "/api/settings", body)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var view settingsapi.View
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Equal(t, []sandbox.Path{{Path: dir, RW: true}}, view.SandboxPaths)
-	assert.Equal(t, map[string]string{"CI": "1"}, view.SandboxEnv)
-
-	// A missing directory is refused now rather than failing the container
-	// after the agent has been asked to work.
-	rec = do(t, s, "PUT", "/api/settings",
-		`{"scanDirs":["~/code"],"sandboxPaths":[{"path":"/nowhere/at/all"}]}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-
-	rec = do(t, s, "PUT", "/api/settings", `{"scanDirs":["~/code"],"sandboxEnv":{"not a name":"x"}}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-
-	// The refused saves left the good one in place.
-	rec = do(t, s, "GET", "/api/settings", "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Equal(t, []sandbox.Path{{Path: dir, RW: true}}, view.SandboxPaths)
-}
-
-func TestASandboxSecretIsNeverSentToThePage(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-
-	body := `{"scanDirs":["~/code"],"sandboxEnv":{"NPM_TOKEN":"npm_real","CI":"1"}}`
-	rec := do(t, s, "PUT", "/api/settings", body)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var view settingsapi.View
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Equal(t, sandbox.Redacted, view.SandboxEnv["NPM_TOKEN"])
-	assert.Equal(t, "1", view.SandboxEnv["CI"])
-
-	marker := fmt.Sprintf(`{"scanDirs":["~/code"],"sandboxEnv":{"NPM_TOKEN":%q,"CI":"2"}}`, sandbox.Redacted)
-	rec = do(t, s, "PUT", "/api/settings", marker)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	cfg, err := settings.Load()
-	require.NoError(t, err)
-	assert.Equal(t, "npm_real", cfg.Sandbox.Env["NPM_TOKEN"])
-	assert.Equal(t, "2", cfg.Sandbox.Env["CI"])
-
-	rec = do(t, s, "PUT", "/api/settings", `{"scanDirs":["~/code"],"sandboxEnv":{"NPM_TOKEN":"npm_new"}}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	cfg, err = settings.Load()
-	require.NoError(t, err)
-	assert.Equal(t, "npm_new", cfg.Sandbox.Env["NPM_TOKEN"])
 }

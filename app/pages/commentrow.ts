@@ -1,4 +1,4 @@
-import type { Comment, Thread } from "./client";
+import type { Said as Comment, Thread } from "../renderer/changes";
 import { wasSent } from "./here";
 import { answerable, pending } from "./replies";
 

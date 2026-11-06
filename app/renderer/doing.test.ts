@@ -2,7 +2,7 @@ import { WHICH } from "./panels";
 import { describe, expect, it } from "vitest";
 import { fill, live, owed, WIRED, wired, type Ask } from "./doing";
 import { UNLISTED, VOCABULARY } from "./verbs";
-import { BAR } from "./model";
+import { BAR, SIDE } from "./model";
 
 // Every verb the omnibox offers. The window's own list: ade is not an
 // editor extension and its vocabulary is not an extension manifest.
@@ -133,18 +133,6 @@ describe("a report", () => {
       if (what.at !== "report") continue;
       expect(Object.keys(REPORTS), command).toContain(what.render);
       expect(what.path, command).toMatch(/^\/api\//);
-      if (what.also) expect(what.also, command).toMatch(/^\/api\//);
-    }
-  });
-});
-
-describe("a search", () => {
-  it("reads a list and then one of it", () => {
-    for (const [command, what] of Object.entries(WIRED)) {
-      if (what.at !== "find") continue;
-      expect(what.path, command).toMatch(/^\/api\//);
-      expect(what.open, command).toMatch(/^\/api\/.*\/$/);
-      expect(what.title, command).not.toBe("");
     }
   });
 });
@@ -165,7 +153,7 @@ describe("what each kind of entry promises", () => {
   });
 
   it("points a window verb at a place that exists", () => {
-    const places = BAR;
+    const places = ["sessions", ...SIDE];
     for (const [command, what] of Object.entries(WIRED)) {
       if (what.at !== "window" || !what.place) continue;
       expect(places, command).toContain(what.place);
@@ -193,28 +181,6 @@ describe("a verdict on a pull request", () => {
   });
 });
 
-// A design in another space is held by another session, and these posted to
-// whichever one the sidebar was on: "there is no design document open".
-describe("a verb that acts on the open design", () => {
-  it("is marked as the document's, not the sidebar's", () => {
-    for (const command of [
-      "ade.reviewDesign",
-      "ade.condenseDesign",
-      "ade.grillDesign",
-      "ade.build",
-    ]) {
-      expect(wired(command), command).toMatchObject({ at: "session", onDoc: true });
-    }
-  });
-
-  it("is the only shape that may name a document", () => {
-    const named = Object.entries(WIRED).filter(
-      ([, what]) => what.at === "session" && /^\/api\/design\/(review|condense|go)$/.test(what.path),
-    );
-    expect(named.every(([, what]) => what.at === "session" && what.onDoc)).toBe(true);
-  });
-});
-
 // Not a threshold to defend, a number to watch: it should go up.
 describe("how much of ade the window has caught up with", () => {
   it("reports the split", () => {
@@ -234,41 +200,6 @@ describe("what is left", () => {
   });
 });
 
-describe("a new conversation", () => {
-  // Posted bare, /api/chat/new answers "say what the new session is for".
-  it("is the window's verb, so it can ask what it is for", () => {
-    expect(wired("ade.newChat")).toMatchObject({ at: "window", verb: "new-chat" });
-  });
-});
-
-describe("what the status bar clicks", () => {
-  // The bar shows these two as facts and offers them as verbs. Unwire
-  // either and the click becomes a tooltip promising nothing.
-  it("can do the verbs behind the model and the sandbox", () => {
-    expect(wired("ade.pickModel")).toBeTruthy();
-    expect(wired("ade.sandboxPanel")).toBeTruthy();
-  });
-});
-
-describe("drift and machines, now that they have verbs", () => {
-  it("fills the host name into the path rather than the body", () => {
-    const what = wired("ade.removeMachine");
-    expect(what).toMatchObject({ at: "launcher", path: "/api/hosts/{name}", how: "DELETE" });
-    expect((what as { needs?: { as: string }[] }).needs?.[0].as).toBe("name");
-  });
-
-  it("dismisses and restores from the two halves of the list", () => {
-    expect(wired("ade.driftDismiss")).toMatchObject({
-      path: "/api/drift/dismiss",
-      body: { dismissed: true },
-    });
-    expect(wired("ade.driftRestore")).toMatchObject({
-      path: "/api/drift/dismiss",
-      body: { dismissed: false },
-    });
-  });
-});
-
 // A verb that opens a panel names it, and panels.ts has to know how to
 // build that name: when it does not, the tab draws "no panel called X"
 // and the only clue is the name itself.
@@ -277,7 +208,68 @@ describe("every verb that opens a panel can open it", () => {
     const named = Object.entries(WIRED)
       .filter(([, what]) => what.at === "panel")
       .map(([command, what]) => [command, (what as { panel: string }).panel] as const);
-    expect(named.length).toBeGreaterThan(5);
+    expect(named.map(([c]) => c)).toContain("ade.newSession");
     expect(named.filter(([, panel]) => !WHICH[panel]).map(([c, p]) => `${c} -> ${p}`)).toEqual([]);
+  });
+});
+
+// The left is the sessions, always: every other list opens beside the bar.
+describe("the lists and the three tabs", () => {
+  it("has a verb for every button on the bar, and for the two lists without one", () => {
+    const opens = new Map(
+      Object.entries(WIRED).flatMap(([command, what]) =>
+        what.at === "window" && what.place && command.startsWith("ade.") ? [[what.place, command] as const] : [],
+      ),
+    );
+    for (const place of SIDE) expect(opens.get(place), place).toBeTruthy();
+    for (const place of BAR) expect(wired(`place.${place}`), place).toMatchObject({ at: "window", place });
+  });
+
+  it("opens each of a session's tabs from the box", () => {
+    expect(wired("ade.openAgent")).toMatchObject({ at: "window", verb: "agent" });
+    expect(wired("ade.diffTurn")).toMatchObject({ at: "window", verb: "diff" });
+    expect(wired("ade.openTerminal")).toMatchObject({ at: "window", verb: "terminal" });
+    expect(wired("place.review")).toMatchObject({ at: "window", verb: "diff" });
+  });
+
+  it("opens My Day as a tab and not as a list", () => {
+    expect(wired("ade.myDay")).toEqual({ at: "window", place: undefined, verb: "my-day" });
+  });
+
+  // Each needs the picked session's id or its brief, which the window holds.
+  it("leaves tags, the brief and closing to the window", () => {
+    expect(wired("ade.tagSession")).toMatchObject({ at: "window", verb: "tags" });
+    expect(wired("ade.openBrief")).toMatchObject({ at: "window", verb: "brief" });
+    expect(wired("ade.sendBrief")).toMatchObject({ at: "window", verb: "brief-send" });
+    expect(wired("ade.closeSession")).toMatchObject({ at: "window", verb: "close-session" });
+    expect(wired("ade.sendFindings")).toMatchObject({ at: "window", verb: "findings" });
+  });
+
+  it("answers the key that folds the sessions away", () => {
+    expect(wired("sidebar.toggle")).toEqual(wired("ade.toggleSidebar"));
+  });
+});
+
+// What step 5 took out. A verb left pointing at one of these would be
+// listed, picked, and answered with a 404.
+describe("what the box can no longer reach", () => {
+  const killed =
+    /^\/api\/(chat|queue|sides|designs|hosts|machines|drift|todos|sandbox|mounts|worktrees|limits|usage|quiz|explain|memory|wiki|audit|ship|verify|preview|purge|archive|sync|blame|resolve)(\/|$)/;
+
+  it("posts to no route of a removed feature", () => {
+    const stale = Object.entries(WIRED).filter(
+      ([, what]) => (what.at === "session" || what.at === "launcher" || what.at === "report") && killed.test(what.path),
+    );
+    expect(stale.map(([command, what]) => `${command} -> ${(what as { path: string }).path}`)).toEqual([]);
+  });
+
+  it("lists no verb for a removed feature", () => {
+    const gone = /chat|concierge|sandbox|machine|design|quiz|memory|drift|wiki|audit|usage|stats|purge|worktree|todo|role|model|dictat|preview|expose|ship\b/i;
+    const stale = VOCABULARY.flatMap((g) => g.verbs).filter(([command]) => gone.test(command));
+    expect(stale.map(([command]) => command)).toEqual([]);
+  });
+
+  it("frames only the two pages that are still built", () => {
+    expect(Object.keys(WHICH).sort()).toEqual(["ade.newSession", "ade.openSettings"]);
   });
 });

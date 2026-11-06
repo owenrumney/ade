@@ -8,7 +8,7 @@ export const NEED = {
   diff: 2_000,
   ship: 5_000,
   pr: 30_000,
-  // Design tree, worktrees, repositories: a person changes these, not a run.
+  // Repositories and branches: a person changes these, not a run.
   lists: 10_000,
 } as const;
 
@@ -17,9 +17,8 @@ export type Need = keyof typeof NEED;
 // needFor is a path's need. One with no row is read on every look.
 export function needFor(path: string): number {
   const at = path.split("?")[0];
-  if (at.startsWith("/api/ship")) return NEED.ship;
   if (at.startsWith("/api/pr") || at.startsWith("/api/checks")) return NEED.pr;
-  if (at.startsWith("/api/designs") || at.startsWith("/api/worktrees") || at.startsWith("/api/repos")) {
+  if (at.startsWith("/api/repos") || at.startsWith("/api/branches")) {
     return NEED.lists;
   }
   if (at.startsWith("/api/state") || at.startsWith("/api/agent")) return NEED.agent;
@@ -104,10 +103,12 @@ export class Sources {
 
   // reading is what is held, for a draw that must not start a fetch.
   reading<T>(key: string, empty: T): Reading<T> {
-    const held = this.held.get(key) as Entry<T> | undefined;
+    const held = this.held.get(key) as Entry<T | undefined> | undefined;
     if (!held) return { value: empty, refreshing: false, at: 0 };
     return {
-      value: held.value,
+      // Watched and not yet read holds no value at all; a draw takes the
+      // empty one and the error says why there is nothing in it.
+      value: held.value ?? empty,
       refreshing: held.reading !== undefined,
       at: held.at,
       error: held.error,

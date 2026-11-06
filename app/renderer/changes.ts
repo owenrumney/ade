@@ -49,28 +49,56 @@ export interface Diff {
 // (internal/comments/anchor.go). Diff rows call the same sides del and add.
 export type Side = "left" | "right";
 
-// A comment thread, as the session server keeps it: anchored to a file
-// and a line of one side, with every comment on it.
-// The editor's, not a second declaration of it. A narrower copy here is what
-// left the window with no notion of a draft at all.
-import type { Thread } from "../pages/client";
-import type { Span } from "./dwell";
-export type { Comment as Said, Thread } from "../pages/client";
+// Thread mirrors comments.Thread: only the fields the window draws are named.
+export interface Thread {
+  id: string;
+  scope?: string;
+  file: string;
+  side: string;
+  line: number;
+  comments: Said[];
+  resolved?: boolean;
+  orphaned?: boolean;
+  category?: string;
+  severity?: string;
+
+  // What a rebuttal round made of this finding: another reviewer objected,
+  // more objected than defended it, or it repeats the thread named here.
+  disputed?: boolean;
+  withdrawn?: boolean;
+  duplicateOf?: string;
+
+  // What it would say to the author once rewritten, and when it went. Both
+  // decide which of Convert and Send a comment is offered.
+  outgoing?: string;
+  sentAt?: string;
+  externalId?: string;
+
+  // GitHub's pending review this is waiting in, and the comment it became
+  // there. In a draft is not sent: only you can see a pending review.
+  draftReview?: string;
+  draftThread?: string;
+}
+
+export interface Said {
+  id: string;
+  author: string;
+  body: string;
+  at: string;
+  outcome?: string;
+
+  // Set on a reply imported from GitHub, and on one of yours once it has gone.
+  externalId?: string;
+  sentAt?: string;
+}
+
 
 // One line of the drawn diff: a hunk header, a cell with the number it
 // has on whichever side it belongs to, or a thread anchored under one.
 export type Line =
-  | { at: "hunk"; text: string; span?: Span }
+  | { at: "hunk"; text: string }
   | { at: "line"; kind: string; no: number; cell: Cell }
   | { at: "thread"; thread: Thread };
-
-// spanOf is a hunk's run of right-hand lines, which is what one tick claims.
-export function spanOf(file: Change | undefined, hunk: Hunk): Span | undefined {
-  const lines = (hunk.rows ?? []).map((row) => row.right?.line ?? 0).filter((line) => line > 0);
-  if (!file || lines.length === 0) return undefined;
-  const start = Math.min(...lines);
-  return { file: file.path, start, lines: Math.max(...lines) - start + 1 };
-}
 
 export function changesIn(got: unknown): Change[] {
   const diff = (got as { diff?: Diff })?.diff;
@@ -90,11 +118,7 @@ export function linesOf(file: Change | undefined, threads: Thread[] = []): Line[
     }
   };
   for (const hunk of file?.hunks ?? []) {
-    out.push({
-      at: "hunk",
-      text: [hunk.header, hunk.heading].filter(Boolean).join(" "),
-      span: spanOf(file, hunk),
-    });
+    out.push({ at: "hunk", text: [hunk.header, hunk.heading].filter(Boolean).join(" ") });
     for (const row of hunk.rows ?? []) {
       // A paired replacement is two lines, the old one first, which is
       // the order a unified diff has them in.
@@ -212,7 +236,7 @@ function firstLine(body: string): string {
 
 // One row of the file drawn split: the two sides of a pair, side by side.
 export type Pair =
-  | { at: "hunk"; text: string; span?: Span }
+  | { at: "hunk"; text: string }
   | { at: "pair"; left: Cell | null; right: Cell | null }
   | { at: "thread"; thread: Thread };
 
@@ -226,11 +250,7 @@ export function pairsOf(file: Change | undefined, threads: Thread[] = []): Pair[
     }
   };
   for (const hunk of file?.hunks ?? []) {
-    out.push({
-      at: "hunk",
-      text: [hunk.header, hunk.heading].filter(Boolean).join(" "),
-      span: spanOf(file, hunk),
-    });
+    out.push({ at: "hunk", text: [hunk.header, hunk.heading].filter(Boolean).join(" ") });
     for (const row of hunk.rows ?? []) {
       out.push({ at: "pair", left: row.left, right: row.right });
       if (row.left) under("left", row.left.line);

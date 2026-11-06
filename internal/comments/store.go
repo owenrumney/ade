@@ -2,14 +2,17 @@
 package comments
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -171,6 +174,8 @@ func (t Thread) Fate() string {
 const (
 	resolvedFixed    = "fixed"
 	resolvedDeclined = "declined"
+	OutcomeFixed     = resolvedFixed
+	OutcomeDeclined  = resolvedDeclined
 )
 
 // Answered reports whether the resolver has already ruled on this thread and
@@ -237,9 +242,16 @@ func (t Thread) PendingReply() []Comment {
 
 // Store is the on-disk set of threads for one branch.
 type Store struct {
-	mu      sync.Mutex
-	path    string
-	threads []*Thread
+	mu        sync.Mutex
+	path      string
+	threads   []*Thread
+	dismissed map[string]bool
+}
+
+// stored is the file: the threads, and the upstream ids a sweep put out.
+type stored struct {
+	Threads   []*Thread `json:"threads"`
+	Dismissed []string  `json:"dismissed,omitempty"`
 }
 
 // Open loads the thread store for a branch, creating nothing until first write.
@@ -255,12 +267,44 @@ func Open(gitDir, branch string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read thread store: %w", err)
 	}
-	if err := json.Unmarshal(data, &s.threads); err != nil {
+	if err := s.parse(data); err != nil {
 		return nil, fmt.Errorf("parse thread store %s: %w", path, err)
 	}
 	healSentAt(s.threads)
 	restartOrphanClocks(s.threads, time.Now())
 	return s, nil
+}
+
+// parse reads either shape the file has had: a bare list of threads, or the
+// list beside the ids a sweep put out.
+func (s *Store) parse(data []byte) error {
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 && trimmed[0] == '[' {
+		return json.Unmarshal(data, &s.threads)
+	}
+	var got stored
+	if err := json.Unmarshal(data, &got); err != nil {
+		return err
+	}
+	s.threads = got.Threads
+	for _, id := range got.Dismissed {
+		s.dismiss(id)
+	}
+	return nil
+}
+
+func (s *Store) dismiss(externalID string) {
+	if s.dismissed == nil {
+		s.dismissed = map[string]bool{}
+	}
+	s.dismissed[externalID] = true
+}
+
+// Dismissed reports whether a sweep put this upstream comment out, so an
+// import leaves it out rather than filing it again.
+func (s *Store) Dismissed(externalID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dismissed[externalID]
 }
 
 // restartOrphanClocks makes orphanGrace time this session has been up. Elapsed
@@ -569,8 +613,8 @@ func (s *Store) ReplyOutcome(id, author, body, outcome string) (Thread, error) {
 		author = AuthorYou
 	}
 	t.Comments = append(t.Comments, Comment{ID: newID(), Author: author, Body: body, At: time.Now(), Outcome: outcome})
-	// A reply is a reopening: the point was not settled after all.
-	t.Resolved = false
+	// A reply is a reopening, unless it is the verdict that the fix is in.
+	t.Resolved = outcome == resolvedFixed
 	if err := s.save(); err != nil {
 		return Thread{}, err
 	}
@@ -655,16 +699,15 @@ func (w Sweep) names(t *Thread) bool {
 	}
 }
 
-// Resettable is every thread a sweep would clear: your own and the reviewer's,
-// but not one imported from a pull request or already posted to one. Those two
-// exist upstream, where this store cannot put them back.
+// Resettable is every thread a sweep would clear. A narrow sweep leaves what
+// exists upstream, where this store cannot put it back; all means all.
 func (s *Store) Resettable(which Sweep) []Thread {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var out []Thread
 	for _, t := range s.threads {
-		if !which.names(t) || keepOnReset(t) {
+		if !which.names(t) || (which != SweepAll && keepOnReset(t)) {
 			continue
 		}
 		out = append(out, t.clone())
@@ -673,6 +716,7 @@ func (s *Store) Resettable(which Sweep) []Thread {
 }
 
 // Reset clears what Resettable lists, and counts what it had to leave upstream.
+// An upstream comment swept by all is remembered, so an import keeps it out.
 func (s *Store) Reset(which Sweep) (gone, kept int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -683,10 +727,13 @@ func (s *Store) Reset(which Sweep) (gone, kept int, err error) {
 			left = append(left, t)
 			continue
 		}
-		if keepOnReset(t) {
+		if which != SweepAll && keepOnReset(t) {
 			kept++
 			left = append(left, t)
 			continue
+		}
+		if t.ExternalID != "" {
+			s.dismiss(t.ExternalID)
 		}
 		gone++
 	}
@@ -859,7 +906,7 @@ func swept(t *Thread, diff *gitdiff.Diff, now time.Time) bool {
 
 // save writes the store atomically so an interrupted write cannot corrupt it.
 func (s *Store) save() error {
-	if len(s.threads) == 0 {
+	if len(s.threads) == 0 && len(s.dismissed) == 0 {
 		if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove thread store: %w", err)
 		}
@@ -868,7 +915,8 @@ func (s *Store) save() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
 		return fmt.Errorf("create thread store dir: %w", err)
 	}
-	data, err := json.MarshalIndent(s.threads, "", "  ")
+	file := stored{Threads: s.threads, Dismissed: slices.Sorted(maps.Keys(s.dismissed))}
+	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}

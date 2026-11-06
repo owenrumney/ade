@@ -3,9 +3,7 @@ package launcher
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,86 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/sessions"
 )
-
-func stubProvision(t *testing.T, branchErr error) *[]string {
-	t.Helper()
-	clone, branch := provisionClone, provisionBranch
-	t.Cleanup(func() { provisionClone, provisionBranch = clone, branch })
-	var branched []string
-	provisionClone = func(context.Context, string, string, provision.Runner) (string, error) {
-		return "/srv/ade/0123456789abcdef/ade", nil
-	}
-	provisionBranch = func(_ context.Context, dir, name string, _ provision.Runner) error {
-		branched = append(branched, dir+"@"+name)
-		return branchErr
-	}
-	return &branched
-}
-
-func TestProvisionBranchesTheCloneFromTheDocument(t *testing.T) {
-	branched := stubProvision(t, nil)
-	s := newTestLauncher(t)
-
-	rec := do(t, s, http.MethodPost, "/api/provision", `{"repository":"owenrumney/ade","token":"t","branch":"FIX-1234 Cancel.md"}`)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	assert.Equal(t, []string{"/srv/ade/0123456789abcdef/ade@fix-1234-cancel"}, *branched)
-	assert.JSONEq(t, `{"path":"/srv/ade/0123456789abcdef/ade","branch":"fix-1234-cancel"}`, rec.Body.String())
-}
-
-func TestProvisionWithoutADocumentStaysOnTheDefaultBranch(t *testing.T) {
-	branched := stubProvision(t, nil)
-	s := newTestLauncher(t)
-
-	rec := do(t, s, http.MethodPost, "/api/provision", `{"repository":"owenrumney/ade","token":"t"}`)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	assert.Empty(t, *branched)
-	assert.JSONEq(t, `{"path":"/srv/ade/0123456789abcdef/ade"}`, rec.Body.String())
-}
-
-func TestABranchThatFailsStillHandsBackTheClone(t *testing.T) {
-	stubProvision(t, errors.New("exit status 128"))
-	s := newTestLauncher(t)
-
-	rec := do(t, s, http.MethodPost, "/api/provision", `{"repository":"owenrumney/ade","token":"t","branch":"fix-1234.md"}`)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	assert.JSONEq(t, `{"path":"/srv/ade/0123456789abcdef/ade"}`, rec.Body.String())
-}
-
-func TestABuildOnAMachineAsksForABranchAndPassesItBack(t *testing.T) {
-	token := readGitHubToken
-	t.Cleanup(func() { readGitHubToken = token })
-	readGitHubToken = func(context.Context) (string, error) { return "t", nil }
-
-	var asked struct{ Repository, Branch string }
-	far := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/provision":
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&asked))
-			_ = json.NewEncoder(w).Encode(map[string]string{"path": "/srv/ade/0123456789abcdef/ade", "branch": "fix-1234"})
-		case "/api/open":
-			_ = json.NewEncoder(w).Encode(map[string]string{"url": farURL(r)})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer far.Close()
-
-	s := newTestLauncher(t)
-	s.hosts["linux"] = &conn{url: far.URL + "/?t=faraway"}
-	rec := do(t, s, http.MethodPost, "/api/open",
-		`{"machine":"linux","dir":"owenrumney/ade","fresh":true,"brief":{"name":"fix-1234.md","body":"# Fix","build":true}}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, "owenrumney/ade", asked.Repository)
-	assert.Equal(t, "fix-1234.md", asked.Branch)
-
-	var got struct{ Path, Branch string }
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.Equal(t, "/srv/ade/0123456789abcdef/ade", got.Path)
-	assert.Equal(t, "fix-1234", got.Branch)
-}
 
 func TestANamedSessionIsCreatedAsAWorkspace(t *testing.T) {
 	m := newFixture(t)
@@ -164,11 +84,10 @@ func TestASessionAcrossRepositoriesPassesTheOthersToCreate(t *testing.T) {
 	}
 
 	rec := do(t, s, http.MethodPost, "/api/open",
-		`{"dir":"`+home+`","fresh":true,"name":"cancel-button","also":["`+other+`"],"role":"oss-dev"}`)
+		`{"dir":"`+home+`","fresh":true,"name":"cancel-button","also":["`+other+`"]}`)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, []string{other}, work.Also)
-	assert.Equal(t, "oss-dev", work.Role, "a role is only chosen as the session starts")
 }
 
 func TestASecondRepositoryThatIsNotACheckoutIsRefused(t *testing.T) {
@@ -189,22 +108,6 @@ func TestASecondRepositoryThatIsNotACheckoutIsRefused(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "not a checkout")
 }
 
-func TestASessionOnAnotherMachineIsRefusedASecondRepository(t *testing.T) {
-	m := newFixture(t)
-	home := filepath.Join(m.home, "elsewhere", "home")
-	other := filepath.Join(m.home, "elsewhere", "other")
-	for _, dir := range []string{home, other} {
-		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
-	}
-
-	s := newLauncherOn(t, m)
-	rec := do(t, s, http.MethodPost, "/api/open",
-		`{"machine":"pc","dir":"`+home+`","fresh":true,"name":"cancel-button","also":["`+other+`"]}`)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "one repository")
-}
-
 func TestMoreThanOneRepositoryNeedsAName(t *testing.T) {
 	m := newFixture(t)
 	home := filepath.Join(m.home, "elsewhere", "home")
@@ -223,66 +126,4 @@ func TestMoreThanOneRepositoryNeedsAName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "needs a name")
-}
-
-// A named session is how every branching row starts, and the brief was
-// dropped on that path: a document could be picked here and never arrive.
-func TestANamedSessionIsHandedItsDocumentBeforeTheFirstMessage(t *testing.T) {
-	m := newFixture(t)
-	repo := filepath.Join(m.home, "elsewhere", "coast")
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o700))
-
-	s := newLauncherOn(t, m)
-	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
-		return "http://127.0.0.1:27431/?t=tok", repo + "-cart", nil
-	}
-	was, wasFirst := askSession, sendFirst
-	var calls []string
-	var pushed string
-	askSession = func(_ context.Context, _, path, body string) error {
-		calls = append(calls, path)
-		pushed = body
-		return nil
-	}
-	sendFirst = func(context.Context, string, string) error {
-		calls = append(calls, "/api/chat")
-		return nil
-	}
-	t.Cleanup(func() { askSession, sendFirst = was, wasFirst })
-
-	rec := do(t, s, http.MethodPost, "/api/open",
-		`{"dir":"`+repo+`","fresh":true,"name":"cart.md","prompt":"build it",`+
-			`"brief":{"name":"cart.md","body":"# Cart\n\nCache it.\n"}}`)
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, []string{"/api/design/push", "/api/chat"}, calls,
-		"the document is what the session is for, so it lands before the message")
-	assert.Contains(t, pushed, "Cache it.")
-}
-
-func TestANamedSessionWhoseDocumentNeverLandedIsNotToldToStart(t *testing.T) {
-	m := newFixture(t)
-	repo := filepath.Join(m.home, "elsewhere", "coast")
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o700))
-
-	s := newLauncherOn(t, m)
-	s.create = func(context.Context, string, sessions.Work) (string, string, error) {
-		return "http://127.0.0.1:27431/?t=tok", repo + "-cart", nil
-	}
-	was, wasFirst := askSession, sendFirst
-	askSession = func(context.Context, string, string, string) error {
-		return errors.New("the session refused it")
-	}
-	sendFirst = func(context.Context, string, string) error {
-		t.Fatal("a message answered without its document is answered against a skeleton")
-		return nil
-	}
-	t.Cleanup(func() { askSession, sendFirst = was, wasFirst })
-
-	rec := do(t, s, http.MethodPost, "/api/open",
-		`{"dir":"`+repo+`","fresh":true,"name":"cart.md","prompt":"build it",`+
-			`"brief":{"name":"cart.md","body":"# Cart\n"}}`)
-
-	assert.Equal(t, http.StatusBadGateway, rec.Code)
-	assert.Contains(t, rec.Body.String(), repo+"-cart", "the session is open either way, so the failure says where")
 }

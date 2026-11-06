@@ -13,8 +13,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/owenrumney/ade/internal/netcheck"
 )
 
 // Issue is one of yours that is not done: to do or in progress.
@@ -67,8 +65,7 @@ func (c Client) MyIssues(ctx context.Context) ([]Issue, error) {
 	if url == "" {
 		url = DefaultURL
 	}
-	seen := netcheck.New()
-	req, err := http.NewRequestWithContext(seen.Trace(ctx), http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +78,7 @@ func (c Client) MyIssues(ctx context.Context) ([]Issue, error) {
 	res, err := client.Do(req)
 	if err != nil {
 		// Which phase it reached, since the error itself never says.
-		return nil, fmt.Errorf("ask Linear (got as far as: %s): %w", seen.Reached(), err)
+		return nil, fmt.Errorf("ask Linear: %w", err)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))

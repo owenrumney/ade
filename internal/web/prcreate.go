@@ -1,153 +1,55 @@
 package web
 
 import (
-	"context"
-	"fmt"
-	"log/slog"
 	"net/http"
-	"strconv"
-
-	"github.com/owenrumney/ade/internal/bridge"
 
 	"github.com/owenrumney/ade/internal/ghpr"
-	"github.com/owenrumney/ade/internal/prcreate"
-	"github.com/owenrumney/ade/internal/ship"
+	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
-// CreatedPR is a pull request opened from the browser this session.
-type CreatedPR struct {
-	Number string `json:"number"`
-	URL    string `json:"url"`
-}
+// prCreateSkill is the slash command that opens the draft and writes it up.
+const prCreateSkill = "/pr-create"
 
-// prCreateBlocked is why this branch cannot open a pull request, with the
-// status to answer under. Read again when a queued entry's turn comes.
-func (s *Server) prCreateBlocked() (int, string) {
+// handleCreatePR opens a draft pull request for the branch in the window. It
+// pushes first: gh has nothing to open one from until the branch is on origin.
+func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	ws := s.space()
 	if ws.snapshot {
-		return http.StatusBadRequest, "this is a fetched snapshot, so there is no local branch to open a PR for"
+		writeError(w, http.StatusBadRequest, "this is a fetched snapshot, so there is no branch to open one from")
+		return
 	}
 	if ws.pr != nil {
-		return http.StatusConflict, fmt.Sprintf("this diff is already PR #%d", ws.pr.Number)
-	}
-	if existing := s.currentBranchPR(); existing != nil {
-		return http.StatusConflict, fmt.Sprintf("%s already has PR #%d", ws.branch, existing.Number)
-	}
-	s.mu.RLock()
-	commits := 0
-	if s.diff != nil {
-		commits = s.diff.Commits
-	}
-	s.mu.RUnlock()
-	if commits == 0 {
-		return http.StatusBadRequest,
-			fmt.Sprintf("%s has no commits ahead of the base, so there is nothing to open a PR for", ws.branch)
-	}
-	return 0, ""
-}
-
-func (s *Server) handlePRCreate(w http.ResponseWriter, r *http.Request) {
-	if code, why := s.prCreateBlocked(); why != "" {
-		writeError(w, code, why)
+		writeError(w, http.StatusBadRequest, "this checkout is already showing a pull request")
 		return
 	}
 	var req struct {
-		// Anyway raises past a veto, which is recorded in the trail.
-		Anyway bool `json:"anyway"`
+		// A ready-for-review one is asked for; a draft is what you get otherwise.
+		Ready bool `json:"ready"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decode(w, r, &req) {
 		return
 	}
-	if why := s.shipVeto(r.Context(), ship.StepRaise, req.Anyway); why != "" {
-		writeError(w, http.StatusConflict, why)
+
+	if _, err := gitdiff.Push(r.Context(), ws.diffRoot()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	runCtx, ok := s.agent.begin(s.ctx, kindPRCreate)
-	if !ok {
-		s.queueBehind(w, queued{kind: kindPRCreate})
-		return
-	}
-
-	s.spawn(func() { s.runPRCreate(runCtx) })
-	s.hub.Broadcast("agent", nil)
-	writeJSON(w, http.StatusAccepted, map[string]any{"running": true})
-}
-
-func (s *Server) runPRCreate(ctx context.Context) {
-	defer s.recoverRun("pr-create")
-
-	err := s.prCreateOnce(ctx)
-	s.agent.finish(err)
-	if err != nil {
-		slog.Warn("create pr failed", "err", err)
-	}
-	s.hub.Broadcast("agent", nil)
-	s.hub.Broadcast("state", nil)
-}
-
-func (s *Server) prCreateOnce(ctx context.Context) error {
-	w := s.space()
-	s.agent.step(fmt.Sprintf("opening a draft PR for %s", w.branch))
-
-	// Found here rather than left for the agent to go looking for, so a template
-	// cannot be missed just because a file was never opened.
-	template, hasTemplate := prcreate.Template(w.homeRoot)
-	if hasTemplate {
-		s.agent.step("found a pull request template; it will be included")
-		if prcreate.NeedsRiskScore(template) {
-			s.agent.step("the template asks for a risk score; it will be estimated and filled in")
+	// The agent's own skill writes the description; gh --fill is the fallback
+	// for an agent that cannot take a line right now.
+	if !req.Ready {
+		if _, err := s.agentPane(r.Context(), prCreateSkill); err == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"asked": true})
+			return
 		}
 	}
-
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
-		Bin:          s.agent.bin,
-		Model:        s.agent.model,
-		Dir:          w.homeRoot,
-		Prompt:       prcreate.Prompt(template),
-		AllowedTools: prcreate.Tools(),
-		// Needs git, and a permission prompt has nothing to answer it.
-		OnEvent: s.onAgentEvent,
-	})
+	made, err := ghpr.Create(r.Context(), ws.homeRoot, !req.Ready)
 	if err != nil {
-		return err
-	}
-
-	url, err := prcreate.ParseURL(turn.Text)
-	if err != nil {
-		return err
-	}
-	if hasTemplate {
-		s.warnIfTemplateDropped(ctx, w.homeRoot, template, url)
-	}
-
-	s.mu.Lock()
-	s.created = &CreatedPR{Number: prcreate.Number(url), URL: url}
-	s.mu.Unlock()
-
-	s.agent.step(url)
-	return nil
-}
-
-func (s *Server) currentCreatedPR() *CreatedPR {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.created
-}
-
-// warnIfTemplateDropped reads back what was actually submitted. The agent can
-// drop the template while reporting success, and a warning in the log beats
-// finding out on the pull request itself.
-func (s *Server) warnIfTemplateDropped(ctx context.Context, root, template, url string) {
-	number, err := strconv.Atoi(prcreate.Number(url))
-	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	body, err := ghpr.Body(ctx, root, number)
-	if err != nil {
-		slog.Debug("read back pr body", "err", err)
-		return
-	}
-	if !prcreate.Kept(template, body) {
-		s.agent.step("warning: the submitted body is missing part of the pull request template")
-	}
+
+	s.refreshWorktree(s.ctx)
+	s.board.RefreshReviews(s.ctx)
+	s.hub.Broadcast("state", nil)
+	writeJSON(w, http.StatusOK, map[string]any{"number": made.Number, "url": made.URL})
 }

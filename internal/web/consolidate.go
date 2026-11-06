@@ -1,16 +1,15 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/design"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/outgoing"
 	"github.com/owenrumney/ade/internal/review"
 )
@@ -103,16 +102,16 @@ func (s *Server) runClustering(ctx context.Context, b *reviewBatch, files []stri
 
 // askClusters is the one model call. The small model, with no MCP: it compares
 // text it was handed and reads a file at most.
-func (s *Server) askClusters(ctx context.Context, file string, claims []design.Claim, diffText string) ([]review.Group, error) {
+func (s *Server) askClusters(ctx context.Context, file string, claims []review.Claim, diffText string) ([]review.Group, error) {
 	var reply strings.Builder
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
+	turn, err := s.oneShot(ctx, oneshot.Opts{
 		Bin:          s.agent.bin,
 		Model:        outgoing.FastModel,
 		Dir:          s.space().diffRoot(),
-		Prompt:       design.ClusterPrompt(file, claims, diffText),
+		Prompt:       review.ClusterPrompt(file, claims, diffText),
 		AllowedTools: review.ReadOnlyTools(),
 		NoMCP:        true,
-		OnEvent:      func(ev bridge.Event) { reply.WriteString(ev.Text) },
+		OnEvent:      func(ev oneshot.Event) { reply.WriteString(ev.Text) },
 	})
 	if err != nil {
 		return nil, err
@@ -133,14 +132,14 @@ func refsFor(b *reviewBatch) (map[string]string, map[string]string) {
 	return refs, byRef
 }
 
-func claimsOn(b *reviewBatch, file string, refs map[string]string) []design.Claim {
-	var out []design.Claim
+func claimsOn(b *reviewBatch, file string, refs map[string]string) []review.Claim {
+	var out []review.Claim
 	for _, key := range b.order {
 		f := b.found[key]
 		if f.finding.File != file {
 			continue
 		}
-		out = append(out, design.Claim{
+		out = append(out, review.Claim{
 			Ref: refs[key], By: f.by,
 			File: f.finding.File, Line: f.finding.Line,
 			Category: f.finding.Category,
@@ -272,19 +271,21 @@ func (s *Server) fileBatch(b *reviewBatch, judged map[string]*judgement) {
 			sendable = append(sendable, thread)
 		}
 	}
-	rewriting := s.startRewrite(sendable)
-	s.sayConsolidated(b, len(b.order), filed, dropped, disputed, rewriting, gone)
+	rewriting := s.startRewrite(b.id, sendable)
+	summary := s.sayConsolidated(b, len(b.order), filed, dropped, disputed, rewriting, gone)
+	s.reviewFiled(b.id, cmp.Or(summary, "The reviewers found nothing to file."), rewriting)
 	s.hub.Broadcast("state", nil)
 }
 
 // startRewrite puts each filed point in your words, as Convert does one. Only
 // with a pull request: there is no author to address otherwise.
-func (s *Server) startRewrite(pending []comments.Thread) int {
+func (s *Server) startRewrite(batch string, pending []comments.Thread) int {
 	if len(pending) == 0 || s.currentBranchPR() == nil {
 		return 0
 	}
 	ok := s.startJobs([]sideJob{{name: kindConvert, run: func(ctx context.Context) {
 		s.runConvert(ctx, pending)
+		s.reviewEnded(batch)
 	}}}, 0)
 	if !ok {
 		return 0
@@ -355,9 +356,9 @@ func (s *Server) fileOne(f review.Finding, author, body string) (comments.Thread
 	})
 }
 
-func (s *Server) sayConsolidated(b *reviewBatch, found, filed, dropped, disputed, rewriting int, gone []string) {
+func (s *Server) sayConsolidated(b *reviewBatch, found, filed, dropped, disputed, rewriting int, gone []string) string {
 	if found == 0 {
-		return
+		return ""
 	}
 	lines := []string{fmt.Sprintf("%d finding(s) from %d reviewer(s) → %d point(s).",
 		found, len(b.reviewers), filed)}
@@ -374,7 +375,9 @@ func (s *Server) sayConsolidated(b *reviewBatch, found, filed, dropped, disputed
 	if rewriting > 0 {
 		lines = append(lines, fmt.Sprintf("%d being put in your words, ready to send to GitHub.", rewriting))
 	}
-	s.say(ChatMessage{Kind: chat.KindNote, Run: runSubagent, Body: strings.Join(lines, "\n")})
+	said := strings.Join(lines, " ")
+	s.tell(said)
+	return said
 }
 
 func droppedLine(b *reviewBatch, p point, judged map[string]*judgement) string {

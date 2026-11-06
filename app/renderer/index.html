@@ -6,8 +6,9 @@
          an iframe outright, and the failure reads ERR_BLOCKED_BY_CSP
          against the child's url rather than against this line. -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-src ade-webview: http://127.0.0.1:* http://localhost:*; connect-src http://127.0.0.1:* http://localhost:*;" />
+          content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-src ade-webview: http://127.0.0.1:* http://localhost:*; connect-src http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;" />
     <title>ade</title>
+    <link rel="icon" href="../media/ade.svg" />
     <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="window.css" />
     <link rel="stylesheet" href="views.css" />

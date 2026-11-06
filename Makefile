@@ -1,4 +1,4 @@
-.PHONY: private full app-install build install version test fmt vet tidy lint release-snapshot clean sandbox-image worker-image worker-ship extension extension-sign sign-setup quick-start
+.PHONY: private full app-install build install version test fmt vet tidy lint release-snapshot clean extension extension-sign sign-setup quick-start
 
 # What `ade --version` reports. A tag when there is one, the commit otherwise,
 # and -dirty for a working tree that is not the commit it claims to be.
@@ -40,38 +40,20 @@ private:
 version:
 	@echo $(VERSION)
 
-# Work on ade itself. ade starts Vite, proxies its own API through it and opens
-# that URL: a UI change is a save with HMR, and a Go change rebuilds and
-# restarts on the same port.
-#
-# No sandbox here. The agent is editing ade's own checkout, which the container
-# mounts read-write anyway, so the boundary buys nothing — and it costs a docker
-# round trip on every turn plus a container whose fixed name clashes when a run
-# is orphaned. Sessions you did not start yourself still sandbox by default.
 # The app spike: a window of ade's own. See app/README.md.
 ESBUILD := ./node_modules/.bin/esbuild
 
-# Electron is a hundred megabytes, so it is installed on demand rather than
-# by every target that only needs the bundles. The check is for the binary
-# itself: a shim with no download behind it is the usual way this fails,
-# and `electron: command not found` is not a useful thing to be told.
+# The bundles are plain web code, so this is npm and nothing else. The
+# scripts are not run: nothing here has one worth running.
 app-deps:
-	cd app && ./deps.sh
-
-# Every precondition make app needs, checked one at a time. Run this
-# first when the window will not start.
-app-doctor:
-	cd app && ./doctor.sh
+	cd app && { [ -d node_modules/monaco-editor ] || \
+		npm install --no-audit --no-fund --ignore-scripts; }
 
 # The window's own bundles, the panels among them: a missing one is a
 # blank pane with a 404 nobody sees.
 # PAGES are the panels the window frames: one bundle each, named as the
 # host asks for them in app/renderer/panels.ts.
-PAGES := chat:chat settings:settings commitpanel:commit worktreepanel:worktrees \
-	repo:repo purgepanel:purge designprunepanel:designprune quizpanel:quiz \
-	explainpanel:explain \
-	designedit:designedit newsession:newsession sandboxpanel:sandbox audit:audit \
-	machines:machines ship:ship
+PAGES := settings:settings newsession:newsession
 
 app-build:
 	cd app && mkdir -p dist \
@@ -81,14 +63,6 @@ app-build:
 				--log-level=warning || exit 1; \
 		done \
 		&& cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js \
-		&& $(ESBUILD) src/main.ts --bundle --outfile=dist/main.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/preload.ts --bundle --outfile=dist/preload.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/webview.ts --bundle --outfile=dist/webview.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/keymap.ts --bundle --outfile=dist/keymap.js \
-			--platform=node --format=cjs \
 		&& $(ESBUILD) renderer/app.ts --bundle --outfile=dist/renderer.js \
 			--format=iife --platform=browser \
 			--loader:.ttf=dataurl --external:vs/* \
@@ -100,11 +74,10 @@ app-test:
 	cd app && ./node_modules/.bin/tsc -p . \
 		&& ./node_modules/.bin/vitest run --root . --reporter=dot
 
-# Starts the real window headless and checks it drew. Needs a display, or
-# xvfb-run on a machine without one.
+# Serves the window without opening one, and checks the page and its
+# bundle come back. No display needed.
 app-smoke: app-deps app-build
-	cd app && ./node_modules/.bin/electron smoke.js --no-sandbox --disable-gpu 2>&1 \
-		| grep -vE 'libva|GPU|dbus|Fontconfig|gbm|EGL|bus\.cc|Floss|vulkan|interface_endpoint'
+	tools/appsmoke.sh
 
 # A browser harness for pictures only: the keyboard is the shell's, so this
 # is never a way to run ade.
@@ -120,7 +93,7 @@ app-install: app-package
 	cd app && ./install.sh
 
 app: app-deps app-build
-	cd app && ./node_modules/.bin/electron .
+	go run ./cmd/adewindow
 
 test:
 	go test ./...
@@ -131,8 +104,8 @@ full:
 	$(MAKE) install
 	$(MAKE) app-install
 
-# Everything a new machine needs: both images, the binary, and the window.
-quick-start: sandbox-image worker-image install app-install
+# Everything a new machine needs: the binary and the window.
+quick-start: install app-install
 
 fmt:
 	gofmt -s -w .
@@ -145,29 +118,6 @@ tidy:
 
 lint:
 	golangci-lint run
-
-# The container the agent runs in when a session is sandboxed. Apple's
-# container when its services are up, Docker otherwise — the same choice ade
-# makes at run time.
-# The same name the binary pulls, so a local build is what runs here and
-# nothing is pulled over it.
-SANDBOX_IMAGE ?= ghcr.io/owenrumney/ade-agent:latest
-sandbox-image:
-	@if command -v container >/dev/null && container system status >/dev/null 2>&1; then \
-	container build -t $(SANDBOX_IMAGE) sandbox; \
-	else \
-	docker build -t $(SANDBOX_IMAGE) sandbox; \
-	fi
-
-WORKER_IMAGE ?= ghcr.io/owenrumney/ade-worker:latest
-worker-image:
-	docker build --build-arg VERSION=$(VERSION) -f worker/Dockerfile -t $(WORKER_IMAGE) .
-	docker build -f provisioner/Dockerfile -t ghcr.io/owenrumney/ade-provisioner:latest .
-
-# Carry a worker built from this checkout to a host, for a fix CI has not
-# published. See .git/ade/docs/shipping-a-worker.md.
-worker-ship:
-	tools/worker-ship.sh $(if $(HOST),$(HOST),$(error set HOST=<ssh host>))
 
 # The Firefox add-on. build produces an unsigned package, which only a Firefox
 # with xpinstall.signatures.required turned off will install; sign asks Mozilla

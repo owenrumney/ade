@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/chat"
+	"github.com/owenrumney/ade/internal/oneshot"
 
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/ghpr"
@@ -95,7 +94,7 @@ func (s *Server) runConvert(ctx context.Context, pending []comments.Thread) {
 	if err != nil {
 		slog.Warn("convert for github failed", "err", err)
 		if ctx.Err() == nil {
-			s.say(ChatMessage{Kind: chat.KindNote, Run: kindConvert, Failed: true, Body: "convert for GitHub: " + err.Error()})
+			s.tell("convert for GitHub: " + err.Error())
 		}
 	}
 	s.hub.Broadcast("agent", nil)
@@ -104,12 +103,12 @@ func (s *Server) runConvert(ctx context.Context, pending []comments.Thread) {
 }
 
 func (s *Server) convertOnce(ctx context.Context, pending []comments.Thread) error {
-	s.say(ChatMessage{Kind: chat.KindNote, Run: kindConvert, Body: fmt.Sprintf("rewriting %d comment(s) for the author", len(pending))})
+	s.tell(fmt.Sprintf("rewriting %d comment(s) for the author", len(pending)))
 
 	// Always the small model, whatever the conversation is on: this is a
 	// rephrase of text you already wrote, with no code to read, and a big
 	// model does it no better and much slower.
-	turn, err := s.oneShot(ctx, bridge.OneShotOpts{
+	turn, err := s.oneShot(ctx, oneshot.Opts{
 		Bin:          s.agent.bin,
 		Model:        outgoing.FastModel,
 		Dir:          s.space().homeRoot,
@@ -119,7 +118,7 @@ func (s *Server) convertOnce(ctx context.Context, pending []comments.Thread) err
 		// cost — most of it, in fact. This is the difference between a rewrite
 		// you wait for and one you do not.
 		NoMCP:   true,
-		OnEvent: s.onColdEvent(kindConvert),
+		OnEvent: s.onAgentEvent,
 	})
 	if err != nil {
 		return err
@@ -147,7 +146,7 @@ func (s *Server) convertOnce(ctx context.Context, pending []comments.Thread) err
 		return fmt.Errorf("none of the %d comment(s) came back rewritten", len(pending))
 	}
 
-	s.say(ChatMessage{Kind: chat.KindNote, Run: kindConvert, Body: fmt.Sprintf("%d comment(s) ready to read", saved)})
+	s.tell(fmt.Sprintf("%d comment(s) ready to read", saved))
 	return nil
 }
 

@@ -1,4 +1,3 @@
-// The entry for the editor's own bundle. Monaco is 642 modules and the
-// window loads it only when a file is opened, so it is built apart.
-export { ask, edits, focus, mount, mountDiff, onJump, saved, selected } from "./editor";
-export type { Asking, Half, Where } from "./editor";
+// The editor's own bundle: monaco, loaded when a file is first edited.
+export { edits, focus, mountDiff, saved } from "./editor";
+export type { Half } from "./editor";

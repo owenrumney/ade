@@ -11,13 +11,12 @@
 | Node and npm | `web/` and `app/` are npm projects |
 | `git` | ade drives it constantly |
 | `gh` | pull requests, checks, review comments |
-| Docker, or Apple's `container` | the agent sandbox. Optional; `--sandbox=false` skips it |
 | An agent CLI on `PATH` | `claude` or `codex`. ade starts one; it does not bundle one |
 
 ```bash
 make build     # npm install && npm run build in web/, then go build into ./bin
 make install   # the same, into your GOPATH
-make quick-start  # sandbox and worker images, the binary, then the window
+make quick-start  # the binary, then the window
 ```
 
 The browser page is a Vite + Preact + TypeScript app under `web/`, built into
@@ -61,14 +60,6 @@ go: go.mod requires go >= 1.26.9 (running go 1.26.6; GOTOOLCHAIN=local)
 anywhere that shells out to Go. Check `which go` before editing `go.mod` or
 calling the check unverifiable.
 
-`make dev` runs with `--sandbox=false`. The agent is editing ade's own checkout,
-which the container would mount read-write anyway, so the boundary buys nothing
-and costs a round trip per turn.
-
-Inside the sandbox the agent has your `~/.claude` agents, commands, skills and
-enabled plugins, read-only, and Codex has the same skills linked into its own
-home. A skill you install is there whichever agent runs, and wherever it runs.
-
 **On macOS, run `make sign-setup` once.** Every other build is signed ad-hoc,
 and an ad-hoc signature is a new identity to macOS each time it changes. TCC
 keys permissions to that identity, so a rebuilt ade silently loses the ones it
@@ -99,15 +90,13 @@ permission is keyed to the exact string, so a rename throws it away and leaves
 the user toggling a row that names nothing. `TestTheCliClaimsItsOwnIdentifier`
 pins it.
 
-**When ssh to a LAN host fails, measure in this order.** Do not skip step 1.
+**When a dial to a LAN host fails, measure in this order.** Do not skip step 1.
 
 1. From a terminal outside ade, with an Apple-signed tool so nothing new gets
    judged: `nc -vz -G 3 <lan host> 22`. Not a binary you just built — an
    unsigned one gets its own Settings row and its own refusal. If `nc` fails,
    the Mac cannot reach the host and nothing here is the cause.
-2. The same dial from a terminal inside the window, or **ade: Check the
-   network** from the ade menu, which dials every bookmarked machine from the
-   launcher itself. This is the verdict.
+2. The same dial from a Shell tab inside the window. This is the verdict.
 3. Only if step 2 says `No route to host`: turn on the *window's* row in System
    Settings → Privacy & Security → Local Network.
 
@@ -125,11 +114,9 @@ a reminder and carry on.
 | `cmd/ade` | the CLI: flags, subcommands, and starting the server |
 | `internal/` | everything else. 58 packages; see below for the large one |
 | `web/` | the browser page — Vite, Preact, TypeScript |
-| `app/` | ade's own window: an Electron shell, the renderer, and the pages it frames |
+| `app/` | ade's own window: the renderer and the pages it frames, served by `cmd/adewindow` |
 | `extension/` | the Firefox add-on that puts *Open in ADE* on a GitHub PR |
-| `sandbox/` | the Dockerfile for the container the agent runs in |
 | `tools/` | screenshots, icons, and other build-time scripts |
-| `.ade/jobs/` | scheduled-job definitions ade itself reads. `design-drift.md` is one |
 
 `internal/web/web.go` is the large one — about 1,200 lines. Locate before you
 read: `grep -n 'thing' internal/web/web.go`, then `sed -n '400,440p'`. Read it
@@ -157,7 +144,7 @@ These surprise people, so they are their own section.
 - **Two lines maximum** for any one comment.
 - **At most 12%** of the lines a change adds.
 
-Enforced by `internal/bridge` — `TestNoCommentInTheWorkingTreeRunsPastTheCap` and
+Enforced by `internal/ratchet` — `TestNoCommentInTheWorkingTreeRunsPastTheCap` and
 `TestCommentsAreASmallPartOfWhatTheWorkingTreeAdds` — against the **working
 tree**, so a change that argues its case in the margins fails the build before it
 reaches CI. **CI cannot check this**: the checkout there is clean, so `git diff
@@ -199,7 +186,7 @@ not a licence: `internal/web` still takes two minutes, so run it deliberately.
 ## Screenshots
 
 ```bash
-make app-shots VIEWS="app-review app-chat"
+make app-shots VIEWS="app-session app-diff"
 ```
 
 Run it after any change under `app/`. It drives a headless chromium over a
@@ -209,6 +196,11 @@ paragraph claiming it works.
 **Name the views.** A bare run writes every view to `app/dist/shots` and sends
 none; only named views reach the outbox, and a reply carries four. The views
 are listed in `tools/appshots.mjs`, and `VIEWS=nope` prints them.
+
+**Where they show up.** The window's **Shots** tab is the outbox drawn as a
+carousel, beside Agent, Diff and Shell, with a count until you have looked.
+`make app-shots` writes there already; `ade show <file>` copies a picture
+from anywhere else into the outbox of the checkout it runs in.
 
 ## Commits and pull requests
 
@@ -222,7 +214,7 @@ The pull request template asks for exactly this.
 
 ## What needs a maintainer
 
-Three things a contributor cannot do, and should not need to:
+Two things a contributor cannot do, and should not need to:
 
 - **Signing the Firefox extension.** `make extension-sign` needs
   `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET`. Verify an extension change with
@@ -230,9 +222,6 @@ Three things a contributor cannot do, and should not need to:
   release.
 - **Releases.** Tagging, and whatever signing a platform demands. See
   [docs/RELEASING.md](docs/RELEASING.md).
-- **The sandbox image.** `.github/workflows/sandbox-image.yml` publishes it to
-  GHCR on pushes to `main`. `make sandbox-image` builds the same Dockerfile
-  locally.
 
 ## Security
 
@@ -251,11 +240,15 @@ licence — there is no separate CLA to sign.
 
 ## The front end
 
-ade's own window is the whole front end: `app/`, an Electron shell with a
-renderer of its own. `make app` runs it from source, `make app-test` type
-checks and tests it, `make app-install` puts `ADE.app` in /Applications. The
-VSCodium fork and the VS Code extension are both gone; the plan they went by
-is `.git/ade/docs/editor-removal.md`.
+ade's own window is the whole front end: `app/`, a renderer served over
+loopback by the Go host in `cmd/adewindow`, which is an `NSWindow` holding a
+`WKWebView`. `make app` runs it from source, `make app-test` type checks and
+tests it, `make app-install` puts `ADE.app` in /Applications.
+
+Electron went on 2026-11-06, because Chromium stalls this platform's renderer
+for most of a second at a time and WebKit does not: `.git/ade/docs/webview-host.md`
+holds the measurements. The VSCodium fork and the VS Code extension went
+before it, by `.git/ade/docs/editor-removal.md`.
 
 - `app/renderer` is the window itself.
 - `app/pages` are the panels it frames, one iframe each, talking to a host in
@@ -266,13 +259,13 @@ is `.git/ade/docs/editor-removal.md`.
 
 ## The prompts that are not here
 
-`internal/roles/defaults` and `internal/agents/defaults` hold a `README` and no
+`internal/agents/defaults` holds a `README` and no
 `.md`. The prompts name people, an employer and internal conventions, so they
 live in the private `ade-private` repository beside this checkout. `make
 private` copies them in, and `.gitignore` stops them coming back.
 
 Without them ade builds and every test passes: `install` installs nothing, and
-the machine's own `~/.ade/roles` and `~/.claude/agents` are read as always.
+the machine's own `~/.claude/agents` are read as always.
 `TestTheShippedAgentsParseAndOnlyTheWritersWrite` skips itself, so the check
 that the shipped agents declare the right tools only runs once you have copied
 them in. Edit a prompt in `ade-private`, not in the working copy here: the copy

@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/owenrumney/ade/internal/preview"
 )
 
 func TestIgnoredTakesPathsAndBareNames(t *testing.T) {
@@ -131,25 +129,6 @@ func TestOnlyATemporaryHomeReachesTheStateDirectory(t *testing.T) {
 	assert.True(t, underTemp(t.TempDir()))
 	assert.False(t, underTemp(os.TempDir()+"foo"))
 	assert.False(t, underTemp(filepath.Join("/home", "someone")))
-}
-
-func TestTheURLToCaptureFallsBackFromRepositoryToGlobalToDefault(t *testing.T) {
-	tests := []struct {
-		name   string
-		global Preview
-		repo   string
-		want   string
-	}{
-		{"nothing set anywhere", Preview{}, "", preview.DefaultURL},
-		{"a global default", Preview{URL: "http://localhost:3000"}, "", "http://localhost:3000"},
-		{"the repository overrides it", Preview{URL: "http://localhost:3000"}, "http://localhost:8080", "http://localhost:8080"},
-		{"off beats both", Preview{URL: "http://localhost:3000", Off: true}, "http://localhost:8080", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.global.PreviewURL(tc.repo))
-		})
-	}
 }
 
 // A worker is told its scan root by the environment. It writes a settings file

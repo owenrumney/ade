@@ -1,5 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 // xterm here, the websocket in main, ipc between them: the server
@@ -38,6 +40,8 @@ export function open(
   }
   if (it.on !== session) {
     it.on = session;
+    // A new socket starts at the pty default, so the next size is sent whatever it is.
+    it.cols = it.rows = 0;
     it.term.reset();
     connect(it, session, say);
   }
@@ -46,6 +50,11 @@ export function open(
     it.term.focus();
   });
   return it.host;
+}
+
+// lost is a pane whose socket the server closed.
+export function lost(id: string): boolean {
+  return panes.get(id)?.on === "";
 }
 
 // The tab went, so its socket goes with it.
@@ -73,6 +82,8 @@ function connect(it: Pane, session: string, say: (why: string) => void): void {
 
 // force resends after a reconnect, which starts at the pty default.
 function resize(it: Pane, force = false): void {
+  // Not on screen, its size reads as the CSS "100%", and a fit makes it ten columns.
+  if (!it.host.clientWidth || !it.host.clientHeight) return;
   it.fit.fit();
   const { cols, rows } = it.term;
   if (!cols || !rows) return;
@@ -102,6 +113,34 @@ function route(): void {
   });
 }
 
+// accelerate draws on the GPU. Without it xterm rebuilds a row of elements
+// per frame, which a TUI repainting its whole screen outruns.
+function accelerate(term: Terminal): void {
+  let gl: WebglAddon;
+  try {
+    gl = new WebglAddon();
+  } catch {
+    return;
+  }
+  // A lost context is not recovered: disposing puts the DOM renderer back,
+  // which is slow and always draws.
+  gl.onContextLoss(() => gl.dispose());
+  try {
+    term.loadAddon(gl);
+  } catch {
+    gl.dispose();
+  }
+}
+
+// links makes a URL in the output clickable; the host opens the browser.
+function links(term: Terminal): void {
+  try {
+    term.loadAddon(new WebLinksAddon((_e, uri) => void window.ade?.link(uri)));
+  } catch {
+    // A terminal without links still works.
+  }
+}
+
 function build(id: string): Pane {
   const host = document.createElement("div");
   host.className = "term";
@@ -109,6 +148,7 @@ function build(id: string): Pane {
     fontFamily: mono(),
     fontSize: 13,
     cursorBlink: true,
+    scrollback: 20000,
     // Ayu Dark Unbordered, the same values the window uses.
     theme: {
       background: "#0d1017",
@@ -128,8 +168,17 @@ function build(id: string): Pane {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  accelerate(term);
+  links(term);
   const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
   term.onData((data) => window.ade?.termSend(id, data));
+  // Shift+Enter is a new line: it sends what Option+Enter does.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.key !== "Enter" || !e.shiftKey) return true;
+    e.preventDefault();
+    if (e.type === "keydown") window.ade?.termSend(id, "\x1b\r");
+    return false;
+  });
   new ResizeObserver(() => resize(it)).observe(host);
   return it;
 }

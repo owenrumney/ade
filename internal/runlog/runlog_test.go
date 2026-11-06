@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,18 +96,38 @@ func TestPathIsUnderTheGitDir(t *testing.T) {
 	assert.Empty(t, Path(""))
 }
 
-func TestTheWikiDraftOutlivesTheProcessThatAllocatedIt(t *testing.T) {
-	// The draft id names a mount and authorises the MCP call. A restart that
-	// allocated a new one would leave the old draft orphaned and unpublishable.
-	path := filepath.Join(t.TempDir(), "run.json")
-	first := Open(path)
-	require.NoError(t, first.SetWikiDraft("draft-abc"))
-	require.NoError(t, first.SetAgentSession("session-1", "claude"))
+func TestAnotherWritersFieldsSurviveTheServersWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.json")
+	log := Open(path)
+	require.NoError(t, log.SetAgentSession("abc", "codex"))
+	require.NoError(t, Update(path, func(r *Record) { r.Tags, r.Ticket = []string{"auth"}, "FIX-12" }))
 
-	again := Open(path)
-	assert.Equal(t, "draft-abc", again.WikiDraft())
-	assert.Equal(t, "session-1", again.Session(), "and the provider session is still its own field")
+	require.NoError(t, log.SetAgentSession("def", "claude"))
 
-	require.NoError(t, again.Clear())
-	assert.Empty(t, Open(path).WikiDraft(), "a cleared memory keeps no draft")
+	got := Read(path)
+	assert.Equal(t, "def", got.Session)
+	assert.Equal(t, "claude", got.Provider)
+	assert.Equal(t, []string{"auth"}, got.Tags)
+	assert.Equal(t, "FIX-12", got.Ticket)
+	assert.False(t, got.Used.IsZero())
+}
+
+func TestTheBriefIsTheNewestFileTheWorktreesOwnFirst(t *testing.T) {
+	own, common := t.TempDir(), t.TempDir()
+	assert.Empty(t, Brief(own, common))
+
+	write := func(gitDir, name string, age time.Duration) string {
+		path := filepath.Join(gitDir, "ade", "docs", name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+		at := time.Now().Add(-age)
+		require.NoError(t, os.Chtimes(path, at, at))
+		return path
+	}
+	write(common, "old.md", 2*time.Hour)
+	shared := write(common, "shared.md", time.Hour)
+	assert.Equal(t, shared, Brief(own, common))
+
+	mine := write(own, "mine.md", 3*time.Hour)
+	assert.Equal(t, mine, Brief(own, common), "the worktree's own wins over a newer shared one")
 }

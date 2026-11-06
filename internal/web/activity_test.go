@@ -77,9 +77,9 @@ func TestTheBadgeGetsTheSeriesWhileTheRunIsStillGoing(t *testing.T) {
 	// Without an event of its own the badge kept the series the state carried
 	// when the run began — an empty ring — so every run drew a flat line.
 	s := newTestServer(t)
-	_, ok := s.agent.begin(s.ctx, kindChat)
+	_, ok := s.agent.begin(s.ctx, "review")
 	require.True(t, ok)
-	defer s.endRun(nil)
+	defer s.agent.finish(nil)
 
 	_, running := s.agent.beat()
 	require.True(t, running)
@@ -119,9 +119,9 @@ func TestANewRunIsNotTheLastRunsSilence(t *testing.T) {
 	s := newTestServer(t)
 	s.agent.lastEvent = time.Now().Add(-3 * time.Hour)
 
-	_, ok := s.agent.begin(s.ctx, kindChat)
+	_, ok := s.agent.begin(s.ctx, "review")
 	require.True(t, ok)
-	defer s.endRun(nil)
+	defer s.agent.finish(nil)
 
 	assert.WithinDuration(t, time.Now(), s.agent.State().LastEventAt, time.Second)
 }

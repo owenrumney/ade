@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the role and agent prompts in from the private repository. They name
+# Copy the agent prompts in from the private repository. They name
 # people and employers, so they are not in this one.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ from="${ADE_PRIVATE:-../ade-private}"
 }
 
 copied=0
-for kind in roles agents; do
+for kind in agents; do
   src="$from/internal/$kind/defaults"
   [ -d "$src" ] || continue
   for file in "$src"/*.md; do

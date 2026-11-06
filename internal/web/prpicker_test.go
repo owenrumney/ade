@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
@@ -75,21 +74,6 @@ func TestSwapReplacesTheDiffWithTheWorkspace(t *testing.T) {
 
 	// Anything describing the old view has to go with it.
 	assert.Nil(t, s.currentDraft())
-	assert.Nil(t, s.currentCreatedPR())
-}
-
-func TestResolveIsRefusedOnCodeThatIsNotCheckedOut(t *testing.T) {
-	s := newTestServer(t)
-	thread := createThread(t, s, `{"scope":"repo","body":"fix this"}`)
-	require.NotEmpty(t, thread.ID)
-
-	s.mu.Lock()
-	s.ws.pr = &PRInfo{Number: 968, ResolveBlocked: "the PR head is not checked out"}
-	s.mu.Unlock()
-
-	rec := do(t, s, "POST", "/api/resolve", `{}`)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "not checked out")
 }
 
 func TestOpenPRsReachTheBrowser(t *testing.T) {
@@ -99,19 +83,4 @@ func TestOpenPRsReachTheBrowser(t *testing.T) {
 
 	// Absent rather than null: the client filters and counts it.
 	assert.NotContains(t, rec.Body.String(), `"openPrs":null`)
-}
-
-func TestFixingChecksIsRefusedOnCodeThatIsNotCheckedOut(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 962, Failing: 1, Checks: []ghpr.Check{{Name: "test", Bucket: "fail"}}})
-
-	s.mu.Lock()
-	s.ws.pr = &PRInfo{Number: 962, ResolveBlocked: "the PR head is not checked out"}
-	s.mu.Unlock()
-
-	// It edits files, so it lands wherever you happen to be — the same reason
-	// Resolve is refused.
-	rec := do(t, s, "POST", "/api/checks/fix", "")
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "not checked out")
 }

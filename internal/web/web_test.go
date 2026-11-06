@@ -18,8 +18,6 @@ import (
 
 	"github.com/owenrumney/ade/internal/comments"
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/sandbox"
-	"github.com/owenrumney/ade/internal/wiki"
 )
 
 // newTestServer builds a server over a repo whose feature branch changes a.go.
@@ -343,29 +341,6 @@ func TestAContainerNameIsOurs(t *testing.T) {
 	assert.False(t, localHost("ade-worker:8080", "8080"), "off a worker the name means nothing")
 }
 
-func TestTheWikiToolPassesTheHostCheck(t *testing.T) {
-	s := newTestServer(t)
-	s.listenPort = "8080"
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", wiki.MCPPath, strings.NewReader("{}"))
-	req.Host = "hub-namespace:8080"
-	s.routes().ServeHTTP(rec, req)
-	assert.NotEqual(t, http.StatusForbidden, rec.Code, "the bearer draft id is the check here")
-
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest("GET", wiki.MCPPath, nil)
-	req.Host = "hub-namespace:8080"
-	s.routes().ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code, "only the tool's own POST is exempt")
-}
-
-func TestAWorkerBoxReachesUsByTheWorkerName(t *testing.T) {
-	t.Setenv("ADE_WORKER_NAME", "ade-worker")
-	hub := sandbox.Docker{Network: "container:ade-hub"}
-	assert.Equal(t, "http://ade-worker:4000", workerBase(hub, "http://127.0.0.1:4000"))
-	assert.Equal(t, "http://127.0.0.1:4000", workerBase(sandbox.Docker{}, "http://127.0.0.1:4000"),
-		"on a laptop the box's own host rewrite applies")
-}
 func TestUnknownPathIs404(t *testing.T) {
 	s := newTestServer(t)
 
@@ -479,9 +454,9 @@ func TestResettingTheCommentsClearsWhatAdeFiled(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var res struct{ Removed int }
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-	assert.Equal(t, 2, res.Removed)
+	assert.Equal(t, 3, res.Removed, "every comment, the pull request's too")
 
-	left := s.space().store.List()
-	require.Len(t, left, 1)
-	assert.Equal(t, imported.ID, left[0].ID, "a pull request's own comment is not ade's to delete")
+	assert.Empty(t, s.space().store.List())
+	assert.True(t, s.space().store.Dismissed("gh-7"), "and the poll does not file it again")
+	_ = imported
 }

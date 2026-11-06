@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/oneshot"
 
 	"github.com/owenrumney/ade/internal/commitmsg"
 	"github.com/owenrumney/ade/internal/gitdiff"
 	"github.com/owenrumney/ade/internal/outgoing"
-	"github.com/owenrumney/ade/internal/ship"
 )
 
 // CommitDraft is a generated message plus the staged files it describes.
@@ -35,12 +35,7 @@ func (s *Server) handleCommitMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	runCtx, ok := s.agent.begin(s.ctx, kindCommitMessage)
 	if !ok {
-		// Asking while a turn is in flight is the usual case, not a mistake:
-		// you stage and describe while the agent is still working.
-		waiting := s.stack(queued{kind: kindCommitMessage})
-		s.hub.Broadcast("agent", nil)
-		s.hub.Broadcast("state", nil)
-		writeJSON(w, http.StatusAccepted, map[string]any{"running": true, "queued": waiting})
+		writeError(w, http.StatusConflict, "another run is in flight; wait for it to finish")
 		return
 	}
 
@@ -65,8 +60,8 @@ func (s *Server) runCommitMessage(ctx context.Context, staged []string) {
 func (s *Server) commitMessageOnce(ctx context.Context, staged []string) error {
 	s.agent.step(fmt.Sprintf("describing %d staged file(s)", len(staged)))
 
-	ask := func(prompt string) (*bridge.Turn, error) {
-		return s.oneShot(ctx, bridge.OneShotOpts{
+	ask := func(prompt string) (*oneshot.Turn, error) {
+		return s.oneShot(ctx, oneshot.Opts{
 			Bin: s.agent.bin,
 			// Not the conversation's model: describing a diff you wrote is the
 			// same size of job as rewriting a note, and this inherited Opus.
@@ -77,7 +72,7 @@ func (s *Server) commitMessageOnce(ctx context.Context, staged []string) error {
 			// It reads the diff with git and needs nothing else. Starting the
 			// MCP servers was most of the wait.
 			NoMCP:   true,
-			OnEvent: s.onRunEvent(kindCommitMessage),
+			OnEvent: s.onAgentEvent,
 		})
 	}
 
@@ -115,18 +110,9 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 		// Amend folds this into the last commit instead of making a new one.
 		// With no title it keeps the old message.
 		Amend bool `json:"amend"`
-		// Anyway commits past a veto, which is recorded in the trail.
-		Anyway bool `json:"anyway"`
 	}
 	if !decode(w, r, &req) {
 		return
-	}
-	// An amend folds into a commit that was already vetoed or overridden.
-	if !req.Amend {
-		if why := s.shipVeto(r.Context(), ship.StepCommit, req.Anyway); why != "" {
-			writeError(w, http.StatusConflict, why)
-			return
-		}
 	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" && !req.Amend {
@@ -156,15 +142,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 
 	text := ""
 	if title != "" {
-		unread, _ := s.ledgerUnread(staged)
-		text = message(title, req.Body, unread)
-	}
-
-	// An amend rewrites this sha, and the ranges stamped with it move onto the
-	// new one. Read before the commit, because after it there is no way back.
-	replacing := ""
-	if req.Amend {
-		replacing, _ = gitdiff.HeadSHA(r.Context(), ws.diffRoot())
+		text = message(title, req.Body)
 	}
 
 	var sha string
@@ -187,10 +165,6 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if full, shaErr := gitdiff.HeadSHA(r.Context(), ws.diffRoot()); shaErr == nil {
-		s.stampCommit(r.Context(), full, replacing)
-	}
-
 	s.setDraft(nil)
 	if refreshErr := s.refresh(s.ctx); refreshErr != nil {
 		slog.Debug("refresh after commit", "err", refreshErr)
@@ -201,30 +175,17 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// unreadTrailer records how much of what the agent wrote went unread. Written
-// only when the count is not zero: the absence of a trailer claims nothing.
-const unreadTrailer = "Unreviewed-Agent-Lines:"
-
 // message joins the title and body, dropping any line that credits an AI as a
-// co-author. Attribution to a person is left alone. unread is the agent lines
-// nobody read, which it records as a trailer.
-func message(title, body string, unread int) string {
+// co-author. Attribution to a person is left alone.
+func message(title, body string) string {
 	var kept []string
 	for _, line := range strings.Split(body, "\n") {
-		if isAIAttribution(line) || strings.HasPrefix(strings.TrimSpace(line), unreadTrailer) {
+		if isAIAttribution(line) {
 			continue
 		}
 		kept = append(kept, line)
 	}
 	body = strings.TrimSpace(strings.Join(kept, "\n"))
-	if unread > 0 {
-		trailer := fmt.Sprintf("%s %d", unreadTrailer, unread)
-		if body == "" {
-			body = trailer
-		} else {
-			body += "\n\n" + trailer
-		}
-	}
 	if body == "" {
 		return title + "\n"
 	}
@@ -349,11 +310,14 @@ func (s *Server) reindex(w http.ResponseWriter, r *http.Request, side indexSide)
 	ws := s.space()
 	var req struct {
 		Paths []string `json:"paths"`
+		// All is every path git reports on the far side, read here rather than
+		// sent, so a stale list in the window cannot miss one.
+		All bool `json:"all"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if len(req.Paths) == 0 {
+	if len(req.Paths) == 0 && !req.All {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("no files selected to %s", side.verb))
 		return
 	}
@@ -364,6 +328,13 @@ func (s *Server) reindex(w http.ResponseWriter, r *http.Request, side indexSide)
 		return
 	}
 	eligible := side.eligible(status)
+	if req.All {
+		req.Paths = sortedKeys(eligible)
+		if len(req.Paths) == 0 {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("nothing to %s: no file has %s changes", side.verb, side.needs))
+			return
+		}
+	}
 	for _, path := range req.Paths {
 		if !eligible[path] {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("%s has no %s changes", path, side.needs))
@@ -465,4 +436,14 @@ func (s *Server) handleHeadMessage(w http.ResponseWriter, r *http.Request) {
 		"title": strings.TrimSpace(title),
 		"body":  strings.TrimSpace(body),
 	})
+}
+
+// sortedKeys is the set in a settled order, so a reply counts the same twice.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }

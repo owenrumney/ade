@@ -3,7 +3,6 @@ import {
   changesIn,
   drawnFrom,
   linesOf,
-  spanOf,
   listed,
   pairsOf,
   toneOf,
@@ -45,24 +44,12 @@ describe("the diff the window draws", () => {
 
   it("draws a replacement as the old line and then the new one", () => {
     expect(linesOf(file)).toEqual([
-      {
-        at: "hunk",
-        text: "@@ -10,3 +10,4 @@ func serve()",
-        span: { file: "internal/web/web.go", start: 10, lines: 3 },
-      },
+      { at: "hunk", text: "@@ -10,3 +10,4 @@ func serve()" },
       { at: "line", kind: "context", no: 10, cell: cell(10, "context", "a") },
       { at: "line", kind: "del", no: 11, cell: cell(11, "del", "was") },
       { at: "line", kind: "add", no: 11, cell: cell(11, "add", "is") },
       { at: "line", kind: "add", no: 12, cell: cell(12, "add", "and more") },
     ]);
-  });
-
-  // The tick is on the hunk, so the hunk has to say which lines it claims.
-  it("gives each hunk the run of lines a tick would claim", () => {
-    const [head] = linesOf(file);
-    expect(head).toMatchObject({ span: { start: 10, lines: 3 } });
-    expect(spanOf(file, { header: "", rows: [{ left: cell(1, "del", "gone"), right: null }] }))
-      .toBeUndefined();
   });
 
   it("has nothing to draw for a file with no hunks", () => {

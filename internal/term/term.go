@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -24,6 +25,8 @@ type Session struct {
 
 	// shell is what to run. Empty means the user's login shell.
 	shell []string
+	// env is added to what the command inherits.
+	env []string
 
 	mu sync.Mutex
 	sh *shell
@@ -42,13 +45,15 @@ type shell struct {
 	// attaches after the fact so a reload does not come up to a blank screen.
 	scroll []byte
 	alive  bool
-	cols   uint16
-	rows   uint16
+	// last is when it last printed anything.
+	last time.Time
+	cols uint16
+	rows uint16
 }
 
-// scrollMax is how much output is kept for replay. Enough for a few screens of
-// context, small enough that an idle session is not holding a log file.
-const scrollMax = 256 << 10
+// scrollMax is how much output is kept for replay. A reattach comes back to
+// what was on screen, pictures included, without holding a log file.
+const scrollMax = 2 << 20
 
 // chunkQueue is how many chunks a browser may fall behind before it is dropped.
 // Dropping it costs a reconnect and a replay, which redraws correctly; blocking
@@ -153,6 +158,49 @@ func (s *Session) Resize(cols, rows uint16) error {
 	return nil
 }
 
+// Setenv adds to the environment of a command that has not started yet.
+func (s *Session) Setenv(env ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.env = append(s.env, env...)
+}
+
+// Quiet is how long it has printed nothing, or zero when it is not running.
+func (s *Session) Quiet() time.Duration {
+	s.mu.Lock()
+	sh := s.sh
+	s.mu.Unlock()
+	if sh == nil {
+		return 0
+	}
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if !sh.alive {
+		return 0
+	}
+	return time.Since(sh.last)
+}
+
+// Started is whether the command has run here at all, alive or not.
+func (s *Session) Started() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sh != nil
+}
+
+// Alive is whether it is running now.
+func (s *Session) Alive() bool {
+	s.mu.Lock()
+	sh := s.sh
+	s.mu.Unlock()
+	if sh == nil {
+		return false
+	}
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	return sh.alive
+}
+
 // Close kills the shell and everything it started. Called when ade shuts down.
 func (s *Session) Close() {
 	s.mu.Lock()
@@ -201,9 +249,9 @@ func (s *Session) spawn() (*shell, error) {
 		argv = loginShell()
 	}
 
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // the user's own shell, from $SHELL
+	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- the user's own shell, from $SHELL
 	cmd.Dir = s.dir
-	cmd.Env = environ()
+	cmd.Env = append(environ(), s.env...)
 	if len(s.shell) == 0 {
 		cmd.Args[0] = "-" + baseName(argv[0])
 	}
@@ -216,7 +264,7 @@ func (s *Session) spawn() (*shell, error) {
 	// The binary alone: a boxed takeover's argv carries tokens, and the log is served.
 	slog.Info("shell started", "bin", argv[0], "dir", s.dir, "pid", cmd.Process.Pid)
 
-	sh := &shell{pty: f, cmd: cmd, subs: map[int]chan []byte{}, alive: true, cols: 80, rows: 24}
+	sh := &shell{pty: f, cmd: cmd, subs: map[int]chan []byte{}, alive: true, cols: 80, rows: 24, last: time.Now()}
 	go sh.pump()
 	return sh, nil
 }
@@ -256,6 +304,7 @@ func (sh *shell) broadcast(chunk []byte) {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
+	sh.last = time.Now()
 	sh.scroll = append(sh.scroll, chunk...)
 	if len(sh.scroll) > scrollMax {
 		sh.scroll = append([]byte(nil), sh.scroll[len(sh.scroll)-scrollMax:]...)

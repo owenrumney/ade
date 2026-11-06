@@ -34,9 +34,8 @@ export function inSpaces(open: Space[]): (repo: Repo) => boolean {
   return (repo) => keys.has(keyOf(repo));
 }
 
-// place is the Spaces list: what is open, and what each holds. designs counts
-// the store's, per repository.
-export function spaces(open: Space[], designs: ReadonlyMap<string, number> = new Map()): Place {
+// place is the Spaces list: what is open, and what each holds.
+export function spaces(open: Space[]): Place {
   const rows: Row[] = open.map((space) => ({
     id: `space:${space.repo}`,
     icon: space.here ? "space" : "warn",
@@ -46,7 +45,6 @@ export function spaces(open: Space[], designs: ReadonlyMap<string, number> = new
       ? [
           space.current ? "you are here" : "",
           space.sessions ? `${space.sessions} session${space.sessions === 1 ? "" : "s"}` : "",
-          designs.get(space.repo) ? `${designs.get(space.repo)} designs` : "",
           space.branch,
         ]
           .filter(Boolean)

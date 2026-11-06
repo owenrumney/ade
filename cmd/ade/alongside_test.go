@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/sandbox"
+	"github.com/owenrumney/ade/internal/runlog"
 )
 
 // repoAt is a checkout with one commit on main, which is all a worktree needs.
@@ -43,12 +43,8 @@ func TestEveryOtherRepositoryGetsAWorktreeOnTheSameBranch(t *testing.T) {
 		assert.Equal(t, "cancel-button", gitdiff.Branch(ctx, path))
 	}
 
-	ws, err := sandbox.LoadWorkspace(sandbox.SessionPath(gitDir))
-	require.NoError(t, err)
-	require.Len(t, ws.Paths, 2, "both are this session's own mounts")
-	for _, path := range ws.Paths {
-		assert.True(t, path.RW, "the agent edits them, so they are not read-only")
-	}
+	held := runlog.Read(runlog.Path(gitDir)).Worktrees
+	require.Len(t, held, 2, "both are on the session record")
 }
 
 func TestARepositoryThatAlreadyHasTheBranchChecksItOutRatherThanFailing(t *testing.T) {
@@ -87,10 +83,9 @@ func TestABranchAlreadyCheckedOutElsewhereIsWorkedInWhereItIs(t *testing.T) {
 
 	require.NoError(t, alongside(ctx, gitDir, "cancel-button", []string{other}))
 
-	ws, err := sandbox.LoadWorkspace(sandbox.SessionPath(gitDir))
-	require.NoError(t, err)
-	require.Len(t, ws.Paths, 1)
-	assert.Equal(t, "cancel-button", gitdiff.Branch(ctx, ws.Paths[0].Path))
+	held := runlog.Read(runlog.Path(gitDir)).Worktrees
+	require.Len(t, held, 1)
+	assert.Equal(t, "cancel-button", gitdiff.Branch(ctx, held[0]))
 	assert.NoDirExists(t, gitdiff.WorktreePath(other, "cancel-button"),
 		"the checkout that already has the branch is the one it works in")
 }
@@ -113,7 +108,7 @@ func TestAWorktreeMadeBeforeALaterRepositoryFailedIsRemoved(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NoDirExists(t, gitdiff.WorktreePath(one, "cancel-button"), "the one it did make is taken back")
-	assert.NoFileExists(t, sandbox.SessionPath(gitDir))
+	assert.NoFileExists(t, runlog.Path(gitDir))
 }
 
 func TestSomewhereThatIsNotACheckoutIsRefusedRatherThanDropped(t *testing.T) {
@@ -131,5 +126,14 @@ func TestSomewhereThatIsNotACheckoutIsRefusedRatherThanDropped(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a checkout")
-	assert.NoFileExists(t, sandbox.SessionPath(gitDir), "nothing is recorded when one of them cannot be made")
+	assert.NoFileExists(t, runlog.Path(gitDir), "nothing is recorded when one of them cannot be made")
+}
+
+func TestTheTicketTheWorkStartedFromIsKeptOnTheRecord(t *testing.T) {
+	gitDir := t.TempDir()
+	require.NoError(t, recordTicket(gitDir, "FIX-623"))
+	assert.Equal(t, "FIX-623", runlog.Read(runlog.Path(gitDir)).Ticket)
+
+	require.NoError(t, recordTicket(gitDir, ""))
+	assert.Equal(t, "FIX-623", runlog.Read(runlog.Path(gitDir)).Ticket, "a start with no ticket leaves the record alone")
 }

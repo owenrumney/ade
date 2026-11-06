@@ -91,6 +91,17 @@ describe("a source read because something is looking at it", () => {
     expect(got.error).toBe("no route");
   });
 
+  it("hands back the empty value when a source has been watched but never read", async () => {
+    const sources = new Sources();
+    const read = () => Promise.reject(new Error("no route"));
+
+    sources.watch("diff:a", read, "diff");
+    await sources.settled();
+    const got = sources.reading("diff:a", { rows: [], why: "" });
+    expect(got.value).toEqual({ rows: [], why: "" });
+    expect(got.error).toBe("no route");
+  });
+
   it("re-reads a source marked stale without reading one nothing is watching", async () => {
     const sources = new Sources();
     let shown = 0;
@@ -142,14 +153,14 @@ describe("the needs", () => {
   });
 
   it("are picked by the path, query string and all", () => {
-    expect(needFor("/api/ship")).toBe(NEED.ship);
     expect(needFor("/api/pr/checks")).toBe(NEED.pr);
-    expect(needFor("/api/designs?all=1")).toBe(NEED.lists);
+    expect(needFor("/api/repos?all=1")).toBe(NEED.lists);
+    expect(needFor("/api/branches")).toBe(NEED.lists);
     expect(needFor("/api/state")).toBe(NEED.agent);
     expect(needFor("/api/diff")).toBe(NEED.diff);
   });
 
   it("read a path with no need every look, as every panel did before", () => {
-    expect(needFor("/api/sandbox")).toBe(0);
+    expect(needFor("/api/settings")).toBe(0);
   });
 });

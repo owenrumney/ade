@@ -6,7 +6,7 @@ import { PATHS } from "./icons";
 // asked for and never drawn, and a missing icon is silent by design.
 describe("the icon set", () => {
   const named = new Set<string>();
-  for (const file of ["app.ts", "real.ts"]) {
+  for (const file of ["app.ts", "real.ts", "tabs.ts", "spaces.ts", "sheets.ts"]) {
     const src = readFileSync(new URL(file, import.meta.url), "utf8");
     for (const at of src.matchAll(/icon[:(]\s*([^;\n]+)/g)) {
       for (const one of at[1].matchAll(/"([a-z][a-z-]*)"/g)) named.add(one[1]);
@@ -15,7 +15,8 @@ describe("the icon set", () => {
 
   it("draws every glyph a place or a row asks for", () => {
     const drawn = new Set(Object.keys(PATHS));
-    const known = new Set(["bad", "doc", "idle", "nm", "none", "span", "sandboxed"]);
+    // Words the pattern picks up beside an icon that are not icons.
+    const known = new Set(["bad", "nm", "span", "agent", "term", "shots"]);
     expect([...named].filter((n) => !drawn.has(n) && !known.has(n))).toEqual([]);
   });
 

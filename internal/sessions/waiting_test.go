@@ -10,11 +10,20 @@ import (
 	"github.com/owenrumney/ade/internal/settings"
 )
 
-// waitingFrom is the rule over a fixed set of checkouts, so the tests do not
-// depend on what is on the fixture running them.
-func waitingFrom(t *testing.T, repos []Repo, running map[string]bool) []Row {
+// waitingFrom is the rule over a fixed set of checkouts, every one asking
+// unless badges says otherwise.
+func waitingFrom(t *testing.T, repos []Repo, badges map[string]string) []Row {
 	t.Helper()
-	return WaitingIn(repos, running, settings.Seen(), settings.Archived())
+	all := map[string]string{}
+	for _, dir := range repos[0].Checkouts {
+		for _, session := range dir.Sessions {
+			all[session.ID] = "needs"
+		}
+	}
+	for id, badge := range badges {
+		all[id] = badge
+	}
+	return WaitingIn(repos, all, settings.Seen())
 }
 
 func waitingRepo(dir string, made ...Session) []Repo {
@@ -24,7 +33,7 @@ func waitingRepo(dir string, made ...Session) []Repo {
 	}}
 }
 
-func TestASessionThatSpokeSinceYouLookedIsWaiting(t *testing.T) {
+func TestASessionThatAskedSinceYouLookedIsWaiting(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	spoke := time.Now().Add(-time.Minute)
 	require.NoError(t, settings.MarkSeen("read", spoke.Add(time.Second)))
@@ -39,8 +48,6 @@ func TestASessionThatSpokeSinceYouLookedIsWaiting(t *testing.T) {
 }
 
 func TestASessionYouHaveNeverSeenIsWaiting(t *testing.T) {
-	// No record is not "seen at the beginning of time": a session you have
-	// never opened is exactly one that wants you.
 	t.Setenv("HOME", t.TempDir())
 	got := waitingFrom(t, waitingRepo("/work/ade",
 		Session{ID: "fresh", Name: "a", LastUsed: time.Now()},
@@ -49,17 +56,21 @@ func TestASessionYouHaveNeverSeenIsWaiting(t *testing.T) {
 	assert.Equal(t, "fresh", got[0].ID)
 }
 
-func TestARunningSessionIsWorkingRatherThanWaiting(t *testing.T) {
-	// Its transcript moves while it runs, so without this every live session
-	// would sit in the panel claiming to want an answer.
+func TestOnlyAnAgentThatStoppedForYouIsWaiting(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	now := time.Now()
 	got := waitingFrom(t, waitingRepo("/work/ade",
-		Session{ID: "busy", Name: "a", LastUsed: time.Now()},
-		Session{ID: "beside", Name: "b", LastUsed: time.Now()},
-	), map[string]bool{"busy": true})
-	// Per session and not per checkout: the one beside it is still waiting.
-	require.Len(t, got, 1)
-	assert.Equal(t, "beside", got[0].ID)
+		Session{ID: "busy", Name: "a", LastUsed: now},
+		Session{ID: "asking", Name: "b", LastUsed: now.Add(-time.Minute)},
+		Session{ID: "stuck", Name: "c", LastUsed: now},
+		Session{ID: "done", Name: "d", LastUsed: now},
+		Session{ID: "gone", Name: "e", LastUsed: now},
+		Session{ID: "closed", Name: "f", LastUsed: now},
+	), map[string]string{"busy": "working", "stuck": "blocked", "done": "idle", "gone": "ended", "closed": ""})
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "asking", got[0].ID)
+	assert.Equal(t, "stuck", got[1].ID)
 }
 
 func TestTheLongestWaitIsFirst(t *testing.T) {
@@ -74,55 +85,9 @@ func TestTheLongestWaitIsFirst(t *testing.T) {
 }
 
 func TestAnArchivedSessionIsNotWaiting(t *testing.T) {
-	// Putting one away is saying you are done with it.
-	t.Setenv("HOME", t.TempDir())
-	require.NoError(t, settings.SetArchived("away", true))
-	got := waitingFrom(t, waitingRepo("/work/ade",
-		Session{ID: "away", Name: "a", LastUsed: time.Now()},
-	), nil)
-	assert.Empty(t, got)
-}
-
-func TestASessionThatNeverRanIsNotWaiting(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	got := waitingFrom(t, waitingRepo("/work/ade",
-		Session{ID: "never", Name: "a"},
+		Session{ID: "away", Name: "a", LastUsed: time.Now(), Archived: true},
 	), nil)
 	assert.Empty(t, got)
-}
-
-func TestOnlyAReplyThatAsksSomethingIsWaiting(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		reply string
-		want  bool
-	}{
-		{"a question", "Two ways to do it.\n\nWhich?", true},
-		{"a report", "Done. Tests pass.", false},
-		{"a trailing blank line", "Shall I go on?\n\n", true},
-		{"bold", "**Want me to fix it?**", true},
-		{"a list under the question", "Pick one?\n\n- a\n- b", true},
-		{"more options than a window allowed", "Which?\n\n- a\n- b\n- c\n- d\n- e\n- f", true},
-		{"a question earlier in the prose", "Which?\n\nI went with the first one.", false},
-		{"a question inside a code block", "Run it:\n\n```\ngit log --oneline?\n```", false},
-		{"a question above a table", "Which?\n\n| a | b |\n| - | - |", true},
-		{"a numbered list under the question", "Which?\n\n1. a\n2. b", true},
-		{"nothing said", "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, IsQuestion(tc.reply))
-		})
-	}
-}
-
-// The row shows what was asked, so you answer the question rather than
-// recalling it. The line comes off the reply the rule already reads.
-func TestTheQuestionIsKeptNotJustCounted(t *testing.T) {
-	line, ok := Question("I can do either.\n\n**Postgres or SQLite?**\n\n- a\n- b")
-	assert.True(t, ok)
-	assert.Equal(t, "Postgres or SQLite?", line, "the markdown around it is not the question")
-
-	line, ok = Question("Done. Tests pass.")
-	assert.False(t, ok)
-	assert.Empty(t, line)
 }

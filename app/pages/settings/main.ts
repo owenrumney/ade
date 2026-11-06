@@ -21,11 +21,6 @@ interface View {
   homeAssistantTokenEnd?: string;
   gitHubPackagesTokenSet: boolean;
   gitHubPackagesTokenEnd?: string;
-  previewUrl: string;
-  previewOff: boolean;
-  sharpenOff: boolean;
-  cleanseOff: boolean;
-  mergeQueuedOff: boolean;
 }
 
 const vscode = acquireVsCodeApi();
@@ -55,11 +50,6 @@ function show(next: View): void {
   set("home-assistant-url", next.homeAssistantUrl ?? "");
   set("home-assistant-desk", next.homeAssistantDesk ?? "");
   set("home-assistant-notify", next.homeAssistantNotify ?? "");
-  set("preview-url", next.previewUrl ?? "");
-  byID<HTMLInputElement>("preview-off").checked = Boolean(next.previewOff);
-  byID<HTMLInputElement>("sharpen-off").checked = Boolean(next.sharpenOff);
-  byID<HTMLInputElement>("cleanse-off").checked = Boolean(next.cleanseOff);
-  byID<HTMLInputElement>("merge-queued-off").checked = Boolean(next.mergeQueuedOff);
   byID<HTMLElement>("instruction-limit").textContent = `Maximum ${next.instructionsMaxLength} characters.`;
   secret("dashboard-token", next.dashboardTokenSet, next.dashboardTokenEnd);
   secret("linear-key", next.linearKeySet, next.linearKeyEnd);
@@ -99,10 +89,6 @@ form.addEventListener("submit", (event) => {
         scanDirs: lines("scan-dirs"), ignoredDirs: lines("ignored-dirs"), instructions: value("instructions"),
         dashboardUrl: value("dashboard-url"), dashboardHost: value("dashboard-host"), dashboardClaude: value("dashboard-claude"), dashboardCodex: value("dashboard-codex"),
         homeAssistantUrl: value("home-assistant-url"), homeAssistantDesk: value("home-assistant-desk"), homeAssistantNotify: value("home-assistant-notify"),
-        previewUrl: value("preview-url"), previewOff: byID<HTMLInputElement>("preview-off").checked,
-        sharpenOff: byID<HTMLInputElement>("sharpen-off").checked,
-        cleanseOff: byID<HTMLInputElement>("cleanse-off").checked,
-        mergeQueuedOff: byID<HTMLInputElement>("merge-queued-off").checked,
       } }));
       say("Settings saved.");
     } catch (error) { say(String(error)); } finally { save.disabled = false; }

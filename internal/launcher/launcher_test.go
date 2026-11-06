@@ -47,18 +47,11 @@ func TestTheTokenIsRequired(t *testing.T) {
 	for _, route := range [][2]string{
 		{http.MethodGet, "/api/repos"},
 		{http.MethodPost, "/api/open"},
-		{http.MethodPost, "/api/archive"},
 		{http.MethodPost, "/api/sessions/delete"},
-		{http.MethodPost, "/api/sessions/combine"},
-		{http.MethodPost, "/api/sessions/uncombine"},
-		{http.MethodPost, "/api/sessions/suggestion/dismiss"},
-		{http.MethodGet, "/api/worktrees"},
-		{http.MethodGet, "/api/worktrees/all"},
-		{http.MethodPost, "/api/prune"},
-		{http.MethodPost, "/api/designs/archive"},
 		{http.MethodPost, "/api/scratch"},
-		{http.MethodGet, "/api/stats"},
-		{http.MethodPost, "/api/provision"},
+		{http.MethodPost, "/api/session/tags"},
+		{http.MethodGet, "/api/conversations"},
+		{http.MethodPost, "/api/conversations/import"},
 	} {
 		req := httptest.NewRequest(route[0], route[1], strings.NewReader("{}"))
 		rec := httptest.NewRecorder()
@@ -285,56 +278,6 @@ func arrivedOn(t *testing.T, local, path string) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, net.Addr(addr)))
 }
 
-func TestArchivingASession(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	rec := do(t, s, "POST", "/api/archive", `{"id":"sess-1","archived":true}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"changed":1`)
-	rec = do(t, s, "POST", "/api/archive", `{"id":"","archived":true}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// Clearing a pile-up is the whole point of archiving rather than deleting, so
-// the list form has to work and has to be reversible.
-func TestArchivingAPileOfSessionsAtOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	rec := do(t, s, "POST", "/api/archive", `{"ids":["a","b","c"],"archived":true}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"changed":3`)
-
-	// Already archived: nothing to change, and no complaint.
-	rec = do(t, s, "POST", "/api/archive", `{"ids":["a","b"],"archived":true}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"changed":0`)
-
-	// Recovering one is the same call the other way.
-	rec = do(t, s, "POST", "/api/archive", `{"ids":["b"],"archived":false}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"changed":1`)
-	assert.False(t, settings.Archived()["b"], "b came back")
-	assert.True(t, settings.Archived()["a"], "a stayed put away")
-
-	rec = do(t, s, "POST", "/api/archive", `{"ids":[],"archived":true}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestDeletingSessionsFromTheLauncher(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newTestLauncher(t)
-
-	rec := do(t, s, "POST", "/api/sessions/delete", `{"ids":["sess-1","sess-2"]}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.JSONEq(t, `{"removed":2}`, rec.Body.String())
-	assert.True(t, settings.Hidden()["sess-1"])
-
-	rec = do(t, s, "POST", "/api/sessions/delete", `{"ids":[]}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestTouchKeepsAnIdleLauncherUp(t *testing.T) {
 	s := newTestLauncher(t)
 	stale := time.Now().Add(-time.Hour)
@@ -357,20 +300,6 @@ func TestTouchKeepsAnIdleLauncherUp(t *testing.T) {
 func TestTokensDiffer(t *testing.T) {
 	assert.NotEqual(t, newToken(), newToken())
 	assert.Len(t, newToken(), 32)
-}
-
-func TestPruningIsLimitedToRepositoriesThatWereFound(t *testing.T) {
-	s := newTestLauncher(t)
-
-	// Pruning removes directories, so the repository named has to be one the
-	// scan offered rather than any path on the fixture.
-	for _, body := range []string{`{"repo":"/etc","paths":["/etc/hosts"]}`, `{"repo":"","paths":[]}`} {
-		rec := do(t, s, "POST", "/api/prune", body)
-		assert.Equalf(t, http.StatusBadRequest, rec.Code, "accepted %s", body)
-		assert.Contains(t, rec.Body.String(), "not one of the repositories")
-	}
-	rec := do(t, s, "GET", "/api/worktrees?repo=/etc", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // A browser fetches a favicon with no token and no header, so the mark is

@@ -128,18 +128,7 @@
 
 .sheet-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .sheet-stack .file { flex: 1; }
-.diff .hunk {
-  padding: 4px 16px; color: var(--ink-dim);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-}
-/* The tick on a hunk is the claim that you read it. */
-.diff .hunk .seen, .diff .file-head .seen {
-  display: flex; align-items: center; gap: 5px;
-  color: var(--ink-dim); cursor: pointer; user-select: none;
-}
-.diff .hunk .seen:hover { color: var(--ink-bright); }
-.diff .hunk .seen input { margin: 0; cursor: pointer; accent-color: var(--accent); }
-.diff .file-head .unread { color: var(--ink-dim); }
+.diff .hunk { padding: 4px 16px; color: var(--ink-dim); }
 
 /* Anything with nothing picked yet. */
 .nothing {
@@ -251,7 +240,7 @@
 .diff .no { cursor: pointer; }
 .diff .ln:hover .no { color: var(--accent); }
 
-/* The design editor fills its pane: CodeMirror scrolls itself. */
+/* A panel fills its pane and scrolls itself. */
 .pane:has(> .panel-wrap) { overflow: hidden; }
 
 /* A thread says what it is before what it says: how bad, what about, and
@@ -428,3 +417,12 @@
 .diff.split .src { white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff.split .pair > .ln + .ln { border-left: 1px solid var(--line); }
 .diff.split .pair > .gap { background: var(--bg-raised); }
+
+/* A report that can be rebuilt carries its own Refresh above it. */
+.doc-acts { display: flex; justify-content: flex-end; margin: 8px 0 4px; }
+.doc-acts button {
+  padding: 3px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+  background: var(--bg-raised); color: var(--ink); border: 1px solid var(--line-strong);
+}
+.doc-acts button:hover:not(:disabled) { border-color: var(--accent); }
+.doc-acts button:disabled { opacity: .5; cursor: default; }

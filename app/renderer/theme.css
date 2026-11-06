@@ -85,8 +85,10 @@
   --read-size: 13px;
   --read-line: 1.65;
 
-  --activity-w: 52px;
-  --sidebar-w: 300px;
+  --activity-w: 44px;
+  --sidebar-w: 220px;
+  --files-w: 280px;
+  --side-w: 340px;
   --row-h: 24px;
 }
 

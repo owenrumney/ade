@@ -46,16 +46,6 @@ func recorder(seen *[]string, next http.Handler) http.Handler {
 // Clicking "Open in Ade" on a checkout that already has a server used to hand
 // back its URL with --pr dropped, landing you on your own branch with no
 // Review tab. It has to ask that server to open the pull request.
-func TestAgentFlagSwitchesTheProviderOnARunningAde(t *testing.T) {
-	gitDir, hits := runningAde(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-	}))
-
-	assert.True(t, reuse(context.Background(), session.Path(gitDir), false, "", "codex", defaultModel, true, false))
-	assert.Contains(t, *hits, "POST /api/chat/switch")
-	assert.Contains(t, (*hits)[0], "/api/chat/switch")
-}
-
 func TestOpeningAPullRequestOnARunningAde(t *testing.T) {
 	t.Run("the running server is asked to open it", func(t *testing.T) {
 		gitDir, hits := runningAde(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -6,15 +6,14 @@ import (
 	"strings"
 
 	"github.com/owenrumney/ade/internal/agents"
-	"github.com/owenrumney/ade/internal/bridge"
-	"github.com/owenrumney/ade/internal/chat"
-	"github.com/owenrumney/ade/internal/design"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/review"
 )
 
 // reviewBatch is one review: its reviewers, what they found, and how far
 // through its phases it is. A batch drains once per phase.
 type reviewBatch struct {
+	id        string
 	reviewers []string
 
 	// phase is how far through the batch is: 0 reviewers, 1 the rebuttal
@@ -30,6 +29,10 @@ type reviewBatch struct {
 	// first. unread is the files it could not compare at all.
 	groups [][]string
 	unread int
+
+	// whole is a review of the branch as it stands, settled by writing the
+	// findings down rather than filing them on the diff.
+	whole bool
 }
 
 // batchFinding is a finding a reviewer reported and who reported it. No thread
@@ -46,7 +49,7 @@ type rebuttalVerdict struct {
 }
 
 // newBatch opens a batch for a review of these reviewers.
-func (s *Server) newBatch(reviewers []string) string {
+func (s *Server) newBatch(reviewers []string, whole bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.batches == nil {
@@ -54,7 +57,7 @@ func (s *Server) newBatch(reviewers []string) string {
 	}
 	s.nextBatch++
 	id := "b" + itoa(s.nextBatch)
-	s.batches[id] = &reviewBatch{reviewers: reviewers, found: map[string]batchFinding{}}
+	s.batches[id] = &reviewBatch{id: id, reviewers: reviewers, found: map[string]batchFinding{}, whole: whole}
 	return id
 }
 
@@ -124,15 +127,24 @@ func (s *Server) batchDrained(batch string) {
 		}
 		phase := b.phase
 		b.phase++
+		if b.whole {
+			delete(s.batches, batch)
+			s.mu.Unlock()
+			s.writeFindings(b)
+			return
+		}
 		s.mu.Unlock()
 
 		var started bool
 		switch phase {
 		case 0:
+			s.reviewStage(batch, "The reviewers are checking each other's findings")
 			started = s.startRebuttal(batch, b)
 		case 1:
+			s.reviewStage(batch, "Grouping findings that make the same point")
 			started = s.startClustering(batch, b)
 		default:
+			s.reviewStage(batch, "Filing the comments")
 			s.mu.Lock()
 			delete(s.batches, batch)
 			s.mu.Unlock()
@@ -171,13 +183,13 @@ func (s *Server) startRebuttal(batch string, b *reviewBatch) bool {
 		if !ok {
 			continue
 		}
-		claims := make([]design.Claim, 0, len(b.order))
+		claims := make([]review.Claim, 0, len(b.order))
 		for _, key := range b.order {
 			f := b.found[key]
 			if f.by == name {
 				continue
 			}
-			claims = append(claims, design.Claim{
+			claims = append(claims, review.Claim{
 				Ref: refs[key], By: f.by,
 				File: f.finding.File, Line: f.finding.Line,
 				Category: f.finding.Category,
@@ -187,7 +199,7 @@ func (s *Server) startRebuttal(batch string, b *reviewBatch) bool {
 		if len(claims) == 0 {
 			continue
 		}
-		calls = append(calls, sideCall{agent: agent, prompt: design.RebuttalPrompt(name, claims, diffText), batch: batch})
+		calls = append(calls, sideCall{agent: agent, prompt: review.RebuttalPrompt(name, claims, diffText), batch: batch})
 	}
 	if len(calls) == 0 {
 		return false
@@ -219,7 +231,7 @@ func (s *Server) startRebuttalJobs(batch string, b *reviewBatch, refs map[string
 // runRebuttal is one reviewer's pass over the others' findings.
 func (s *Server) runRebuttal(ctx context.Context, call sideCall, b *reviewBatch, byRef map[string]string) {
 	var reply strings.Builder
-	onEvent := func(ev bridge.Event) {
+	onEvent := func(ev oneshot.Event) {
 		if t := strings.TrimSpace(ev.Text); t != "" {
 			reply.WriteString(t)
 			reply.WriteString("\n\n")
@@ -231,7 +243,7 @@ func (s *Server) runRebuttal(ctx context.Context, call sideCall, b *reviewBatch,
 	switch agent.Provider {
 	case agents.ProviderClaude:
 		tools := agentTools(agent)
-		_, err = s.coldClaude(ctx, bridge.OneShotOpts{
+		_, err = s.oneShot(ctx, oneshot.Opts{
 			Bin:            s.agent.bin,
 			Dir:            s.space().diffRoot(),
 			Model:          agent.Model,
@@ -240,17 +252,14 @@ func (s *Server) runRebuttal(ctx context.Context, call sideCall, b *reviewBatch,
 			Tools:          tools,
 			AllowedTools:   tools,
 			PermissionMode: "default",
-			SystemPrompt:   s.sideProject(),
+			SystemPrompt:   s.elsewhereNote(),
 			OnEvent:        onEvent,
 		})
-	case agents.ProviderCodex:
-		err = s.runCodex(ctx, agent, call.prompt, onEvent)
 	default:
-		err = errProviderUnsupported(agent.Provider)
+		err = fmt.Errorf("%s agents are not run cold", agent.Provider)
 	}
 	if err != nil {
-		s.say(ChatMessage{Kind: chat.KindNote, Failed: true, Author: agent.Name, Run: runSubagent,
-			Body: fmt.Sprintf("@%s could not judge the other findings: %v", agent.Name, err)})
+		s.tell(fmt.Sprintf("@%s could not judge the other findings: %v", agent.Name, err))
 		return
 	}
 

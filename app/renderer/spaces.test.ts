@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Repo } from "./real";
-import { designs } from "./real";
-import { BAR, inBarOrder } from "./model";
+import { BAR, SIDE, inBarOrder } from "./model";
 import { spaces, within, type Space } from "./spaces";
 
 const repos = [
@@ -36,10 +35,9 @@ describe("the Spaces list", () => {
   it("offers Close on one that is here and Clone on one that is not", () => {
     const place = spaces(
       [space("owenrumney/ade", { sessions: 3 }), space("nobody/nowhere", { here: false })],
-      new Map([["owenrumney/ade", 1]]),
     );
     expect(place.rows[0].acts?.[0]).toMatchObject({ label: "Close", what: "space-close" });
-    expect(place.rows[0].meta).toBe("3 sessions · 1 designs");
+    expect(place.rows[0].meta).toBe("3 sessions");
     expect(place.rows[1].acts?.[0]).toMatchObject({ label: "Clone", what: "space-clone" });
     expect(place.rows[1].tone).toBe("bad");
   });
@@ -59,16 +57,7 @@ describe("the Spaces list", () => {
   });
 });
 
-describe("the Design tab", () => {
-  // An open space's own documents are on that space's page; the tab is the
-  // shared store, grouped by the repository each design is home to.
-  it("is the store, whatever spaces are open", () => {
-    const place = designs([{ name: "stored", meta: {}, modified: "" }] as never);
-    expect(place.rows.map((r) => [r.id, r.group])).toEqual([["stored", "No repository"]]);
-  });
-});
-
-// A chat in ade is ade open, whether or not anybody opened it. Closing is
+// A session in ade is ade open, whether or not anybody opened it. Closing is
 // not offered: it would come back the moment you looked at the session.
 describe("the space you are in", () => {
   it("is marked, and has nothing to close", () => {
@@ -85,14 +74,21 @@ describe("the space you are in", () => {
 
 // The bar's order is also what the digits mean, so it is one list and the
 // places are sorted into it rather than built in it.
-describe("the activity bar", () => {
-  it("opens on notifications, then spaces", () => {
-    expect(BAR.slice(0, 5)).toEqual(["waiting", "spaces", "sessions", "designs", "prs"]);
+describe("the bar on the right", () => {
+  it("holds the four lists a button opens, notifications first", () => {
+    expect(BAR).toEqual(["waiting", "prs", "inbox", "team"]);
   });
 
-  it("puts the places in that order whatever order they were built in", () => {
-    const made = ["team", "spaces", "waiting", "prs"].map((id) => ({ id }) as never);
-    expect(inBarOrder(made).map((p) => p.id)).toEqual(["waiting", "spaces", "prs", "team"]);
+  // Issues and Spaces have no button: the omnibox opens them beside the bar.
+  it("can show two more lists that have no button", () => {
+    expect(SIDE).toEqual([...BAR, "issues", "spaces"]);
+    expect(SIDE).not.toContain("sessions");
+    expect(SIDE).not.toContain("review");
+  });
+
+  it("puts the places in one order whatever order they were built in", () => {
+    const made = ["review", "team", "spaces", "waiting", "prs", "sessions"].map((id) => ({ id }) as never);
+    expect(inBarOrder(made).map((p) => p.id)).toEqual(["sessions", "waiting", "prs", "team", "spaces", "review"]);
   });
 
   it("keeps one the bar does not name, at the end", () => {

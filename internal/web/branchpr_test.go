@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/ghpr"
 )
@@ -45,28 +44,6 @@ func TestBranchPRChangedIgnoresTheTimestamp(t *testing.T) {
 	}
 }
 
-func TestFixChecksNeedsSomethingFailing(t *testing.T) {
-	s := newTestServer(t)
-
-	rec := do(t, s, "POST", "/api/checks/fix", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "no pull request")
-
-	s.setBranchPR(&BranchPR{Number: 7, Checks: []ghpr.Check{{Name: "test", Bucket: "pass"}}})
-	rec = do(t, s, "POST", "/api/checks/fix", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "nothing is failing")
-}
-
-func TestFailingChecksSelectsOnlyFailures(t *testing.T) {
-	got := failingChecks([]ghpr.Check{
-		{Name: "a", Bucket: "fail"}, {Name: "b", Bucket: "pass"}, {Name: "c", Bucket: "fail"},
-	})
-	assert.Len(t, got, 2)
-	assert.Equal(t, "a", got[0].Name)
-	assert.Equal(t, "c", got[1].Name)
-}
-
 func TestStateCarriesTheBranchPR(t *testing.T) {
 	s := newTestServer(t)
 	s.setBranchPR(&BranchPR{Number: 7, Title: "Cart", Failing: 1,
@@ -76,44 +53,4 @@ func TestStateCarriesTheBranchPR(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"branchPr"`)
 	assert.Contains(t, rec.Body.String(), "https://ci/1")
-}
-
-// "The agent is already running" is a refusal with nothing behind it.
-func TestInvestigatingChecksQueuesBehindARunningTurn(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 7, Checks: []ghpr.Check{{Name: "test", Bucket: "fail"}}})
-
-	_, ok := s.agent.begin(s.ctx, kindChat)
-	require.True(t, ok, "something else holds the agent")
-
-	rec := do(t, s, "POST", "/api/checks/fix", "")
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-
-	// A button pressed twice still means once.
-	rec = do(t, s, "POST", "/api/checks/fix", "")
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-
-	waiting := s.waiting()
-	require.Len(t, waiting, 1)
-	assert.Equal(t, "Fix checks", waiting[0].Kind)
-}
-
-// The run it waited behind may have fixed them, so it reads them again.
-func TestAQueuedInvestigationIsDroppedWhenNothingIsFailing(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 7, Checks: []ghpr.Check{{Name: "test", Bucket: "fail"}}})
-
-	_, ok := s.agent.begin(s.ctx, kindChat)
-	require.True(t, ok)
-	rec := do(t, s, "POST", "/api/checks/fix", "")
-	require.Equal(t, http.StatusAccepted, rec.Code)
-
-	s.setBranchPR(&BranchPR{Number: 7, Checks: []ghpr.Check{{Name: "test", Bucket: "pass"}}})
-	s.agent.finish(nil)
-	s.drain()
-
-	assert.Empty(t, s.waiting(), "it was taken off the queue")
-	assert.False(t, s.agent.State().Running, "and nothing was started for it")
 }

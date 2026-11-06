@@ -114,53 +114,6 @@ func TestTheSettingsPanelSavesDashboardDetailsWithoutClearingOtherSettings(t *te
 	assert.Equal(t, "short", cfg.Instructions)
 }
 
-func TestRolesCanBeManagedAndSelected(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	api := &API{}
-
-	rec := roleRequest(t, api, http.MethodPost, "/api/roles", `{"name":"oss-dev","prompt":"Keep it small."}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	rec = roleRequest(t, api, http.MethodPost, "/api/roles", `{"name":"oss-dev","prompt":"Overwrite it."}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	rec = roleRequest(t, api, http.MethodPost, "/api/roles", `{"name":"oss-dev","existingName":"oss-dev","prompt":"Updated."}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	rec = roleRequest(t, api, http.MethodPut, "/api/roles/default", `{"name":"oss-dev"}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	var view struct {
-		Default string `json:"default"`
-		Roles   []struct {
-			Name string `json:"name"`
-		} `json:"roles"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Equal(t, "oss-dev", view.Default)
-	assert.Equal(t, "oss-dev", view.Roles[0].Name)
-
-	rec = roleRequest(t, api, http.MethodDelete, "/api/roles/oss-dev", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Empty(t, view.Default)
-	assert.Empty(t, view.Roles)
-}
-
-func roleRequest(t *testing.T, api *API, method, path, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	if method == http.MethodDelete {
-		req.SetPathValue("name", "oss-dev")
-	}
-	rec := httptest.NewRecorder()
-	switch method {
-	case http.MethodPost:
-		api.HandleSaveRole(rec, req)
-	case http.MethodPut:
-		api.HandleDefaultRole(rec, req)
-	default:
-		api.HandleDeleteRole(rec, req)
-	}
-	return rec
-}
-
 // put saves settings and hands back the response.
 func put(t *testing.T, api *API, body string) *httptest.ResponseRecorder {
 	t.Helper()

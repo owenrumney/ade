@@ -17,9 +17,6 @@ import (
 	"github.com/owenrumney/ade/internal/agents"
 	"github.com/owenrumney/ade/internal/homeassistant"
 	"github.com/owenrumney/ade/internal/models"
-	"github.com/owenrumney/ade/internal/preview"
-	"github.com/owenrumney/ade/internal/roles"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/settings"
 )
 
@@ -53,10 +50,6 @@ func (a *API) Mount(mux *http.ServeMux, guard func(http.HandlerFunc) http.Handle
 	mux.HandleFunc("GET /api/settings/notify-targets", guard(a.HandleNotifyTargets))
 	mux.HandleFunc("GET /api/models", guard(a.HandleModels))
 	mux.HandleFunc("POST /api/models/sync", guard(a.HandleSyncModels))
-	mux.HandleFunc("GET /api/roles", guard(a.HandleRoles))
-	mux.HandleFunc("POST /api/roles", guard(a.HandleSaveRole))
-	mux.HandleFunc("PUT /api/roles/default", guard(a.HandleDefaultRole))
-	mux.HandleFunc("DELETE /api/roles/{name}", guard(a.HandleDeleteRole))
 	mux.HandleFunc("GET /api/settings/agents", guard(a.HandleUserAgents))
 	mux.HandleFunc("PUT /api/settings/agents/{name}", guard(a.HandleSaveUserAgent))
 	mux.HandleFunc("POST /api/settings/agents/{name}/install", guard(a.HandleInstallUserAgent))
@@ -131,16 +124,6 @@ type View struct {
 	// Hosts are the machines ade will run on over ssh. Names, not credentials.
 	Hosts []settings.Host `json:"hosts"`
 
-	// SandboxPaths and SandboxEnv are what every container gets. Sent whole,
-	// like the per-repository sandbox: a variable here is not a secret store.
-	SandboxPaths []sandbox.Path    `json:"sandboxPaths"`
-	SandboxEnv   map[string]string `json:"sandboxEnv"`
-
-	// Where ade looks for a running app to capture after visual work, and the
-	// switch that turns capture off for every repository.
-	PreviewURL string `json:"previewUrl"`
-	PreviewOff bool   `json:"previewOff"`
-
 	// SharpenOff stops the pre-send questions about a vague prompt.
 	SharpenOff bool `json:"sharpenOff"`
 	// CleanseOff stops the agent's replies being rewritten short.
@@ -198,14 +181,9 @@ func (a *API) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		DeepBackground *bool              `json:"deepBackground"`
 		Colors         *map[string]string `json:"colors"`
 
-		SandboxPaths []sandbox.Path    `json:"sandboxPaths"`
-		SandboxEnv   map[string]string `json:"sandboxEnv"`
-
-		PreviewURL     string `json:"previewUrl"`
-		PreviewOff     bool   `json:"previewOff"`
-		SharpenOff     bool   `json:"sharpenOff"`
-		CleanseOff     bool   `json:"cleanseOff"`
-		MergeQueuedOff bool   `json:"mergeQueuedOff"`
+		SharpenOff     bool `json:"sharpenOff"`
+		CleanseOff     bool `json:"cleanseOff"`
+		MergeQueuedOff bool `json:"mergeQueuedOff"`
 
 		// A pointer, so a page that does not send the field leaves it alone
 		// rather than clearing it.
@@ -286,26 +264,6 @@ func (a *API) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			into.Colors = colors
 		}
 
-		hostHome, err := os.UserHomeDir()
-		if err != nil {
-			return refuse(http.StatusInternalServerError, err.Error())
-		}
-		// The page was given a marker for every secret, not the value.
-		env, err := sandbox.RestoreEnv(req.SandboxEnv, into.Sandbox.Env)
-		if err != nil {
-			return refuse(http.StatusBadRequest, err.Error())
-		}
-		box, err := sandbox.CheckWorkspace(hostHome, sandbox.Workspace{Paths: req.SandboxPaths, Env: env})
-		if err != nil {
-			return refuse(http.StatusBadRequest, err.Error())
-		}
-		into.Sandbox = box
-
-		shot, err := preview.ValidURL(req.PreviewURL)
-		if err != nil {
-			return refuse(http.StatusBadRequest, err.Error())
-		}
-		into.Preview = settings.Preview{URL: shot, Off: req.PreviewOff}
 		into.SharpenOff = req.SharpenOff
 		into.CleanseOff = req.CleanseOff
 		into.MergeQueuedOff = req.MergeQueuedOff
@@ -338,8 +296,6 @@ func (a *API) HandlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		HomeAssistantURL    string   `json:"homeAssistantUrl"`
 		HomeAssistantDesk   string   `json:"homeAssistantDesk"`
 		HomeAssistantNotify string   `json:"homeAssistantNotify"`
-		PreviewURL          string   `json:"previewUrl"`
-		PreviewOff          bool     `json:"previewOff"`
 		SharpenOff          bool     `json:"sharpenOff"`
 		CleanseOff          bool     `json:"cleanseOff"`
 		MergeQueuedOff      bool     `json:"mergeQueuedOff"`
@@ -379,11 +335,6 @@ func (a *API) HandlePatchSettings(w http.ResponseWriter, r *http.Request) {
 			return refuse(http.StatusBadRequest, err.Error())
 		}
 		into.HomeAssistant = home
-		preview, err := preview.ValidURL(req.PreviewURL)
-		if err != nil {
-			return refuse(http.StatusBadRequest, err.Error())
-		}
-		into.Preview = settings.Preview{URL: preview, Off: req.PreviewOff}
 		into.SharpenOff = req.SharpenOff
 		into.CleanseOff = req.CleanseOff
 		into.MergeQueuedOff = req.MergeQueuedOff
@@ -419,18 +370,10 @@ func ViewOf(cfg settings.Settings, path string) View {
 		Hosts: cfg.Hosts, Palette: settings.PaletteID(cfg.Palette),
 		DeepBackground: settings.DeepFor(cfg.Palette, cfg.DeepBackground),
 		Colors:         settings.SafeColors(cfg.Colors),
-		SandboxPaths:   cfg.Sandbox.Paths, SandboxEnv: sandbox.RedactEnv(cfg.Sandbox.Env),
-		PreviewURL: cfg.Preview.URL, PreviewOff: cfg.Preview.Off,
 		SharpenOff:     cfg.SharpenOff,
 		CleanseOff:     cfg.CleanseOff,
 		MergeQueuedOff: cfg.MergeQueuedOff,
 		Instructions:   cfg.Instructions, InstructionsMaxLength: settings.MaxInstructions,
-	}
-	if view.SandboxPaths == nil {
-		view.SandboxPaths = []sandbox.Path{}
-	}
-	if view.SandboxEnv == nil {
-		view.SandboxEnv = map[string]string{}
 	}
 	if view.Hosts == nil {
 		view.Hosts = []settings.Host{}
@@ -556,63 +499,6 @@ func (a *API) HandleSyncModels(w http.ResponseWriter, r *http.Request) {
 		go a.Synced()
 	}
 	writeJSON(w, http.StatusOK, got)
-}
-
-func (a *API) HandleRoles(w http.ResponseWriter, _ *http.Request) {
-	view, err := roles.ViewOf()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, view)
-}
-
-func (a *API) HandleSaveRole(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		roles.Role
-		ExistingName string `json:"existingName"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-	var err error
-	if strings.TrimSpace(req.ExistingName) == "" {
-		err = roles.Create(req.Name, req.Prompt, req.Model)
-	} else if req.ExistingName == req.Name {
-		err = roles.Save(req.Name, req.Prompt, req.Model)
-	} else {
-		err = fmt.Errorf("a role cannot be renamed; create a new one instead")
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a.changed()
-	a.HandleRoles(w, r)
-}
-
-func (a *API) HandleDefaultRole(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-	if err := roles.SetDefault(req.Name); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a.changed()
-	a.HandleRoles(w, r)
-}
-
-func (a *API) HandleDeleteRole(w http.ResponseWriter, r *http.Request) {
-	if err := roles.Delete(r.PathValue("name")); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a.changed()
-	a.HandleRoles(w, r)
 }
 
 // HandleUserAgents is ~/.claude/agents on the machine this server runs on:

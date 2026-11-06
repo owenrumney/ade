@@ -110,12 +110,9 @@ func TestAFailedLinearReadNeverForgetsTheEstimatesAlreadyHeld(t *testing.T) {
 	assert.Contains(t, back.Report, "**2–4h**")
 }
 
-func TestTheBuiltInMyDayJobFiresOnWeekdayMornings(t *testing.T) {
+func TestTheBuiltInMyDayJobIsFiredByHand(t *testing.T) {
 	job := MyDayJob()
 	assert.Equal(t, KindMyDay, job.Kind)
 	assert.Equal(t, Reads, job.Allow)
-
-	// Friday 08:00 to Monday 08:00: the weekend windows are not fired.
-	friday := time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC)
-	assert.Equal(t, time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC), job.Every.Next(friday))
+	assert.Equal(t, Manual, job.Schedule, "no clock fires it")
 }

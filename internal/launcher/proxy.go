@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/owenrumney/ade/internal/httpx"
@@ -62,12 +63,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	dir, port, ok := s.sessionServer(r.Context(), id)
 	if !ok {
-		// Not here: it may be a conversation on a machine this one is
-		// connected to, which has a launcher and a proxy of its own.
-		if away, path, token, found := s.sessionAway(r.Context(), id); found {
-			s.relay(w, r, away, path+id+rest, prefix, token)
-			return
-		}
 		writeError(w, http.StatusNotFound, "no ade is serving that session")
 		return
 	}
@@ -119,34 +114,6 @@ func (s *Server) relay(
 					"Stop ade here, or stop and put it away")
 		},
 	}).ServeHTTP(w, r)
-}
-
-// sessionAway finds the machine holding a conversation: its launcher
-// has the same proxy at the same path. Read off the sweep, not dialled.
-func (s *Server) sessionAway(
-	ctx context.Context,
-	id string,
-) (target *url.URL, path, token string, ok bool) {
-	for _, machine := range s.hostRepos(ctx) {
-		for _, repo := range machine.Repos {
-			for _, checkout := range repo.Checkouts {
-				if _, found := sessions.Find(checkout.Sessions, checkout.Path, id); !found {
-					continue
-				}
-				live := s.connection(machine.Machine)
-				if live == nil {
-					return nil, "", "", false
-				}
-				at, err := url.Parse(live.url)
-				if err != nil {
-					return nil, "", "", false
-				}
-				return &url.URL{Scheme: at.Scheme, Host: at.Host},
-					proxyPath, at.Query().Get("t"), true
-			}
-		}
-	}
-	return nil, "", "", false
 }
 
 func (s *Server) handleProxyRoot(w http.ResponseWriter, r *http.Request) {
@@ -348,4 +315,60 @@ func reprefix(res *http.Response, prefix string) error {
 func readAll(res *http.Response) ([]byte, error) {
 	defer func() { _ = res.Body.Close() }()
 	return io.ReadAll(res.Body)
+}
+
+// servingPorts is the port each checkout's ade answers on, by checkout path.
+func (s *Server) servingPorts(ctx context.Context) map[string]int {
+	found := map[string]int{}
+	repos, err := s.repos()
+	if err != nil {
+		return found
+	}
+
+	probe := s.probe
+	if probe == nil {
+		probe = session.Probe
+	}
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+	for _, repo := range repos {
+		for _, dir := range repo.Checkouts {
+			rec, ok := session.Read(session.Path(sessions.GitDir(dir.Path)))
+			if !ok {
+				continue
+			}
+			wg.Add(1)
+			go func(path string, rec *session.Record) {
+				defer wg.Done()
+				if _, live := probe(ctx, rec); !live {
+					return
+				}
+				port := portOf(rec.URL)
+				if port <= 0 {
+					return
+				}
+				mu.Lock()
+				found[path] = port
+				mu.Unlock()
+			}(dir.Path, rec)
+		}
+	}
+	wg.Wait()
+	return found
+}
+
+// portOf reads the port out of a recorded URL.
+func portOf(recURL string) int {
+	parsed, err := url.Parse(recURL)
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		return 0
+	}
+	return port
 }

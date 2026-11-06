@@ -89,39 +89,6 @@ func TestOpeningIsLimitedToCheckoutsThatWereFound(t *testing.T) {
 	}
 }
 
-func TestDeletingSessionsTakesThemOutOfTheLists(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	require.NoError(t, settings.SetArchived("old-two", true))
-
-	rec := do(t, s, "POST", "/api/sessions/delete", `{"ids":["old-one","old-two"]}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var res struct{ Removed int }
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-	assert.Equal(t, 2, res.Removed)
-
-	hidden := settings.Hidden()
-	assert.True(t, hidden["old-one"])
-	assert.True(t, hidden["old-two"])
-	assert.Empty(t, settings.Archived(), "a deleted session is not left in the archive")
-}
-
-func TestDeletingNoSessionsIsAMistake(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	assert.Equal(t, http.StatusBadRequest, do(t, s, "POST", "/api/sessions/delete", `{"ids":[]}`).Code)
-}
-
-func TestSessionGroupActionsRejectUnknownGroupsAndSuggestions(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-
-	assert.Equal(t, http.StatusBadRequest,
-		do(t, s, "POST", "/api/sessions/uncombine", `{"id":"nope"}`).Code)
-	assert.Equal(t, http.StatusBadRequest,
-		do(t, s, "POST", "/api/sessions/suggestion/dismiss", `{"dir":"/nope","fingerprint":"old"}`).Code)
-}
-
 func TestExitCanDeleteTheSessionOnTheWayOut(t *testing.T) {
 	s := newTestServer(t)
 	t.Setenv("HOME", t.TempDir())

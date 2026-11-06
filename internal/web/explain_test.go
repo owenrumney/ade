@@ -2,73 +2,44 @@ package web
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/owenrumney/ade/internal/agents"
-	"github.com/owenrumney/ade/internal/chat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
-func TestExplainIsASideRunAndFilesNothing(t *testing.T) {
+func TestExplainingTheChangeWritesTheDiffAndTypesOneLineAtTheAgent(t *testing.T) {
+	fakeAgent(t)
 	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	s.agent.bin = filepath.Join(t.TempDir(), "no-such-claude")
+	t.Cleanup(s.closeTerminal)
 
-	rec := do(t, s, "POST", "/api/explain", `{}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "no agent called @eli5")
+	rec := do(t, s, "POST", "/api/agent/explain", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	defineUserAgent(t, "eli5", "---\nname: eli5\nreviews: false\n---\nkeep it simple\n")
-	rec = do(t, s, "POST", "/api/explain", `{}`)
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), `"agent":"eli5"`)
+	path := filepath.Join(s.ws.gitDir, "ade", changeFile)
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "a.go", "the rendered diff names its files")
 
-	yours := messagesOfKind(s.conversation(), chat.KindYou)
-	require.Len(t, yours, 1)
-	assert.Equal(t, "@eli5 explain the diff (1 files)", yours[0].Body)
-	// A side run, so the main agent is free.
-	assert.False(t, s.agent.State().Running)
-	assert.Eventually(t, func() bool { return len(s.sideRuns()) == 0 }, 5e9, 1e7)
+	got := seen(t, s.agentTerm(), "Mermaid flowchart")
+	assert.Contains(t, got, "Explain this change as a Claude artifact")
+	assert.Contains(t, got, changeFile)
+	assert.Contains(t, got, "Paste the link here")
 }
 
-func TestAnAgentThatDoesNotReviewIsNotAReviewer(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	s.agent.bin = filepath.Join(t.TempDir(), "no-such-claude")
-	defineUserAgent(t, "eli5", "---\nname: eli5\nreviews: false\n---\nkeep it simple\n")
-	defineUserAgent(t, "security", "---\nname: security\n---\ntrust nothing\n")
+func TestTheExplainAskNamesTheFileTheScopeAndThePullRequest(t *testing.T) {
+	branch := explainAsk("/x/change.diff", gitdiff.ScopeBranch, "main", "https://github.com/o/r/pull/7")
+	assert.Contains(t, branch, "this branch against main is already in /x/change.diff")
+	assert.Contains(t, branch, "The pull request is https://github.com/o/r/pull/7.")
+	assert.Contains(t, branch, "rather than re-running git")
 
-	rec := do(t, s, "POST", "/api/review", `{"agents":["security","eli5"]}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "@eli5 does not review changes")
-	// All or nothing, as with an unknown name: neither of them ran.
-	assert.Empty(t, messagesOfKind(s.conversation(), chat.KindYou))
-}
+	change := explainAsk("/x/change.diff", gitdiff.ScopeUncommitted, "main", "")
+	assert.Contains(t, change, "the uncommitted change is already in")
+	assert.NotContains(t, change, "pull request")
 
-// A non-reviewer's ade-finding block is not a comment on the diff, however it
-// came by one.
-func TestTheFilerIsOffForAnAgentThatDoesNotReview(t *testing.T) {
-	s := newTestServer(t)
-	t.Setenv("HOME", t.TempDir())
-	defineUserAgent(t, "eli5", "---\nname: eli5\nreviews: false\n---\nkeep it simple\n")
-	defineUserAgent(t, "security", "---\nname: security\n---\ntrust nothing\n")
-
-	block := "```ade-finding\n" +
-		`{"file": "a.go", "line": 3, "category": "correctness", "severity": "high", "headline": "The handler drops the error.", "summary": "it does"}` +
-		"\n```\n"
-
-	list := s.userAgentsList()
-	quiet, ok := agents.Find(list, "eli5")
-	require.True(t, ok)
-	f := s.newFiler(quiet, "", "", false)
-	f.push(block)
-	assert.Empty(t, s.space().store.List())
-
-	loud, ok := agents.Find(list, "security")
-	require.True(t, ok)
-	f = s.newFiler(loud, "", "", false)
-	f.push(block)
-	assert.NotEmpty(t, s.space().store.List())
+	assert.Contains(t, explainAsk("/x/c", gitdiff.ScopeBranch, "", ""), "against its base")
 }

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/provision"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/statedir"
 )
@@ -194,25 +193,6 @@ func Remove(ctx context.Context, root string, wt Worktree) error {
 		return err
 	}
 	return nil
-}
-
-// RemoveClone takes a worker's session clone away, and the session directory
-// around it: that directory holds this checkout and nothing else.
-func RemoveClone(ctx context.Context, wt Worktree) error {
-	owned, ok := provision.OwnedDir(wt.Path)
-	if !ok {
-		return fmt.Errorf("%s is not a session clone", wt.Path)
-	}
-	if wt.Serving != "" {
-		return fmt.Errorf("ade is serving %s on %s", wt.Path, wt.Serving)
-	}
-	if !wt.Removable {
-		return fmt.Errorf("%s is kept: %s", wt.Path, wt.Keep)
-	}
-	if gitDir, err := gitdiff.GitDir(ctx, wt.Path); err == nil {
-		_, _ = session.Stop(session.Path(gitDir), 5*time.Second)
-	}
-	return os.RemoveAll(owned)
 }
 
 // underneath is whether path is inside dir, by what both resolve to.

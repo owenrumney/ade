@@ -1,7 +1,6 @@
 package jobs
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/owenrumney/ade/internal/memory"
 	"github.com/owenrumney/ade/internal/settings"
 )
 
@@ -83,47 +81,24 @@ func (s State) Last() (Outcome, bool) {
 	return s.Outcomes[0], true
 }
 
-// stateDir is where a job's state lives: beside its project's memory, or under
-// ade's own state for a job that belongs to no project.
-func stateDir(project string) (string, error) {
-	if project == "" {
-		dir, err := settings.Dir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(dir, "job-state"), nil
-	}
-	root, err := memory.Root()
+func stateDir() (string, error) {
+	dir, err := settings.Dir()
 	if err != nil {
 		return "", err
 	}
-	slug := memory.Slug(project)
-	if slug == "" {
-		return "", fmt.Errorf("project %q has no store name", project)
-	}
-	return filepath.Join(root, slug, "jobs"), nil
+	return filepath.Join(dir, "job-state"), nil
 }
 
 // StatePath is the file one job's state is kept in.
 func StatePath(job Job) (string, error) {
-	dir, err := stateDir(job.Project)
+	dir, err := stateDir()
 	if err != nil {
 		return "", err
 	}
 	if !nameRE.MatchString(job.Name) {
 		return "", fmt.Errorf("job name %q", job.Name)
 	}
-	return filepath.Join(dir, stateFile(job)), nil
-}
-
-// stateFile keys a repository job that names no project by where it was read
-// from, so the same name in two checkouts is two jobs rather than one.
-func stateFile(job Job) string {
-	if job.Project != "" || job.Scope != ScopeRepo {
-		return job.Name + ".json"
-	}
-	sum := sha256.Sum256([]byte(filepath.Dir(job.Path)))
-	return fmt.Sprintf("%s-%x.json", job.Name, sum[:4])
+	return filepath.Join(dir, job.Name+".json"), nil
 }
 
 // ReadState is a job's record, or an empty one for a job that has never fired.
@@ -142,13 +117,6 @@ func ReadState(job Job) State {
 	}
 	out.Name = job.Name
 	return out
-}
-
-// WriteState replaces a job's record.
-func WriteState(job Job, state State) error {
-	writeMu.Lock()
-	defer writeMu.Unlock()
-	return writeState(job, state)
 }
 
 // writeState is WriteState with the lock already held.
@@ -200,13 +168,10 @@ func MarkSeen(job Job, firedAt time.Time) (State, error) {
 	})
 }
 
-// SetPaused stops a job firing, or starts it again. A resumed job's next fire
-// is computed from now, so a pause is not a queue of missed windows.
-func SetPaused(job Job, paused bool, now time.Time) (State, error) {
+// Record folds an outcome into a job's state, newest first.
+func Record(job Job, out Outcome) (State, error) {
 	return Update(job, func(state *State) {
-		state.Paused = paused
-		if !paused {
-			state.NextDue = job.Every.Next(now)
-		}
+		state.Outcomes = append([]Outcome{out}, state.Outcomes...)
+		state.LastFired = out.FiredAt
 	})
 }

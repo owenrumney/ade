@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Comment, Thread } from "./client";
+import type { Said as Comment, Thread } from "../renderer/changes";
 import { answerable, pending, replyable } from "./replies";
 
 const said = (author: string, more: Partial<Comment> = {}): Comment => ({

@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/comments"
+	"github.com/owenrumney/ade/internal/oneshot"
 	"github.com/owenrumney/ade/internal/prompt"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
@@ -61,7 +61,8 @@ the repository for context, but do not edit anything.
 
 Report each finding against the new-file line number shown in the left column,
 and give each one a severity of critical, high, medium or low, so the reader
-knows what to look at first.
+knows what to look at first. Only the lines the diff adds or changes are under
+review: a point about code the change did not write is not filed.
 
 `+HeadlineRule+`
 
@@ -191,13 +192,13 @@ func Relative(findings []Finding, root string) []Finding {
 // call and falling back to a fenced JSON block in the reply text. The bool
 // reports whether a structured payload was found at all, which is what tells a
 // deliberate "no findings" apart from a reply we could not read.
-func ParseTurn(turn *bridge.Turn) ([]Finding, bool, error) {
+func ParseTurn(turn *oneshot.Turn) ([]Finding, bool, error) {
 	if turn == nil {
 		return nil, false, fmt.Errorf("no review turn")
 	}
 	// Opportunistic: a future Claude Code may surface the tool call to us, which
 	// is better structured than the text block we otherwise have to parse.
-	if input, ok := bridge.FindToolUse(turn.Events, reportTool); ok {
+	if input, ok := oneshot.FindToolUse(turn.Events, reportTool); ok {
 		if findings, err := decodeReport(input); err == nil {
 			return valid(findings), true, nil
 		}

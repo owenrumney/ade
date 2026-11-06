@@ -58,7 +58,7 @@ func TestTheGraphShowsLiveServersAndTheirAgents(t *testing.T) {
 		probed++
 		assert.Equal(t, 4242, rec.PID)
 		return session.Health{Ade: true, Branch: "feat/x", Agent: &session.AgentHealth{
-			Running: true, Kind: "chat", Model: "opus", SideRuns: []session.AgentSide{{ID: "r1", Name: "security"}, {ID: "r2", Name: "tester"}},
+			Running: true, Kind: "chat", Model: "opus", SideRuns: []string{"security", "tester"},
 		}}, true
 	}
 	graph := Graph(context.Background(), repos, live)
@@ -74,7 +74,7 @@ func TestTheGraphShowsLiveServersAndTheirAgents(t *testing.T) {
 	assert.True(t, first.Here)
 	require.NotNil(t, first.Server.Agent)
 	assert.True(t, first.Server.Agent.Running)
-	assert.Equal(t, []session.AgentSide{{ID: "r1", Name: "security"}, {ID: "r2", Name: "tester"}}, first.Server.Agent.SideRuns)
+	assert.Equal(t, []string{"security", "tester"}, first.Server.Agent.SideRuns)
 
 	second := graph[0].Checkouts[1]
 	assert.Nil(t, second.Server, "no record, no server, still drawn")

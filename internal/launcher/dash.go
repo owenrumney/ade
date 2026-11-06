@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/ghpr"
-	"github.com/owenrumney/ade/internal/limits"
 )
 
 // decodeJSON reads a request body, or says so.
@@ -191,49 +189,4 @@ func (s *Server) watchDash(ctx context.Context) {
 			s.board.Refresh(ctx)
 		}
 	}
-}
-
-// handleLimits is the plan usage, as a checkout's server reports it.
-func (s *Server) handleLimits(w http.ResponseWriter, _ *http.Request) {
-	// The launcher's context: the reading this may start outlives the response.
-	writeJSON(w, http.StatusOK, s.limits.Snapshot(s.ctx))
-}
-
-// limitsInterval is how often usage is read again, for an unwatched screen.
-const limitsInterval = 2 * time.Minute
-
-// watchLimits keeps usage current, so the page needs no timer of its own.
-func (s *Server) watchLimits(ctx context.Context) {
-	ticker := time.NewTicker(limitsInterval)
-	defer ticker.Stop()
-	last := ""
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if s.hub.Clients() == 0 {
-				continue
-			}
-			if now := limitsKey(s.limits.Snapshot(ctx)); now != last {
-				last = now
-				s.hub.Broadcast("limits", nil)
-			}
-		}
-	}
-}
-
-// limitsKey is a reading as one string, so an unchanged one is not broadcast.
-func limitsKey(state limits.State) string {
-	var b strings.Builder
-	for _, l := range []*limits.Limits{state.Claude, state.Codex} {
-		if l == nil {
-			continue
-		}
-		fmt.Fprintf(&b, "%s:", l.Provider)
-		for _, w := range l.Windows {
-			fmt.Fprintf(&b, "%s=%.1f@%d,", w.Name, w.Percent, w.ResetsAt.Unix())
-		}
-	}
-	return b.String()
 }

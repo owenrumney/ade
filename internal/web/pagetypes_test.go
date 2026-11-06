@@ -10,72 +10,42 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/dash"
-	"github.com/owenrumney/ade/internal/estimate"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/lineage"
 	"github.com/owenrumney/ade/internal/linear"
-	"github.com/owenrumney/ade/internal/overlap"
-	"github.com/owenrumney/ade/internal/worktrees"
 )
 
-// pageClient is the window's hand-written mirror of what /api/state
-// answers. A field renamed here and not there is a surface that silently
-// reads undefined for ever: `branchPr` was typed `branchPR` and every pull
-// request command said the branch had none.
-const pageClient = "../../app/pages/client.ts"
+// The window's hand-written mirrors of what this server answers. A field
+// renamed here and not there reads undefined for ever, and says nothing.
+const (
+	windowChanges = "../../app/renderer/changes.ts"
+	windowRail    = "../../app/renderer/real.ts"
+)
 
-// The window decodes only part of the state, so this checks one direction:
-// every field the window names must exist on the Go struct with that exact
-// JSON tag. What it ignores is its business.
-func TestTheExtensionNamesFieldsTheServerActuallySends(t *testing.T) {
-	src := readClient(t)
-
+// One direction only: every field the window names must exist on the Go
+// struct with that exact JSON tag. What it ignores is its business.
+func TestTheWindowNamesFieldsTheServerActuallySends(t *testing.T) {
 	for _, c := range []struct {
 		iface string
+		file  string
 		of    any
 	}{
-		{"State", stateResponse{}},
-		{"Meta", meta{}},
-		{"RunState", RunState{}},
-		{"BranchPR", BranchPR{}},
-		{"CommitDraft", CommitDraft{}},
-		{"DesignState", DesignState{}},
-		{"Estimate", estimate.Estimate{}},
-		{"Window", estimate.Window{}},
-		{"Diff", gitdiff.Diff{}},
-		{"DiffFile", gitdiff.File{}},
-		{"Worktree", gitdiff.Status{}},
-		{"Change", gitdiff.Change{}},
-		{"Thread", comments.Thread{}},
-		{"Comment", comments.Comment{}},
-		{"Tree", worktrees.Worktree{}},
-		{"Rev", gitdiff.Rev{}},
-		{"OverlapNode", overlap.Node{}},
-		{"OverlapEdge", overlap.Edge{}},
-		{"Overlap", overlap.Graph{}},
-		{"Turn", lineage.Turn{}},
-		{"Issue", linear.Issue{}},
-		{"Tickets", dash.Tickets{}},
-		{"Listed", ghpr.Listed{}},
-		{"Check", ghpr.Check{}},
+		{"Diff", windowChanges, gitdiff.Diff{}},
+		{"Change", windowChanges, gitdiff.File{}},
+		{"Thread", windowChanges, comments.Thread{}},
+		{"Listed", windowRail, ghpr.Listed{}},
+		{"Issue", windowRail, linear.Issue{}},
 	} {
 		t.Run(c.iface, func(t *testing.T) {
+			data, err := os.ReadFile(c.file) // #nosec G304 -- a path in this repository
+			require.NoError(t, err, "the window's own file is missing")
 			sent := tagsOf(reflect.TypeOf(c.of))
-			for _, named := range fieldsIn(t, src, c.iface) {
+			for _, named := range fieldsIn(t, string(data), c.iface) {
 				assert.Contains(t, sent, named,
 					"%s.%s is not a field %T sends", c.iface, named, c.of)
 			}
 		})
 	}
-}
-
-func readClient(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile(pageClient) // #nosec G304 -- a path in this repository
-	require.NoError(t, err, "the window's client is missing")
-	return string(data)
 }
 
 // fieldsIn is the property names of one exported interface, which is enough
@@ -85,7 +55,7 @@ func fieldsIn(t *testing.T, src, name string) []string {
 	// An interface may extend another, and the fields it inherits are checked
 	// under that one's own name: the opening line is matched up to the brace.
 	start := strings.Index(src, "export interface "+name+" ")
-	require.GreaterOrEqual(t, start, 0, "no interface %s in %s", name, pageClient)
+	require.GreaterOrEqual(t, start, 0, "no interface %s in the window", name)
 	body := src[start:]
 	body = body[:strings.Index(body, "\n}")]
 	brace := strings.Index(body, "{")

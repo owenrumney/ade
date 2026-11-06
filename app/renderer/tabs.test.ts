@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  AGENT,
+  DIFF,
+  SHELL,
+  SHOTS,
+  agentTab,
+  diffTab,
   dismissable,
   newSessionPanel,
   held,
@@ -12,9 +18,12 @@ import {
   moved,
   opened,
   rebuilt,
+  seated,
   settled,
+  shellTab,
   shut,
   shutMany,
+  standing,
   startIn,
   sweeping,
   trimmed,
@@ -24,15 +33,18 @@ import {
 const tab = (id: string): Tab => ({ id, title: id, icon: "file", what: { kind: "none" } });
 
 describe("what a tab is named by", () => {
-  it("is what it holds, so the same file is the same tab", () => {
-    expect(idOf({ kind: "code", title: "a/b.go", source: "" })).toBe("code:a/b.go");
-    expect(idOf({ panel: "ade.openChat" })).toBe("panel:ade.openChat");
-    expect(idOf({ kind: "term", title: "Terminal" })).toBe("term");
+  it("is what it holds, so the same thing is the same tab", () => {
+    expect(idOf({ panel: "ade.newSession" })).toBe("panel:ade.newSession");
+    expect(idOf({ kind: "term", title: "Shell" })).toBe(SHELL);
+    expect(idOf({ kind: "agent", title: "Agent" })).toBe(AGENT);
+    expect(idOf({ kind: "doc", title: "My Day", body: "" })).toBe("doc:My Day");
   });
 
-  it("names a diff by its file, whichever title it was given", () => {
+  // One Diff tab: the file it shows changes, the tab does not.
+  it("names every diff the same, whichever file it shows", () => {
     const file = { path: "x.go", status: "modified", binary: false, additions: 1, deletions: 0 };
-    expect(idOf({ kind: "hunks", title: "anything", file })).toBe("hunks:x.go");
+    expect(idOf({ kind: "hunks", title: "anything", file })).toBe(DIFF);
+    expect(idOf({ kind: "diff", title: "Diff" })).toBe(DIFF);
   });
 });
 
@@ -130,8 +142,8 @@ describe("a pane that may not be rebuilt", () => {
   // An iframe reloads when it is moved and a terminal reconnects, so
   // those stay in the page and are hidden instead.
   it("is a panel or the terminal", () => {
-    expect(live({ ...tab("x"), what: { panel: "ade.openChat" } })).toBe(true);
-    expect(live({ ...tab("x"), what: { kind: "term", title: "Terminal" } })).toBe(true);
+    expect(live({ ...tab("x"), what: { panel: "ade.newSession" } })).toBe(true);
+    expect(live({ ...tab("x"), what: { kind: "term", title: "Shell" } })).toBe(true);
     expect(live({ ...tab("x"), what: { kind: "doc", title: "d", body: "" } })).toBe(false);
   });
 });
@@ -144,22 +156,16 @@ describe("what is showing", () => {
 });
 
 describe("what is picked up again next time", () => {
-  const file: Tab = {
-    id: "code:a/b.go",
-    title: "b.go",
-    icon: "file",
-    what: { kind: "code", title: "a/b.go", source: "x" },
-  };
-  const chat: Tab = { id: "panel:ade.openChat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
-  const panel: Tab = { id: "panel:ade.worktrees", title: "Worktrees", icon: "branch", what: { panel: "ade.worktrees" } };
+  const panel: Tab = { id: "panel:ade.newSession", title: "New session", icon: "session", what: { panel: "ade.newSession" } };
   const doc: Tab = { id: "doc:#412", title: "#412", icon: "pr", what: { kind: "doc", title: "#412", body: "..." } };
 
-  it("is a tab the window can open from its id alone", () => {
-    expect(keepable([file, panel, doc])).toEqual(["code:a/b.go", "panel:ade.worktrees"]);
+  it("is a panel, which opens again from its id alone", () => {
+    expect(keepable([panel, doc])).toEqual(["panel:ade.newSession"]);
   });
 
-  it("leaves out the chat, which is the dock and not a tab", () => {
-    expect(keepable([file, chat])).toEqual(["code:a/b.go"]);
+  // Kept so the half each of the three was in comes back with it.
+  it("is the three every session has", () => {
+    expect(keepable([agentTab(), diffTab(), shellTab(), doc])).toEqual([AGENT, DIFF, SHELL]);
   });
 
   it("leaves out a document that came from a one-off read", () => {
@@ -212,28 +218,27 @@ describe("what Escape closes", () => {
   const of = (what: Tab["what"]): Tab => ({ id: idOf(what), title: "t", icon: "file", what });
 
   it("leaves a terminal alone, because vim reads the key", () => {
-    expect(dismissable(of({ kind: "term", title: "Terminal" }))).toBe(false);
+    expect(dismissable(of({ kind: "term", title: "Shell" }))).toBe(false);
   });
 
   it("leaves a panel to close itself, and has nothing to close with no tab", () => {
-    expect(dismissable(of({ panel: "ade.openChat" }))).toBe(false);
+    expect(dismissable(of({ panel: "ade.newSession" }))).toBe(false);
     expect(dismissable(undefined)).toBe(false);
   });
 
   it("closes a tab the window draws", () => {
-    expect(dismissable(of({ kind: "code", title: "a/b.go", source: "" }))).toBe(true);
+    expect(dismissable(of({ kind: "doc", title: "My Day", body: "" }))).toBe(true);
   });
 });
 
 describe("which panels hold the New session screen", () => {
-  it("knows all three", () => {
+  it("knows the plain one and the one seeded from a space", () => {
     expect(newSessionPanel("ade.newSession")).toBe(true);
-    expect(newSessionPanel("todo:abc")).toBe(true);
     expect(newSessionPanel("in:/code/ade")).toBe(true);
   });
 
   it("does not claim another panel", () => {
-    for (const other of ["ade.openChat", "design:plan.md", "ade.worktrees", "spacedesign:/r|a.md"]) {
+    for (const other of ["ade.openSettings", "todo:abc", "design:plan.md"]) {
       expect(newSessionPanel(other), other).toBe(false);
     }
   });
@@ -247,7 +252,7 @@ describe("the repository a New session starts in", () => {
     what: {
       kind: "space",
       title: "o/r",
-      seen: { space: { repo: "o/r", path, sessions: 0, here: true }, sessions: [], designs: [] },
+      seen: { space: { repo: "o/r", path, sessions: 0, here: true }, sessions: [] },
     },
   });
 
@@ -309,5 +314,48 @@ describe("a tab drag outlives a redraw", () => {
 
   it("holds the strip still while a tab is being carried", () => {
     expect(src).toContain("if (!this.dragging) head.replaceChildren(...this.head())");
+  });
+});
+
+describe("the tabs every session has", () => {
+  it("are put first, in their order, in a layout that has none", () => {
+    expect(seated([tab("a")]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS, "a"]);
+    expect(seated([]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS]);
+  });
+
+  // The Diff holds a file: seating again must not put the placeholder back.
+  it("keep what each already holds", () => {
+    const file = { path: "x.go", status: "modified", binary: false, additions: 1, deletions: 0 };
+    const showing: Tab = { ...diffTab(), what: { kind: "hunks", title: "x.go", file } };
+    const out = seated([tab("a"), shellTab(), showing]);
+    expect(out.map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS, "a"]);
+    expect(out[1]).toBe(showing);
+  });
+
+  it("are not added twice", () => {
+    const once = seated([tab("a")]);
+    expect(seated(once).map((t) => t.id)).toEqual(once.map((t) => t.id));
+  });
+
+  it("are the only standing ones", () => {
+    for (const id of [AGENT, DIFF, SHELL]) expect(standing(id), id).toBe(true);
+    for (const id of ["panel:ade.newSession", "doc:My Day", "rules", ""]) expect(standing(id), id).toBe(false);
+  });
+
+  it("are named by what they hold", () => {
+    expect(idOf(agentTab().what)).toBe(AGENT);
+    expect(idOf(diffTab().what)).toBe(DIFF);
+    expect(idOf(shellTab().what)).toBe(SHELL);
+  });
+
+  it("are not closed by Escape", () => {
+    for (const one of [agentTab(), diffTab(), shellTab()]) expect(dismissable(one), one.id).toBe(false);
+  });
+
+  // The diff is drawn, so it can be rebuilt; the other two would reconnect.
+  it("hold a live thing when they are a terminal", () => {
+    expect(live(agentTab())).toBe(true);
+    expect(live(shellTab())).toBe(true);
+    expect(live(diffTab())).toBe(false);
   });
 });

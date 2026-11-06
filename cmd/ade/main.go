@@ -1,18 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -21,31 +19,20 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/owenrumney/ade/internal/render"
+	"github.com/owenrumney/ade/internal/runlog"
 	"github.com/owenrumney/ade/internal/window"
 
 	"github.com/owenrumney/ade/internal/agents"
-	"github.com/owenrumney/ade/internal/bridge"
 	"github.com/owenrumney/ade/internal/comments"
-	"github.com/owenrumney/ade/internal/docs"
-	"github.com/owenrumney/ade/internal/docsave"
-	"github.com/owenrumney/ade/internal/drift"
 	"github.com/owenrumney/ade/internal/fdlimit"
 	"github.com/owenrumney/ade/internal/ghpr"
 	"github.com/owenrumney/ade/internal/gitdiff"
-	"github.com/owenrumney/ade/internal/jobs"
 	"github.com/owenrumney/ade/internal/launcher"
-	"github.com/owenrumney/ade/internal/linear"
 	"github.com/owenrumney/ade/internal/logs"
 	"github.com/owenrumney/ade/internal/port"
-	"github.com/owenrumney/ade/internal/provision"
-	"github.com/owenrumney/ade/internal/roles"
-	"github.com/owenrumney/ade/internal/said"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/scratch"
 	"github.com/owenrumney/ade/internal/session"
 	"github.com/owenrumney/ade/internal/sessions"
-	adesettings "github.com/owenrumney/ade/internal/settings"
 	"github.com/owenrumney/ade/internal/skills"
 	"github.com/owenrumney/ade/internal/statedir"
 	"github.com/owenrumney/ade/internal/web"
@@ -145,37 +132,26 @@ func raiseFileLimit() {
 
 func rootCmd() *cobra.Command {
 	var (
-		committed      bool
-		base           string
-		contextLine    int
-		noOpen         bool
-		sessionID      string
-		prNumber       int
-		agent          string
-		provider       string
-		model          string
-		autoCompact    string
-		docsDir        string
-		docFile        string
-		host           string
-		draftFrom      string
-		draftFromIssue int
-		sandboxed      bool
-		foreground     bool
-		detachFlag     bool
-		idle           time.Duration
-		noLauncher     bool
-		skillName      string
-		investigate    string
-		role           string
+		committed   bool
+		base        string
+		contextLine int
+		noOpen      bool
+		sessionID   string
+		prNumber    int
+		agent       string
+		provider    string
+		model       string
+		foreground  bool
+		detachFlag  bool
+		idle        time.Duration
+		noLauncher  bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "ade [revspec]",
-		Short: "Design a change, have an agent build it, and review what it did",
-		Long: `ade is a statement of work: you write down what a change should do, an agent
-builds it, and you review what it did — in your browser, on your Claude
-subscription.
+		Short: "Host an agent's terminal beside a review of what it did",
+		Long: `ade hosts an agent in its own terminal, one session per checkout, and reviews
+what it did.
 
 With no arguments it opens the launcher: every checkout ade knows, and what is
 waiting on you across all of them. "ade ." opens this checkout instead, on the
@@ -185,17 +161,11 @@ uncommitted edits and new files are included.
   ade                                pick a checkout, from anywhere
   ade start                          bring the launcher up, without a browser
   ade .                              review the branch in this checkout
-  ade --agent codex .                work in this checkout with Codex, sandboxed by default
-  ade --host pc ade                  open a checkout on another machine, over ssh
-  ade create --linear FIX-623        a design document, and a worktree to build it in
+  ade --agent codex .                work in this checkout with Codex
+  ade create --linear FIX-623        a worktree and a session for a ticket
   ade create --github 412            the same, from a GitHub issue of this repository
-  ade investigate --linear FIX-623   read-only: what is going on, not a change to make
   ade done                           stop the server and remove the worktree
-  ade prune                          remove the pull request checkouts ade made
-  ade doctor                         what every ade on this machine is doing
-  ade agents install                 the default @agents, into ~/.claude/agents
-  ade roles install                  the default roles, into ~/.ade/roles
-  ade jobs ls                        the scheduled jobs, and what came of them`,
+  ade agents install                 the default @agents, into ~/.claude/agents`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -207,7 +177,7 @@ uncommitted edits and new files are included.
 			// Nothing named and nothing asked for: the launcher is where you
 			// land, and "ade ." is how you say this checkout.
 			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
-				return runLaunch(cmd.Context(), "", noOpen, foreground, idle, 0)
+				return runLaunch(cmd.Context(), noOpen, foreground, idle, 0)
 			}
 			opts := gitdiff.Options{
 				Base:    base,
@@ -222,11 +192,6 @@ uncommitted edits and new files are included.
 			if len(args) == 1 && args[0] != "." {
 				opts.Rev = args[0]
 			}
-			if host != "" {
-				// With --host the argument names a checkout over there, not a
-				// revspec here: a diff needs a checkout to be of first.
-				return openOnHost(cmd.Context(), host, opts.Rev, !noOpen, idle)
-			}
 			if prNumber > 0 {
 				if opts.Rev != "" {
 					return fmt.Errorf("--pr and a revspec select different diffs; pass one")
@@ -235,30 +200,17 @@ uncommitted edits and new files are included.
 					return fmt.Errorf("--pr already sets the base from the pull request; drop --base")
 				}
 			}
-			if draftFrom != "" && draftFromIssue > 0 {
-				return fmt.Errorf("--draft-from and --draft-from-issue are two starting points; pick one")
-			}
 			return run(cmd.Context(), settings{
 				diff:             opts,
 				sessionID:        sessionID,
 				provider:         selectedProvider,
 				providerExplicit: cmd.Flags().Changed("agent") || cmd.Flags().Changed("provider"),
 				model:            model,
-				autoCompact:      autoCompact,
 				prNumber:         prNumber,
 				openBrowser:      !noOpen,
-				sandboxed:        sandboxed,
-				sandboxExplicit:  cmd.Flags().Changed("sandbox"),
 				foreground:       foreground,
 				idle:             idle,
-				docsDir:          docsDir,
-				docFile:          docFile,
-				linearTicket:     draftFrom,
-				seedIssue:        draftFromIssue,
-				skillName:        skillName,
-				investigate:      investigate,
 				noLauncher:       noLauncher,
-				role:             role,
 			})
 		},
 	}
@@ -268,12 +220,10 @@ uncommitted edits and new files are included.
 	shared := cmd.PersistentFlags()
 	shared.BoolVar(&noOpen, "no-open", false, "print the URL without opening a browser")
 	shared.BoolVar(&noLauncher, "no-launcher", false, "open this checkout on its own port, without the launcher or the rail of other sessions")
-	cmd.Flags().StringVar(&host, "host", "", "open a checkout on another machine over ssh; the argument names it there, not a revspec")
 	shared.StringVar(&agent, "agent", "claude", "main agent: claude (default) or codex")
 	shared.StringVar(&provider, "provider", "", "deprecated agent provider: claude or codex")
 	_ = shared.MarkDeprecated("provider", "use --agent claude or --agent codex instead")
 	shared.StringVar(&model, "model", defaultModel, "model for the agents, e.g. haiku or sonnet, or a \"[1m]\" variant for the long window")
-	shared.StringVar(&autoCompact, "autocompact", "", "window claude compacts the conversation at: auto, or a token count (default: claude's own)")
 	// Not defaulted from $CLAUDE_CODE_SESSION_ID. Inheriting the caller's
 	// conversation sounded like a free head start and was the opposite: the
 	// transcript only grows, a long one replays into the agent's much smaller
@@ -283,28 +233,12 @@ uncommitted edits and new files are included.
 	shared.StringVar(&sessionID, "session", "", `Agent session to resume.
 Defaults to the one this checkout was last in, so a restart lands back in the
 conversation. Pass an id for a specific one, or "none" to start fresh.`)
-	shared.StringVar(&docsDir, "docs", "", "directory holding design documents (default: .scratch, else inside the git dir)")
-	shared.StringVar(&role, "role", "", "role from ~/.ade/roles this session starts under (default: the one Settings selects)")
-	shared.BoolVar(&sandboxed, "sandbox", true,
-		`run the agent in a container (Apple's container or Docker) with the checkout mounted.
-The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
---sandbox=false runs the agent straight on the host, with your files and your network.`)
 
 	flags := cmd.Flags()
 	flags.BoolVarP(&committed, "committed", "c", false, "start on the committed view; the browser can switch between branch, committed and uncommitted")
 	flags.StringVarP(&base, "base", "b", "", "base branch to diff against (default: origin/main, then main)")
 	flags.IntVarP(&contextLine, "context", "U", 3, "lines of context around each change")
 	flags.IntVar(&prNumber, "pr", 0, "review a GitHub pull request by number, importing its review comments")
-	flags.StringVar(&docFile, "doc", "", "design document to open on")
-	flags.StringVar(&draftFrom, "draft-from", "", "draft the open document from this ticket")
-	_ = flags.MarkHidden("draft-from")
-	flags.IntVar(&draftFromIssue, "draft-from-issue", 0, "draft the open document from this GitHub issue")
-	_ = flags.MarkHidden("draft-from-issue")
-	// How the investigate subcommand reaches its detached child.
-	flags.StringVar(&skillName, "skill", "", "skill whose SKILL.md is this session's instructions")
-	_ = flags.MarkHidden("skill")
-	flags.StringVar(&investigate, "investigate", "", "ticket to open an investigation on")
-	_ = flags.MarkHidden("investigate")
 	cmd.Version = version
 
 	shared.BoolVarP(&foreground, "foreground", "F", false, "run in this terminal instead of the background")
@@ -314,31 +248,20 @@ The image is pulled on first use, or built by `+"`make sandbox-image`"+`.
 	_ = shared.MarkHidden("detach")
 	shared.DurationVar(&idle, "idle", 30*time.Minute, "exit after this long with no browser attached (0 to stay up)")
 
-	cmd.AddCommand(newCreateCommand(&sessionID, &agent, &provider, &model, &autoCompact, &role, &noOpen, &sandboxed, &foreground, &docsDir, &idle))
-	cmd.AddCommand(newInvestigateCommand(&sessionID, &agent, &provider, &model, &autoCompact, &noOpen, &sandboxed, &foreground, &idle))
+	cmd.AddCommand(newCreateCommand(&sessionID, &agent, &provider, &model, &noOpen, &foreground, &idle))
 	cmd.AddCommand(newLaunchCommand(&noOpen, &foreground, &idle))
 	cmd.AddCommand(newStartCommand(&foreground, &idle))
 	cmd.AddCommand(newHookCommand())
+	cmd.AddCommand(newBadgeCommand())
+	cmd.AddCommand(newShowCommand())
 	cmd.AddCommand(newScratchCommand(&noOpen))
 	cmd.AddCommand(newPortCommand(&noOpen))
 	cmd.AddCommand(newStopCommand())
 	cmd.AddCommand(newCancelCommand())
-	cmd.AddCommand(newDocCommand(&docsDir))
-	cmd.AddCommand(newDesignsCommand())
 	cmd.AddCommand(newDoneCommand())
 	cmd.AddCommand(newPsCommand())
-	cmd.AddCommand(newDoctorCommand())
-	cmd.AddCommand(newDashboardCommand())
-	cmd.AddCommand(newPruneCommand())
-	cmd.AddCommand(newSyncCommand())
 	cmd.AddCommand(newAgentsCommand())
-	cmd.AddCommand(newRolesCommand())
-	cmd.AddCommand(newSaidCommand())
-	cmd.AddCommand(newDriftCommand())
-	cmd.AddCommand(newJobsCommand())
 	cmd.AddCommand(newBrowserCommand())
-	cmd.AddCommand(newWikiCommand())
-	cmd.AddCommand(newWhyCommand())
 	cmd.AddCommand(newFixturesCommand())
 	return cmd
 }
@@ -465,14 +388,13 @@ a ade page offers its way back to the picker.`,
 			if !cmd.Flags().Changed("idle") {
 				stay = 0
 			}
-			return runLaunch(cmd.Context(), "", true, *foreground, stay, 0)
+			return runLaunch(cmd.Context(), true, *foreground, stay, 0)
 		},
 	}
 	return cmd
 }
 
 func newLaunchCommand(noOpen, foreground *bool, idle *time.Duration) *cobra.Command {
-	var host string
 	var port int
 
 	cmd := &cobra.Command{
@@ -482,17 +404,14 @@ func newLaunchCommand(noOpen, foreground *bool, idle *time.Duration) *cobra.Comm
 
 Pick one and ade opens in that checkout, the same as running ade there. Run it
 from anywhere; unlike every other command it does not need a git repository.
-
-With --host it opens another machine's picker instead, over ssh. The host is a
-name from your settings, and the launcher here stays up to hold the tunnel.`,
+`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runLaunch(cmd.Context(), host, *noOpen, *foreground, *idle, port)
+			return runLaunch(cmd.Context(), *noOpen, *foreground, *idle, port)
 		},
 	}
-	cmd.Flags().StringVar(&host, "host", "", "open the picker on another machine, over ssh")
 	// For a second launcher beside the running one, over its own HOME: what
 	// `make shots` needs and nothing a normal run should name.
 	cmd.Flags().IntVar(&port, "port", 0, "serve on this port instead of ade's own")
@@ -501,7 +420,7 @@ name from your settings, and the launcher here stays up to hold the tunnel.`,
 
 // runLaunch serves the picker, and is what both `ade launch` and a bare `ade`
 // run: the launcher is where you land when you have not named a checkout.
-func runLaunch(ctx context.Context, host string, noOpen, foreground bool, idle time.Duration, port int) error {
+func runLaunch(ctx context.Context, noOpen, foreground bool, idle time.Duration, port int) error {
 	home, err := launcher.Home()
 	if err != nil {
 		return err
@@ -510,12 +429,9 @@ func runLaunch(ctx context.Context, host string, noOpen, foreground bool, idle t
 	if err != nil {
 		return err
 	}
-	if host != "" {
-		return launchOnHost(ctx, home, record, host, foreground, idle)
-	}
 	// One launcher per machine: hand back the running one's link rather than
 	// starting a rival on another port. A rival needs its own HOME, not --port.
-	if reuse(ctx, record, false, "", "", "", false, true) {
+	if reuse(ctx, record, false) {
 		return nil
 	}
 	if !foreground {
@@ -541,157 +457,20 @@ func runLaunch(ctx context.Context, host string, noOpen, foreground bool, idle t
 	return server.Run(ctx)
 }
 
-// launchOnHost opens another machine's launcher. The tunnel belongs to the
-// launcher on this one, so that has to be running before anything else.
-func launchOnHost(ctx context.Context, home, record, host string, foreground bool, idle time.Duration) error {
-	if foreground {
-		if rec, ok := session.Read(record); ok && session.Live(ctx, rec) {
-			return fmt.Errorf("a launcher is already running here; drop --foreground and it will be asked to connect")
-		}
-		server, err := launcher.New(idle, version)
-		if err != nil {
-			return err
-		}
-		server.ConnectTo(host)
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		return server.Run(ctx)
-	}
-
-	url, err := hostLauncher(ctx, home, record, host, idle)
-	if err != nil {
-		return err
-	}
-	fmt.Println(url)
-	return nil
-}
-
-// openOnHost opens one checkout on another machine. The argument names it over
-// there, not here: this shell would have expanded a path against this home.
-// The local launcher holds the tunnel, so it is always the detached one.
-func openOnHost(ctx context.Context, host, want string, openBrowser bool, idle time.Duration) error {
-	if strings.TrimSpace(want) == "" {
-		return fmt.Errorf("name a checkout on %s, or run `ade launch --host %s` to pick one", host, host)
-	}
-	home, err := launcher.Home()
-	if err != nil {
-		return err
-	}
-	record, err := launcher.RecordPath()
-	if err != nil {
-		return err
-	}
-
-	remote, err := hostLauncher(ctx, home, record, host, idle)
-	if err != nil {
-		return err
-	}
-
-	dir, err := checkoutOn(ctx, remote, host, want)
-	if err != nil {
-		return err
-	}
-	answer, err := sessions.AskFor(ctx, remote, http.MethodPost, "/api/open",
-		fmt.Sprintf(`{"dir":%q,"id":""}`, dir), connectWait)
-	if err != nil {
-		return fmt.Errorf("open %s on %s: %w", dir, host, err)
-	}
-	var res struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(answer, &res); err != nil || res.URL == "" {
-		return fmt.Errorf("open %s on %s: no url came back", dir, host)
-	}
-	fmt.Println(res.URL)
-	if openBrowser {
-		openUnwatched(ctx, res.URL, "")
-	}
-	return nil
-}
-
-// hostLauncher brings a host up and returns its launcher's URL, starting the
-// local launcher that holds the tunnel if one is not already running.
-func hostLauncher(ctx context.Context, home, record, host string, idle time.Duration) (string, error) {
-	rec, ok := session.Read(record)
-	if !ok || !session.Live(ctx, rec) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", err
-		}
-		rec, err = startDetached(cwd, home, record,
-			[]string{"launch", "--foreground", "--no-open", "--idle", idle.String()})
-		if err != nil {
-			return "", err
-		}
-	}
-	answer, err := sessions.AskFor(ctx, rec.URL, http.MethodPost, "/api/connect",
-		fmt.Sprintf(`{"host":%q}`, host), connectWait)
-	if err != nil {
-		return "", fmt.Errorf("connect to %s: %w", host, err)
-	}
-	var res struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(answer, &res); err != nil || res.URL == "" {
-		return "", fmt.Errorf("connect to %s: the launcher did not say where it got to", host)
-	}
-	return res.URL, nil
-}
-
-// checkoutOn resolves what was typed against the checkouts that machine offers.
-// An exact path wins; otherwise the name has to pick out exactly one, since
-// opening the wrong repository is worse than being asked to be specific.
-func checkoutOn(ctx context.Context, remoteURL, host, want string) (string, error) {
-	answer, err := sessions.AskFor(ctx, remoteURL, http.MethodGet, "/api/repos", "", connectWait)
-	if err != nil {
-		return "", fmt.Errorf("list the checkouts on %s: %w", host, err)
-	}
-	var body struct {
-		Repos []sessions.Repo `json:"repos"`
-	}
-	if err := json.Unmarshal(answer, &body); err != nil {
-		return "", fmt.Errorf("list the checkouts on %s: %w", host, err)
-	}
-
-	var matched []string
-	for _, repo := range body.Repos {
-		for _, dir := range repo.Checkouts {
-			if dir.Path == want {
-				return dir.Path, nil
-			}
-			if dir.Name == want || strings.HasSuffix(dir.Path, "/"+want) {
-				matched = append(matched, dir.Path)
-			}
-		}
-	}
-	switch len(matched) {
-	case 1:
-		return matched[0], nil
-	case 0:
-		return "", fmt.Errorf("%s has no checkout called %s", host, want)
-	default:
-		return "", fmt.Errorf("%s has %d checkouts called %s: %s", host, len(matched), want, strings.Join(matched, ", "))
-	}
-}
-
-// newCreateCommand starts a new design document and opens on it, which is the
-// front of the design, build, review loop.
-func newCreateCommand(sessionID, agent, provider, model, autoCompact, role *string, noOpen, sandboxed, foreground *bool, docsDir *string, idle *time.Duration) *cobra.Command {
-	var title, linear, base string
+// newCreateCommand makes a worktree for a piece of work and a session in it.
+func newCreateCommand(sessionID, agent, provider, model *string, noOpen, foreground *bool, idle *time.Duration) *cobra.Command {
+	var linear, base string
 	var also []string
 	var issue int
 
 	cmd := &cobra.Command{
 		Use:   "create [name]",
-		Short: "Start a design document and open it in the browser",
-		Long: `create scaffolds a markdown design document and opens ade on the Design tab.
+		Short: "Check the repository out on a new branch and open a session there",
+		Long: `create checks the repository out beside itself, on a branch named after the
+work, and opens a session in that worktree.
 
-Talk the design through with the agent, then press Go to have it build what the
-document describes, and switch to the Diff tab to review what it did.
-
-The repository is checked out beside itself, on a branch named after the
-document, to build it in. Given --linear or --github, the document is named
-after the ticket and drafted from it.`,
+Given --linear or --github, the branch is named after the ticket and the
+session records it.`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -706,7 +485,7 @@ after the ticket and drafted from it.`,
 			}
 			if ticket := strings.TrimSpace(linear); ticket != "" {
 				if name != "" {
-					return fmt.Errorf("--linear already names the document; drop the positional argument")
+					return fmt.Errorf("--linear already names the work; drop the positional argument")
 				}
 				name = ticket
 			}
@@ -715,11 +494,11 @@ after the ticket and drafted from it.`,
 					return fmt.Errorf("--github and --linear are two starting points; pick one")
 				}
 				if name != "" {
-					return fmt.Errorf("--github already names the document; drop the positional argument")
+					return fmt.Errorf("--github already names the work; drop the positional argument")
 				}
 			}
-			if issue <= 0 && strings.TrimSpace(name) == "" && strings.TrimSpace(title) == "" {
-				return fmt.Errorf("give the document a name, e.g. ade create cart-redesign")
+			if issue <= 0 && strings.TrimSpace(name) == "" {
+				return fmt.Errorf("give the work a name, e.g. ade create cart-redesign")
 			}
 			return run(cmd.Context(), settings{
 				diff:             gitdiff.Options{Scope: gitdiff.ScopeBranch, Context: 3},
@@ -727,97 +506,26 @@ after the ticket and drafted from it.`,
 				provider:         selectedProvider,
 				providerExplicit: cmd.Flags().Changed("agent") || cmd.Flags().Changed("provider"),
 				model:            *model,
-				autoCompact:      *autoCompact,
 				openBrowser:      !*noOpen,
-				sandboxed:        *sandboxed,
-				sandboxExplicit:  cmd.Flags().Changed("sandbox"),
 				foreground:       *foreground,
 				idle:             *idle,
-				docsDir:          *docsDir,
 				createName:       name,
-				createTitle:      title,
 				createBase:       base,
 				createAlso:       also,
-				role:             *role,
-				linearTicket:     strings.TrimSpace(linear),
+				ticket:           strings.ToUpper(strings.TrimSpace(linear)),
 				createIssue:      issue,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&title, "title", "", "document title (default: the file name)")
 	cmd.Flags().StringVar(&linear, "linear", "",
-		"start work on a ticket: names the document after it and checks the repo out beside itself on its own branch")
+		"start work on a ticket: names the branch after it and checks the repo out beside itself on its own branch")
 	cmd.Flags().IntVar(&issue, "github", 0,
-		"start work on a GitHub issue of this repository, by number: reads it, names the document after it, and checks the repo out beside itself on its own branch")
+		"start work on a GitHub issue of this repository, by number: reads it, names the branch after it, and checks the repo out beside itself on its own branch")
 	cmd.Flags().StringVar(&base, "base", "",
 		"branch the new worktree from this ref rather than a freshly fetched main; HEAD is this checkout as it stands")
 	cmd.Flags().StringArrayVar(&also, "also", nil,
-		"another checkout to work in, given a worktree on the same branch; repeatable. The first is home: the agent runs there and the document goes there")
+		"another checkout to work in, given a worktree on the same branch; repeatable. The first is home: the agent runs there")
 	return cmd
-}
-
-// newInvestigateCommand opens a session on a ticket in this checkout, under a
-// skill. Nothing is built, so there is no document and no worktree.
-func newInvestigateCommand(sessionID, agent, provider, model, autoCompact *string, noOpen, sandboxed, foreground *bool, idle *time.Duration) *cobra.Command {
-	var ticket, skill string
-
-	cmd := &cobra.Command{
-		Use:   "investigate",
-		Short: "Investigate a ticket in this checkout, under a Claude Code skill",
-		Long: `investigate opens ade on this checkout with a ticket to look into.
-
-The agent reads the ticket, then works out what is going on with whatever
-reaches the evidence — logs, the database, the code in front of it. Its
-instructions are a skill from ~/.claude/skills, ` + "`" + web.DefaultSkill + "`" + ` unless --skill
-names another.
-
-Nothing is built: no design document, no worktree, no branch.
-
-It runs in a conversation of its own, on the host rather than in a container:
-the evidence is behind this machine's MCP servers — logs, the database, the
-cluster — and a sandboxed agent reaches none of them.`,
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			selectedProvider, err := providerFor(*agent, *provider, cmd.Flags().Changed("agent"))
-			if err != nil {
-				return err
-			}
-			ticket = strings.TrimSpace(ticket)
-			if !linear.ValidRef(ticket) {
-				return fmt.Errorf("--linear takes a ticket identifier, e.g. FIX-623; got %q", ticket)
-			}
-			return run(cmd.Context(), investigateSettings(settings{
-				diff:             gitdiff.Options{Scope: gitdiff.ScopeBranch, Context: 3},
-				sessionID:        *sessionID,
-				provider:         selectedProvider,
-				providerExplicit: cmd.Flags().Changed("agent") || cmd.Flags().Changed("provider"),
-				model:            *model,
-				autoCompact:      *autoCompact,
-				openBrowser:      !*noOpen,
-				foreground:       *foreground,
-				idle:             *idle,
-				skillName:        strings.TrimSpace(skill),
-				investigate:      ticket,
-			}))
-		},
-	}
-	cmd.Flags().StringVar(&ticket, "linear", "", "the ticket to investigate, e.g. FIX-623")
-	cmd.Flags().StringVar(&skill, "skill", web.DefaultSkill,
-		"skill under ~/.claude/skills whose SKILL.md is the agent's instructions")
-	_ = cmd.MarkFlagRequired("linear")
-	return cmd
-}
-
-// investigateSettings is what an investigation decides for itself: its own
-// conversation, and the host, since the MCPs it needs are not in a container.
-func investigateSettings(cfg settings) settings {
-	if cfg.sessionID == "" {
-		cfg.sessionID = sessions.None
-	}
-	cfg.sandboxed, cfg.sandboxExplicit = false, true
-	return cfg
 }
 
 // settings is everything one run of the server needs. It is a struct rather
@@ -828,23 +536,14 @@ type settings struct {
 	provider         string
 	providerExplicit bool
 	model            string
-	autoCompact      string
 	prNumber         int
 	openBrowser      bool
 
-	// sandboxed runs the agent in a container, and sandboxExplicit is the flag
-	// having been typed, which outranks what the checkout chose last time.
-	sandboxed       bool
-	sandboxExplicit bool
+	// ticket is what the work started from, kept on the session's record.
+	ticket string
 
-	// linearTicket is the ticket this run started from, drafted into the new
-	// document once the server is up.
-	linearTicket string
-
-	// createIssue is a GitHub issue to start from; it names the document and
-	// then becomes seedIssue, which is what the server drafts from.
+	// createIssue is a GitHub issue to start from; it names the branch.
 	createIssue int
-	seedIssue   int
 
 	// foreground keeps the server in this terminal. Otherwise ade re-runs
 	// itself in the background and returns the prompt.
@@ -853,33 +552,25 @@ type settings struct {
 	// idle is how long a server with no browser attached waits before exiting.
 	idle time.Duration
 
-	// dev serves the page from ade's own source tree instead of the binary, so
-	// working on its interface is a save rather than a rebuild.
-
 	// noLauncher opens this checkout on its own port, with no rail.
 	noLauncher bool
 
-	// docsDir overrides where design documents live, and docFile is the one to
-	// open on. createName, when set, scaffolds a new document first and checks
-	// the repository out beside itself, on that document's branch, to work in.
-	docsDir     string
-	docFile     string
-	createName  string
-	createTitle string
+	// createName, when set, checks the repository out beside itself on a
+	// branch of that name, to work in.
+	createName string
 	// createBase is the ref a new worktree branches from; empty fetches main.
 	createBase string
 	// createAlso are other checkouts that get a worktree on the same branch,
 	// so one session can read and edit more than one repository.
 	createAlso []string
+}
 
-	// role is the machine-wide prompt this session starts under, rather than
-	// whichever one Settings has selected.
-	role string
-
-	// skillName is a skill to run the main chat under, investigate the ticket
-	// it opens on. Both set by `ade investigate`.
-	skillName   string
-	investigate string
+// recordTicket keeps the ticket the work started from on the session's record.
+func recordTicket(gitDir, ticket string) error {
+	if ticket == "" {
+		return nil
+	}
+	return runlog.Update(runlog.Path(gitDir), func(r *runlog.Record) { r.Ticket = ticket })
 }
 
 func run(ctx context.Context, cfg settings) error {
@@ -910,7 +601,7 @@ func run(ctx context.Context, cfg settings) error {
 	branch := gitdiff.Branch(ctx, root)
 
 	// Before anything is created, so a number that does not resolve is a CLI
-	// error rather than an empty Design tab.
+	// error rather than a worktree named after nothing.
 	if cfg.createIssue > 0 {
 		issue, err := ghpr.FetchIssue(ctx, root, cfg.createIssue)
 		if err != nil {
@@ -922,44 +613,13 @@ func run(ctx context.Context, cfg settings) error {
 			fmt.Fprintf(os.Stderr, "issue #%d is %s\n", issue.Number, strings.ToLower(state))
 		}
 		cfg.createName = issueDocName(issue.Number, issue.Title)
-		if strings.TrimSpace(cfg.createTitle) == "" {
-			cfg.createTitle = strings.TrimSpace(issue.Title)
-		}
-		cfg.seedIssue = issue.Number
+		cfg.ticket = fmt.Sprintf("#%d", issue.Number)
 	}
 
-	// Before anything composes a prompt: a role named here is this session's,
-	// whatever Settings has selected machine-wide.
-	bridge.UseRole(cfg.role)
-
-	// Before the server starts, so a missing skill is a CLI error.
-	var skill skills.Skill
-	if cfg.skillName != "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		if skill, err = skills.Load(home, cfg.skillName); err != nil {
-			return err
-		}
-		fmt.Println(skill.Path)
-	}
 	// Codex sees what Claude sees; the links are refreshed on every start.
 	if home, err := os.UserHomeDir(); err == nil {
 		if err := skills.ShareWithCodex(home); err != nil {
 			slog.Warn("could not share skills with codex", "err", err)
-		}
-	}
-
-	// A server already serving this checkout takes the investigation: a rival on
-	// the same record would lose the one you are looking at.
-	if cfg.investigate != "" {
-		handled, err := investigateOn(ctx, gitDir, cfg.investigate, skill.Name, cfg.openBrowser)
-		if err != nil {
-			return err
-		}
-		if handled {
-			return nil
 		}
 	}
 
@@ -975,39 +635,13 @@ func run(ctx context.Context, cfg settings) error {
 		openedPROn(ctx, gitDir, cfg.prNumber, cfg.openBrowser) {
 		return nil
 	}
-	if cfg.createName == "" && cfg.investigate == "" && reuse(ctx, session.Path(gitDir), cfg.openBrowser, cfg.sessionID, cfg.provider, cfg.model, cfg.providerExplicit, cfg.sandboxed) {
+	if cfg.createName == "" && reuse(ctx, session.Path(gitDir), cfg.openBrowser) {
 		return nil
 	}
-	docFile := cfg.docFile
 	if cfg.createName != "" {
-		// Scaffold before the server starts, so a failure here is a clear CLI
-		// error rather than an empty Design tab.
-		dir, err := docs.Dir(root, commonGitDir, cfg.docsDir)
-		if err != nil {
-			return err
-		}
-		// Running the same create again means carrying on with that design, so an
-		// existing document is opened rather than refused.
-		var created bool
-		docFile, created, err = docs.Ensure(dir, cfg.createName, cfg.createTitle)
-		if err != nil {
-			return err
-		}
-		// Pin the server to where the document actually went. Resolving it again
-		// from a worktree would pick a different directory, since a worktree has
-		// no .scratch of its own.
-		cfg.docsDir = dir
-		fmt.Println(labelled(filepath.Join(dir, docFile), created))
-		if !created {
-			// Resuming: redrafting from the ticket throws away what the design
-			// says. The issue stays — draftFromIssue leaves a drafted doc alone.
-			cfg.linearTicket = ""
-		}
-
-		// Before the server starts, so a failure is a plain CLI error. The
-		// document stays in the common git dir, which the worktree shares.
+		// Before the server starts, so a failure is a plain CLI error.
 		var added bool
-		root, gitDir, branch, added, err = intoWorktree(ctx, root, filepath.Join(dir, docFile), cfg.createBase)
+		root, gitDir, branch, added, err = intoWorktree(ctx, root, cfg.createName, cfg.createBase)
 		if err != nil {
 			return err
 		}
@@ -1015,7 +649,7 @@ func run(ctx context.Context, cfg settings) error {
 		fmt.Println(labelled(root, added))
 
 		// The worktree may already have its own server from last time.
-		if reuse(ctx, session.Path(gitDir), cfg.openBrowser, cfg.sessionID, cfg.provider, cfg.model, cfg.providerExplicit, cfg.sandboxed) {
+		if reuse(ctx, session.Path(gitDir), cfg.openBrowser) {
 			return nil
 		}
 
@@ -1024,13 +658,16 @@ func run(ctx context.Context, cfg settings) error {
 		if err := alongside(ctx, gitDir, branch, cfg.createAlso); err != nil {
 			return err
 		}
+		if err := recordTicket(gitDir, cfg.ticket); err != nil {
+			return err
+		}
 	}
 
 	// Detached after any worktree switch, so the child serves the checkout the
 	// work is actually in and records itself under that checkout's git dir,
 	// which is where the parent then looks for it.
 	if !cfg.foreground {
-		return detach(root, gitDir, childArgs(cfg, docFile), cfg.openBrowser)
+		return detach(root, gitDir, childArgs(cfg), cfg.openBrowser)
 	}
 
 	// Opened after any worktree switch, so the threads land in the checkout
@@ -1044,29 +681,17 @@ func run(ctx context.Context, cfg settings) error {
 		cfg.model = "gpt-5.6-terra"
 	}
 	webCfg := web.Config{
-		Root:            root,
-		Branch:          branch,
-		GitDir:          gitDir,
-		CommonGitDir:    commonGitDir,
-		Session:         cfg.sessionID,
-		ClaudeBin:       os.Getenv("ADE_CLAUDE_BIN"),
-		CodexBin:        os.Getenv("ADE_CODEX_BIN"),
-		Provider:        cfg.provider,
-		Model:           cfg.model,
-		AutoCompact:     cfg.autoCompact,
-		Diff:            cfg.diff,
-		Sandbox:         cfg.sandboxed,
-		SandboxExplicit: cfg.sandboxExplicit,
-		Idle:            cfg.idle,
-		DocsDir:         cfg.docsDir,
-		DocFile:         docFile,
-		SeedTicket:      cfg.linearTicket,
-		SeedIssue:       cfg.seedIssue,
-		Version:         version,
-
-		Skill:             skill.Prompt,
-		SkillName:         skill.Name,
-		SeedInvestigation: cfg.investigate,
+		Root:         root,
+		Branch:       branch,
+		GitDir:       gitDir,
+		CommonGitDir: commonGitDir,
+		Session:      cfg.sessionID,
+		ClaudeBin:    os.Getenv("ADE_CLAUDE_BIN"),
+		Provider:     cfg.provider,
+		Model:        cfg.model,
+		Diff:         cfg.diff,
+		Idle:         cfg.idle,
+		Version:      version,
 	}
 	webCfg.NoLauncher = cfg.noLauncher
 
@@ -1270,21 +895,17 @@ func newStopCommand() *cobra.Command {
 	return cmd
 }
 
-// intoWorktree checks the repository out beside itself, on a branch named after
-// the design document, and reports the checkout to serve instead. An existing
-// one is reused, so coming back to a ticket lands where you left it.
-//
-// The document is deliberately not moved: it lives under the common git dir,
-// which every worktree shares, so one design stays visible from both.
-func intoWorktree(ctx context.Context, root, docFile, base string) (string, string, string, bool, error) {
-	slug := strings.ToLower(web.BranchFor(filepath.Dir(docFile), docFile))
+// intoWorktree checks the repository out beside itself on a branch named for
+// the work. An existing one is reused, so coming back lands where you left it.
+func intoWorktree(ctx context.Context, root, name, base string) (string, string, string, bool, error) {
+	slug := strings.ToLower(slugOf(name))
 	if slug == "" {
-		return "", "", "", false, fmt.Errorf("%q does not give a usable branch name", docFile)
+		return "", "", "", false, fmt.Errorf("%q does not give a usable branch name", name)
 	}
 
-	// ForBranch, not From: the branch may already exist with no worktree, and
-	// `worktree add -b` refuses that rather than checking it out.
-	path, added, err := gitdiff.EnsureWorktreeForBranch(ctx, root, slug, func() string {
+	path := gitdiff.WorktreePath(root, slug)
+	// Resolved only if a worktree has to be made: reuse must not wait on a fetch.
+	added, err := gitdiff.EnsureWorktreeFrom(ctx, root, path, slug, func() string {
 		if base != "" {
 			return base
 		}
@@ -1304,15 +925,18 @@ func intoWorktree(ctx context.Context, root, docFile, base string) (string, stri
 	return path, gitDir, gitdiff.Branch(ctx, path), added, nil
 }
 
+// unsafeSlug is anything that has no business in a branch name or a directory.
+var unsafeSlug = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func slugOf(name string) string {
+	return strings.Trim(unsafeSlug.ReplaceAllString(filepath.Base(name), "-"), "-.")
+}
+
 // alongside gives every other repository a worktree on the same branch and
-// records them as this session's own mounts, read-write.
+// records them on the session, so its diff can look in each.
 func alongside(ctx context.Context, gitDir, branch string, also []string) error {
 	if len(also) == 0 {
 		return nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
 	}
 	// Every path resolved before anything is made: the common failure is a
 	// name that is not a checkout, and that must not cost half a session.
@@ -1325,7 +949,7 @@ func alongside(ctx context.Context, gitDir, branch string, also []string) error 
 		repos = append(repos, repo)
 	}
 
-	paths := make([]sandbox.Path, 0, len(repos))
+	paths := make([]string, 0, len(repos))
 	var made []worktreeMade
 	for _, repo := range repos {
 		path, added, err := ensureAlso(ctx, repo, branch)
@@ -1338,9 +962,9 @@ func alongside(ctx context.Context, gitDir, branch string, also []string) error 
 			sow(ctx, repo, path)
 		}
 		fmt.Printf("also     %s\n", labelled(path, added))
-		paths = append(paths, sandbox.Path{Path: path, RW: true})
+		paths = append(paths, path)
 	}
-	if _, err = sandbox.SaveWorkspace(sandbox.SessionPath(gitDir), home, sandbox.Workspace{Paths: paths}); err != nil {
+	if err := runlog.Update(runlog.Path(gitDir), func(r *runlog.Record) { r.Worktrees = paths }); err != nil {
 		unmake(ctx, made)
 		return err
 	}
@@ -1414,35 +1038,11 @@ func issueDocName(number int, title string) string {
 	return fmt.Sprintf("%d-%s", number, slug)
 }
 
-// reuse hands back a server already running for this checkout. Asked for a
-// particular session, it hands that to the server too: one server per
-// checkout, switched to the conversation you picked, rather than a rival on
-// another port for each conversation.
-func reuse(ctx context.Context, record string, openBrowser bool, sessionID, provider, model string, providerExplicit, sandboxed bool) bool {
+// reuse hands back a server already running for this checkout.
+func reuse(ctx context.Context, record string, openBrowser bool) bool {
 	rec, ok := session.Read(record)
 	if !ok || !session.Live(ctx, rec) {
 		return false
-	}
-	// The default model belongs to claude; codex's own default is the server's.
-	if provider == "codex" && model == defaultModel {
-		model = ""
-	}
-	// "none" included: the running server takes it as "start a conversation" on
-	// the model picked with it, which is what New session has to mean here.
-	if sessionID != "" {
-		if err := resumeOn(ctx, rec.URL, sessionID, provider, model); err != nil {
-			// The server is still the right one; it just could not switch —
-			// mid-run, most likely. Say so rather than starting a second one.
-			slog.Warn("the running ade could not switch session", "err", err)
-		}
-	} else if providerExplicit {
-		var sandbox *bool
-		if !sandboxed {
-			sandbox = &sandboxed
-		}
-		if err := switchOn(ctx, rec.URL, provider, model, sandbox); err != nil {
-			slog.Warn("the running ade could not switch provider", "err", err)
-		}
 	}
 	fmt.Println(rec.URL)
 	if openBrowser {
@@ -1460,29 +1060,10 @@ func labelled(path string, created bool) string {
 }
 
 // childArgs builds the arguments for a detached server.
-//
-// Anything the parent already did — creating the document, adding the worktree —
-// is replaced by pointing the child at the result, so it serves that work rather
-// than trying to do it again and failing on what already exists.
-func childArgs(cfg settings, docFile string) []string {
+func childArgs(cfg settings) []string {
 	// --foreground is not optional: the child is already the background process,
 	// and without it every server would fork another forever.
 	args := []string{"--foreground", "--no-open"}
-	if docFile != "" {
-		args = append(args, "--doc", docFile)
-	}
-	if cfg.linearTicket != "" {
-		args = append(args, "--draft-from", cfg.linearTicket)
-	}
-	if cfg.seedIssue > 0 {
-		args = append(args, "--draft-from-issue", strconv.Itoa(cfg.seedIssue))
-	}
-	if cfg.skillName != "" {
-		args = append(args, "--skill", cfg.skillName)
-	}
-	if cfg.investigate != "" {
-		args = append(args, "--investigate", cfg.investigate)
-	}
 	if cfg.sessionID != "" {
 		args = append(args, "--session", cfg.sessionID)
 	}
@@ -1495,20 +1076,6 @@ func childArgs(cfg settings, docFile string) []string {
 	}
 	if cfg.model != "" {
 		args = append(args, "--model", cfg.model)
-	}
-	if cfg.autoCompact != "" {
-		args = append(args, "--autocompact", cfg.autoCompact)
-	}
-	if cfg.docsDir != "" {
-		args = append(args, "--docs", cfg.docsDir)
-	}
-	if cfg.role != "" {
-		args = append(args, "--role", cfg.role)
-	}
-	// Passed when typed even if it is the default, so the child knows it was
-	// typed and does not take the checkout's remembered choice over it.
-	if !cfg.sandboxed || cfg.sandboxExplicit {
-		args = append(args, "--sandbox="+strconv.FormatBool(cfg.sandboxed))
 	}
 	args = append(args, "--idle", cfg.idle.String())
 
@@ -1528,121 +1095,6 @@ func childArgs(cfg settings, docFile string) []string {
 		args = append(args, cfg.diff.Rev)
 	}
 	return args
-}
-
-// newDocCommand groups the commands that act on design documents directly,
-// rather than through the browser.
-func newDocCommand(docsDir *string) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "doc",
-		Short: "Work with design documents",
-	}
-	cmd.AddCommand(newDocListCommand(docsDir))
-	cmd.AddCommand(newDocArchiveCommand(docsDir))
-	cmd.AddCommand(newDocRemoveCommand(docsDir))
-	cmd.AddCommand(newDocWriteCommand())
-	return cmd
-}
-
-func newDocRemoveCommand(docsDir *string) *cobra.Command {
-	var force bool
-
-	cmd := &cobra.Command{
-		Use:   "rm <document>",
-		Short: "Delete a design document",
-		Long: `rm deletes a design document, looking for it wherever designs live: the
-repository's .scratch directory and the ade directory inside the git dir.
-
-The name may be given with or without its .md extension.`,
-		Aliases:       []string{"remove", "delete"},
-		Args:          cobra.ExactArgs(1),
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dirs, err := designDirs(cmd.Context(), *docsDir)
-			if err != nil {
-				return err
-			}
-
-			full, err := docs.Locate(dirs, args[0])
-			if err != nil {
-				return err
-			}
-			if !force {
-				ok, err := confirm(cmd, fmt.Sprintf("Delete %s?", full))
-				if err != nil {
-					return err
-				}
-				if !ok {
-					fmt.Println("left alone")
-					return nil
-				}
-			}
-
-			if _, err := docs.Delete(dirs, args[0]); err != nil {
-				return err
-			}
-			fmt.Printf("deleted %s\n", full)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete without asking")
-	return cmd
-}
-
-// designDirs resolves where this repository keeps design documents.
-func designDirs(ctx context.Context, override string) ([]string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	root, err := gitdiff.RepoRoot(ctx, cwd)
-	if err != nil {
-		return nil, err
-	}
-	commonGitDir, err := gitdiff.CommonGitDir(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	return docs.SearchDirs(root, commonGitDir, override), nil
-}
-
-// confirm asks before something irreversible. A non-terminal stdin answers no,
-// so a script that meant to pass --force does not delete on a stray newline.
-func confirm(cmd *cobra.Command, question string) (bool, error) {
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", question); err != nil {
-		return false, err
-	}
-
-	reader := bufio.NewReader(cmd.InOrStdin())
-	answer, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
-	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer == "y" || answer == "yes", nil
-}
-
-// investigateOn hands the investigation to a server already serving this
-// checkout. A live server that refuses is an error, not a fall-through.
-func investigateOn(ctx context.Context, gitDir, ticket, skill string, openBrowser bool) (bool, error) {
-	rec, ok := session.Read(session.Path(gitDir))
-	if !ok || !session.Live(ctx, rec) {
-		return false, nil
-	}
-	body, err := json.Marshal(map[string]string{"ticket": ticket, "skill": skill})
-	if err != nil {
-		return false, err
-	}
-	if err := sessions.Ask(ctx, rec.URL, http.MethodPost, "/api/investigate", string(body)); err != nil {
-		return false, fmt.Errorf("the ade already serving this checkout could not take the investigation: %w", err)
-	}
-
-	fmt.Println(rec.URL)
-	if openBrowser {
-		openUnwatched(ctx, rec.URL, rec.Root)
-	}
-	return true, nil
 }
 
 // openedPROn asks a server already running for this checkout to open a pull
@@ -1669,24 +1121,6 @@ func openPR(ctx context.Context, recURL string, number int) error {
 	return sessions.Ask(ctx, recURL, http.MethodPost, "/api/prs/"+strconv.Itoa(number), "")
 }
 
-// switchOn asks a running server to move the conversation to another provider.
-// noTurn: --agent asks for a provider, not for a turn nobody typed.
-func switchOn(ctx context.Context, recURL, provider, model string, sandbox *bool) error {
-	body, err := json.Marshal(map[string]any{"provider": provider, "model": model, "noTurn": true, "sandbox": sandbox})
-	if err != nil {
-		return err
-	}
-	return sessions.Ask(ctx, recURL, http.MethodPost, "/api/chat/switch", string(body))
-}
-
-func resumeOn(ctx context.Context, recURL, id, provider, model string) error {
-	body, err := json.Marshal(map[string]string{"id": id, "provider": provider, "model": model})
-	if err != nil {
-		return err
-	}
-	return sessions.Ask(ctx, recURL, http.MethodPost, "/api/chat/resume", string(body))
-}
-
 // newDoneCommand finishes with a ticket's worktree, since create --linear makes
 // one per ticket and nothing else removes them.
 func newDoneCommand() *cobra.Command {
@@ -1695,14 +1129,10 @@ func newDoneCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "done",
 		Short: "Finish with this workspace: stop its ade and remove the checkout",
-		Long: `done is run inside a worktree, or inside a clone a worker made for a
-session. It stops the ade serving it and removes the checkout: the worktree
-here, the clone's session directory on a worker.
+		Long: `done is run inside a worktree. It stops the ade serving it and removes the
+checkout.
 
-The branch and the design document are kept. A worker's clone takes its local
-branch with it, so there the branch is kept only where it was pushed. The branch is your local record of
-the work, and the design is why the change looks the way it does; neither is
-expensive to keep and both are awkward to lose.
+The branch is kept: it is your local record of the work.
 
 It refuses while anything is uncommitted or unpushed, because that work exists
 nowhere else, and while a review comment written here has not gone to GitHub:
@@ -1721,11 +1151,8 @@ checks and throws it away.`,
 			if err != nil {
 				return err
 			}
-			// A worker's clone is the workspace: there is no worktree over
-			// there, and the session directory around it is what goes.
-			owned, cloned := provision.OwnedDir(root)
-			if !cloned && !gitdiff.IsWorktree(ctx, root) {
-				return fmt.Errorf("%s is the main checkout, not a worktree; done removes worktrees and a worker's clones", root)
+			if !gitdiff.IsWorktree(ctx, root) {
+				return fmt.Errorf("%s is the main checkout, not a worktree; done removes worktrees", root)
 			}
 
 			branch := gitdiff.Branch(ctx, root)
@@ -1745,15 +1172,6 @@ checks and throws it away.`,
 				fmt.Printf("stopped  ade (pid %d)\n", rec.PID)
 			}
 
-			if cloned {
-				if err := os.RemoveAll(owned); err != nil {
-					return fmt.Errorf("remove %s: %w", owned, err)
-				}
-				fmt.Printf("removed  %s\n", owned)
-				fmt.Printf("kept     branch %s, wherever it was pushed\n", branch)
-				return nil
-			}
-
 			// Removed from the main checkout, since the current directory is
 			// about to stop existing.
 			common, err := gitdiff.CommonGitDir(ctx, root)
@@ -1771,157 +1189,6 @@ checks and throws it away.`,
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "remove even with uncommitted or unpushed work")
 	return cmd
-}
-
-// newPruneCommand removes the worktrees ade made and has finished with: the
-// session worktrees beside the repository and the pull request review
-// checkouts under its git dir. done is the wrong instrument for these in bulk:
-// it runs inside the one worktree it removes.
-func newPruneCommand() *cobra.Command {
-	var force, dryRun bool
-
-	cmd := &cobra.Command{
-		Use:   "prune",
-		Short: "Remove finished worktrees",
-		Long: `prune removes the worktrees ade made for this repository and is finished with:
-session worktrees beside it (<repo>-<branch>) and pull request review checkouts
-under <git-dir>/ade/worktrees.
-
-A worktree is kept if a ade is still serving it, if it holds uncommitted work, or
-if it has commits that are not pushed or merged — work that exists nowhere else.
---force removes the unpushed ones too; the branch is kept, so the commits are
-not lost, only the checkout. Uncommitted work is never removed by prune.
-Branches are never touched.`,
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			root, err := gitdiff.RepoRoot(ctx, cwd)
-			if err != nil {
-				return err
-			}
-			found, err := worktrees.Scan(ctx, root, force)
-			if err != nil {
-				return err
-			}
-			if len(found) == 0 {
-				fmt.Println("no worktrees to prune")
-				return nil
-			}
-
-			removed := 0
-			for _, wt := range found {
-				if !wt.Removable {
-					fmt.Printf("kept     %-40s %s\n", wt.Path, keepReason(wt))
-					continue
-				}
-				if dryRun {
-					fmt.Printf("would remove %-36s %s\n", wt.Path, wt.Branch)
-					continue
-				}
-				if err := worktrees.Remove(ctx, root, wt); err != nil {
-					fmt.Printf("kept     %-40s %v\n", wt.Path, err)
-					continue
-				}
-				fmt.Printf("removed  %s\n", wt.Path)
-				removed++
-			}
-
-			if dryRun {
-				return nil
-			}
-			// Clears the admin records git keeps for directories deleted by hand.
-			common, err := gitdiff.CommonGitDir(ctx, root)
-			if err != nil {
-				return err
-			}
-			if err := gitdiff.PruneWorktrees(ctx, filepath.Dir(common)); err != nil {
-				return err
-			}
-			if removed == 0 {
-				fmt.Println("nothing to remove")
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "remove worktrees with unpushed commits too (the branch is kept)")
-	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "say what would go without removing anything")
-	return cmd
-}
-
-// newSyncCommand brings every checkout of the repository up to a freshly
-// fetched base: one fetch, then a rebase in each worktree that can take one.
-func newSyncCommand() *cobra.Command {
-	var dryRun bool
-
-	cmd := &cobra.Command{
-		Use:   "sync",
-		Short: "Rebase this repository's worktrees onto a fresh base",
-		Long: `sync fetches the base branch once, fast-forwards the main checkout, and
-rebases every session worktree onto it.
-
-A worktree with uncommitted work is skipped, and so is a pull request review
-checkout, which is detached and has no base to be behind. A rebase that
-conflicts is aborted and reported: the worktree is left exactly as it was, for
-its own ade to finish. Unpushed commits do not block a rebase — they are what
-is being replayed — and neither does a worktree ade is serving.`,
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			root, err := gitdiff.RepoRoot(ctx, cwd)
-			if err != nil {
-				return err
-			}
-			report, err := worktrees.Sync(ctx, root, dryRun)
-			if err != nil {
-				return err
-			}
-
-			if report.Note != "" {
-				fmt.Printf("%s (%s)\n", report.Base, report.Note)
-			} else {
-				suffix := "s"
-				if report.Fetched == 1 {
-					suffix = ""
-				}
-				fmt.Printf("fetched %s (%d new commit%s)\n", report.Base, report.Fetched, suffix)
-			}
-			for _, res := range report.Results {
-				label := res.Outcome
-				if res.Main {
-					label = "main " + label
-				}
-				fmt.Printf("%-16s %-40s %s\n", label, res.Path, res.Detail)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "say what would be rebased without rebasing anything")
-	return cmd
-}
-
-// keepReason says why a worktree stays, in words.
-func keepReason(wt worktrees.Worktree) string {
-	switch wt.Keep {
-	case worktrees.KeepServing:
-		return "ade is serving it on " + wt.Serving
-	case worktrees.KeepUncommitted:
-		return fmt.Sprintf("%d file(s) here are uncommitted", wt.Uncommitted)
-	case worktrees.KeepUnpushed:
-		return fmt.Sprintf("%d commit(s) here are not pushed or merged; --force removes the checkout and keeps the branch", wt.Unpushed)
-	}
-	return wt.Keep
 }
 
 // safeToRemove refuses while the checkout holds work that exists nowhere else.
@@ -1963,69 +1230,6 @@ func unsentHere(ctx context.Context, root string) error {
 		return fmt.Errorf("%d review comment(s) here have not been sent to GitHub; send them or pass --force", n)
 	}
 	return nil
-}
-
-func newDocListCommand(docsDir *string) *cobra.Command {
-	return &cobra.Command{
-		Use:           "ls",
-		Short:         "List design documents",
-		Aliases:       []string{"list"},
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			dirs, err := designDirs(ctx, *docsDir)
-			if err != nil {
-				return err
-			}
-
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			root, err := gitdiff.RepoRoot(ctx, cwd)
-			if err != nil {
-				return err
-			}
-			branch := gitdiff.Branch(ctx, root)
-			commonGitDir, _ := gitdiff.CommonGitDir(ctx, root)
-			_, current, matched := docs.Find(dirs, commonGitDir, branch, "")
-
-			found := 0
-			for _, dir := range dirs {
-				tree, err := docs.Tree(dir, "")
-				if err != nil {
-					continue
-				}
-				for _, name := range flattenNames(tree) {
-					mark := " "
-					if matched && name == current {
-						// The one this branch would open.
-						mark = "*"
-					}
-					fmt.Printf("%s %-40s %s\n", mark, name, dir)
-					found++
-				}
-			}
-			if found == 0 {
-				fmt.Println("no design documents; ade create <name> starts one")
-			}
-			return nil
-		},
-	}
-}
-
-func flattenNames(entries []render.FileEntry) []string {
-	var out []string
-	for _, entry := range entries {
-		if entry.Dir {
-			out = append(out, flattenNames(entry.Children)...)
-			continue
-		}
-		out = append(out, entry.Path)
-	}
-	return out
 }
 
 // newPsCommand lists the servers running for this repository and its worktrees.
@@ -2104,173 +1308,6 @@ func reportLauncher(ctx context.Context) int {
 }
 
 // newAgentsCommand manages the named agents the chat can call on with @name.
-func newSaidCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "said <agent>",
-		Short: "What a named agent said in this conversation",
-		Long: `ade relays a named agent's answer to the main agent once, and a review's
-findings are filed as diff comments rather than relayed at all. This reads them
-back out of the conversation, so an agent can ask what @security actually found
-instead of only what it was told.
-
-Only works inside a running ade session, which is where the capability is.`,
-		Args:          cobra.ExactArgs(1),
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			answer, err := said.Ask(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(cmd.OutOrStdout(), said.Format(answer))
-			return nil
-		},
-	}
-	return cmd
-}
-
-func newDocWriteCommand() *cobra.Command {
-	var from string
-	cmd := &cobra.Command{
-		Use:   "write <name>",
-		Short: "Replace a design document's contents",
-		Long: `Design documents live under .git, which the agent harness treats as sensitive
-and refuses to write to. This hands the new contents to the running ade, which
-writes them where the document already is.
-
-The document must exist: this replaces what you were asked to work on, and
-creates nothing. The body comes from --from, or from standard input.
-
-Only works inside a running ade session, which is where the capability is.`,
-		Args:          cobra.ExactArgs(1),
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var body []byte
-			var err error
-			if from != "" {
-				body, err = os.ReadFile(from) // #nosec G304 -- a path the agent names on its own command line
-				if err != nil {
-					return fmt.Errorf("read %s: %w", from, err)
-				}
-			} else if body, err = io.ReadAll(cmd.InOrStdin()); err != nil {
-				return fmt.Errorf("read the document from stdin: %w", err)
-			}
-			answer, err := docsave.Send(cmd.Context(), args[0], string(body))
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", answer.Path)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&from, "from", "", "read the document from this file rather than standard input")
-	return cmd
-}
-
-// newDriftCommand reads the design checklist back to the agent.
-func newDriftCommand() *cobra.Command {
-	var all bool
-	cmd := &cobra.Command{
-		Use:   "drift",
-		Short: "The design checklist, and what the last pass said about it",
-		Long: `ade scores the branch against the open design document and files what it
-contradicts as diff comments. The conversation gets a count and nothing else,
-so this is how an agent reads which requirements are not done.
-
-Only works inside a running ade session, which is where the capability is.`,
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			state, err := drift.Ask(cmd.Context())
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(cmd.OutOrStdout(), drift.Format(state, all))
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&all, "all", false, "the requirements already done as well as the outstanding ones")
-	return cmd
-}
-
-func newRolesCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "roles",
-		Short: "The machine-wide prompt for new main chats",
-		Long:  "Roles are Markdown prompts in ~/.ade/roles. Pick one in Settings to tune new main chats without changing a repository's CLAUDE.md.",
-	}
-	cmd.AddCommand(newRolesInstallCommand())
-	cmd.AddCommand(newRolesListCommand())
-	return cmd
-}
-
-func newRolesInstallCommand() *cobra.Command {
-	var force bool
-	cmd := &cobra.Command{
-		Use:           "install",
-		Short:         "Install the default roles into ~/.ade/roles",
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return err
-			}
-			done, err := roles.Install(home, force)
-			for _, role := range done {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-9s %s  %s\n", role.State, role.Name, role.Path)
-			}
-			if err != nil {
-				return err
-			}
-			kept := 0
-			for _, role := range done {
-				if role.State == "kept" {
-					kept++
-				}
-			}
-			if kept > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d already there and left alone; --force replaces them\n", kept)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&force, "force", false, "replace roles that are already there")
-	return cmd
-}
-
-func newRolesListCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:           "ls",
-		Short:         "List the machine-wide roles",
-		Aliases:       []string{"list"},
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			view, err := roles.ViewOf()
-			if err != nil {
-				return err
-			}
-			if len(view.Roles) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "no roles; run `ade roles install` for the defaults")
-				return nil
-			}
-			for _, role := range view.Roles {
-				mark := " "
-				if role.Name == view.Default {
-					mark = "*"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %-16s %d bytes\n", mark, role.Name, len(role.Prompt))
-			}
-			return nil
-		},
-	}
-}
-
 func newAgentsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
@@ -2356,144 +1393,4 @@ func newAgentsListCommand() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// newJobsCommand is the scheduled work the launcher's clock fires, for looking
-// at and running without a browser.
-func newJobsCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "jobs",
-		Short: "The scheduled jobs the launcher's clock fires",
-		Long: `A job is a prompt on a schedule: .ade/jobs/<name>.md in a repository, or
-~/.ade/jobs/ for your own. The launcher fires them, since it is the only
-process up whatever you are working on. A job reads and reports; it does not
-edit, commit or post.`,
-	}
-	cmd.AddCommand(newJobsListCommand())
-	cmd.AddCommand(newJobsRunCommand())
-	return cmd
-}
-
-func newJobsListCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:           "ls",
-		Short:         "List the jobs this checkout can run",
-		Aliases:       []string{"list"},
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			list, skipped := loadJobs(cmd)
-			if len(list) == 0 && len(skipped) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "no jobs; write one at ~/.ade/jobs/<name>.md")
-				return nil
-			}
-			for _, job := range list {
-				view := jobs.Viewed(job, jobs.ReadState(job))
-				fmt.Fprintf(cmd.OutOrStdout(), "%-16s %-5s %-14s %-9s %s\n",
-					job.Name, job.Scope, job.Schedule, jobStatus(view), jobLast(view))
-			}
-			for _, skip := range skipped {
-				fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: %s\n", skip.Path, skip.Error)
-			}
-			return nil
-		},
-	}
-}
-
-func newJobsRunCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:           "run <name>",
-		Short:         "Fire a job now, whatever its schedule says",
-		Args:          cobra.ExactArgs(1),
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			list, _ := loadJobs(cmd)
-			job, ok := jobs.Find(list, args[0])
-			if !ok {
-				return fmt.Errorf("no job called %q; `ade jobs ls` lists them", args[0])
-			}
-			dir, err := jobRoot(cmd, job)
-			if err != nil {
-				return err
-			}
-			var out jobs.Outcome
-			if job.Allow == jobs.Writes {
-				out = jobs.Start(cmd.Context(), job, dir, jobs.CreateStarter())
-			} else {
-				out = jobs.Fire(cmd.Context(), job, dir, jobs.ColdRunner(""))
-			}
-			if out.Error != "" {
-				return errors.New(out.Error)
-			}
-			if out.Report == "" {
-				fmt.Fprintln(cmd.OutOrStdout(), jobs.Nothing)
-				return nil
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), out.Report)
-			if out.URL != "" {
-				fmt.Fprintln(cmd.OutOrStdout(), out.URL)
-			}
-			return nil
-		},
-	}
-}
-
-// loadJobs is the jobs visible from here: this repository's, then the user's.
-func loadJobs(cmd *cobra.Command) ([]jobs.Job, []jobs.Skipped) {
-	home, _ := os.UserHomeDir()
-	return jobs.LoadAll(repoRootOrCwd(cmd), home)
-}
-
-// jobRoot is where a job runs: its project's checkout when it names one, and
-// this one otherwise.
-func jobRoot(cmd *cobra.Command, job jobs.Job) (string, error) {
-	here := repoRootOrCwd(cmd)
-	if job.Project == "" {
-		return here, nil
-	}
-	cfg, err := adesettings.Load()
-	if err != nil {
-		return "", err
-	}
-	return jobs.Checkout(cmd.Context(), job, sessions.Repos(cfg.Roots(), cfg.Ignored), here)
-}
-
-func repoRootOrCwd(cmd *cobra.Command) string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	root, err := gitdiff.RepoRoot(cmd.Context(), cwd)
-	if err != nil {
-		return cwd
-	}
-	return root
-}
-
-// jobStatus is the one word a list shows: what is standing in the way, if
-// anything is.
-func jobStatus(view jobs.View) string {
-	switch {
-	case view.Paused:
-		return "paused"
-	case view.Failing:
-		return "failing"
-	case view.LastFired == nil:
-		return "never run"
-	case view.NextDue == nil:
-		return "no window"
-	default:
-		return "ok"
-	}
-}
-
-// jobLast is when the job last fired and what came of it.
-func jobLast(view jobs.View) string {
-	if len(view.Outcomes) == 0 {
-		return ""
-	}
-	last := view.Outcomes[0]
-	return fmt.Sprintf("%s  %s", last.FiredAt.Format(time.RFC3339), last.Verdict())
 }

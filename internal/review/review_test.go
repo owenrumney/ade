@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/owenrumney/ade/internal/bridge"
+	"github.com/owenrumney/ade/internal/oneshot"
 
 	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
-func textTurn(text string) *bridge.Turn {
-	return &bridge.Turn{Text: text}
+func textTurn(text string) *oneshot.Turn {
+	return &oneshot.Turn{Text: text}
 }
 
 func TestPrompt(t *testing.T) {
@@ -108,10 +108,10 @@ func TestParseTurnFromTextBlock(t *testing.T) {
 }
 
 func TestParseTurnPrefersTheToolCall(t *testing.T) {
-	turn := &bridge.Turn{
+	turn := &oneshot.Turn{
 		Text: "```json\n[{\"file\":\"from-text.go\",\"line\":1,\"summary\":\"text\"}]\n```",
-		Events: []bridge.Event{{
-			ToolUses: []bridge.ToolUse{{
+		Events: []oneshot.Event{{
+			ToolUses: []oneshot.ToolUse{{
 				Name:  reportTool,
 				Input: []byte(`{"findings":[{"file":"from-tool.go","line":2,"summary":"tool"}]}`),
 			}},
@@ -128,7 +128,7 @@ func TestParseTurnPrefersTheToolCall(t *testing.T) {
 func TestParseTurnEdgeCases(t *testing.T) {
 	tests := []struct {
 		name       string
-		turn       *bridge.Turn
+		turn       *oneshot.Turn
 		count      int
 		structured bool
 		isErr      bool
@@ -251,7 +251,7 @@ func TestBody(t *testing.T) {
 }
 
 func TestParseTurnNormalisesSeverity(t *testing.T) {
-	turn := &bridge.Turn{Text: "```json\n" + `[
+	turn := &oneshot.Turn{Text: "```json\n" + `[
 	  {"file": "a.go", "line": 1, "summary": "one", "severity": "CRITICAL"},
 	  {"file": "b.go", "line": 2, "summary": "two", "severity": "nonsense"},
 	  {"file": "c.go", "line": 3, "summary": "three"}

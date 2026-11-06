@@ -1,41 +1,14 @@
-// Monaco, fetched the first time a file is opened: it was seven eighths
-// of the window's bundle and most sessions never open a file.
-
-export interface Where {
-  path: string;
-  line: number;
-}
-
-export interface Asking {
-  hover(path: string, line: number, col: number): Promise<string>;
-  definition(path: string, line: number, col: number): Promise<Where | undefined>;
-}
+// Monaco, fetched the first time a file is edited: it was seven eighths
+// of the window's bundle and most sessions never edit one.
 
 // Which half of the editor area: one instance cannot be in two panes.
 export type Half = 0 | 1;
 
 interface Editor {
-  mount(
-    half: Half,
-    source: string,
-    path: string,
-    line: number,
-    onLine: (n: number) => void,
-  ): HTMLElement;
-  mountDiff(
-    half: Half,
-    base: string,
-    source: string,
-    path: string,
-    line: number,
-    onLine: (n: number) => void,
-  ): HTMLElement;
-  selected(): { from: string; text: string } | undefined;
+  mountDiff(half: Half, base: string, source: string, path: string, line: number): HTMLElement;
   edits(): { path: string; source: string } | undefined;
   saved(path: string, source: string): void;
   focus(half: Half): void;
-  ask(how: Asking): void;
-  onJump(then: (to: Where) => void): void;
 }
 
 declare global {
@@ -45,21 +18,6 @@ declare global {
 }
 
 let loading: Promise<Editor | undefined> | undefined;
-// What the editor asks the language server through, and where a
-// definition in another file goes. Held until the bundle is here.
-let how: Asking | undefined;
-let jump: ((to: Where) => void) | undefined;
-
-// reaching says how the editor should ask, before it exists.
-export function reaching(ask: Asking, onJump: (to: Where) => void): void {
-  how = ask;
-  jump = onJump;
-  const ready = window.adeEditor;
-  if (ready) {
-    ready.ask(ask);
-    ready.onJump(onJump);
-  }
-}
 
 // What the window puts in a pane, one per half and made once: a new
 // wrapper per draw would take the editor out of the document.
@@ -83,29 +41,12 @@ function fetchEditor(): Promise<Editor | undefined> {
   return loading;
 }
 
-export function mount(
-  side: Half,
-  source: string,
-  path: string,
-  line: number,
-  onLine: (n: number) => void,
-): HTMLElement {
-  return once(side, (editor) => editor.mount(side, source, path, line, onLine));
-}
-
 // mountDiff is the file over the diff's left side, edited inline.
-export function mountDiff(
-  side: Half,
-  base: string,
-  source: string,
-  path: string,
-  line: number,
-  onLine: (n: number) => void,
-): HTMLElement {
-  return once(side, (editor) => editor.mountDiff(side, base, source, path, line, onLine));
+export function mountDiff(side: Half, base: string, source: string, path: string, line = 0): HTMLElement {
+  return once(side, (editor) => editor.mountDiff(side, base, source, path, line));
 }
 
-// focus says which half a selection or a save is about.
+// focus says which half a save is about.
 export function focusEditor(side: Half): void {
   half = side;
   window.adeEditor?.focus(side);
@@ -127,11 +68,6 @@ function once(side: Half, draw: (editor: Editor) => HTMLElement): HTMLElement {
     }),
   );
   void fetchEditor().then((editor) => {
-    if (editor && how && jump) {
-      editor.ask(how);
-      editor.onJump(jump);
-      editor.focus(half);
-    }
     if (!editor) {
       host.replaceChildren(
         Object.assign(document.createElement("div"), {
@@ -141,14 +77,10 @@ function once(side: Half, draw: (editor: Editor) => HTMLElement): HTMLElement {
       );
       return;
     }
+    editor.focus(half);
     host.replaceChildren(draw(editor));
   });
   return host;
-}
-
-// Nothing is selected until the editor is there to have a selection.
-export function selected(): { from: string; text: string } | undefined {
-  return window.adeEditor?.selected();
 }
 
 export function edits(): { path: string; source: string } | undefined {

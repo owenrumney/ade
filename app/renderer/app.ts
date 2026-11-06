@@ -1,11 +1,14 @@
 import "./bridge";
+import "./shell";
 import { REPORTS } from "./reports";
 import * as real from "./real";
-import type { Dash, Design, Repo, Review } from "./real";
+import type { Dash, Repo } from "./real";
 import { icon } from "./icons";
-import { docRef } from "./docref";
 import {
+  BAR,
+  SIDE,
   counted,
+  matches,
   grouped,
   inBarOrder,
   type At,
@@ -18,14 +21,17 @@ import {
 import { Omnibox, el } from "./omnibox";
 import { sheet, type Asked } from "./sheets";
 import { build, flatten, squashed, toggled, type Node, type Shown } from "./tree";
-import { fill, owed, wired, type Ask, type Doing } from "./doing";
+import { fill, owed, wired, type Ask, type Doing, type Verb } from "./doing";
 import { SOURCES, type Choice, type Held, type Pickable } from "./sources";
 import { changesIn, drawnFrom, listed, toneOf, unsent, type Change, type Thread } from "./changes";
+import { CommitBox, NOTHING as NO_COMMIT, standingIn, type Does } from "./commitbox";
 import { needFor, Sources } from "./fresh";
-import { ledgerIn, viewedIn, NO_LEDGER, type Ledger } from "./viewed";
-import { idleAfter, merge, onScreen, plus, rowsOf, type Dwelt } from "./dwell";
+import { flip, pruned, read as readMarks, write as writeMarks, type Marks } from "./viewed";
 import { frame, pushTo, shown, stirred, tell } from "./panel";
 import {
+  AGENT,
+  DIFF,
+  diffTab,
   dismissable,
   groupOf,
   held,
@@ -37,9 +43,12 @@ import {
   opened,
   newSessionPanel,
   rebuilt,
+  seated,
   settled,
+  SHOTS,
   shut,
   shutMany,
+  standing,
   startIn,
   sweeping,
   trimmed,
@@ -48,25 +57,26 @@ import {
   type Sweep,
   type Tab,
 } from "./tabs";
-import { isChat, sideWidth } from "./dock";
+import { lastAgent, newSeed, setLastAgent } from "./terminalmode";
+import { BANDS, SIDE_SHUT, WIDTHS, bandHeight, sideWidth, type Band, type Edge } from "./dock";
+import { dragsBy } from "./drag";
 import { menu, type Row as MenuRow } from "./menu";
-import { edits, focusEditor, mount, mountDiff, reaching, saved, selected } from "./code";
-import { close as closeTerm, open as openTerm } from "./term";
-import { newSession, written, WHICH, type Reach, type Written } from "./panels";
-import { page as prPage } from "../pages/prpage";
-import { prActs, type PrActId } from "./prpage";
-import { plan, type Usage } from "../pages/usage";
-import { refreshFor } from "./refresh";
-import { inSpaces, keyOf, spaces as spacesPlace, type Space } from "./spaces";
+import { edits, focusEditor, mountDiff, saved } from "./code";
+import { close as closeTerm, lost as termLost, open as openTerm } from "./term";
+import { newSession, WHICH, type Reach } from "./panels";
 import {
-  designsOf,
-  drawnFrom as spaceDrawnFrom,
-  sessionsOf,
-  type Seen,
-  type SpaceAct,
-} from "./spacepage";
-import type { Repo as Stats } from "../pages/repo/view";
-import type { BranchPR, Check } from "../pages/client";
+  carousel,
+  drawnFrom as shotsDrawnFrom,
+  holdAt,
+  readSeen,
+  shotsOf,
+  unseen,
+  writeSeen,
+  type Shot,
+} from "./shots";
+import { refreshFor } from "./refresh";
+import { keyOf, spaces as spacesPlace, type Space } from "./spaces";
+import { drawnFrom as spaceDrawnFrom, sessionsOf, type Seen, type SpaceAct } from "./spacepage";
 
 // The shell. It owns the keyboard outright and hands the window named
 // commands, never keystrokes. Absent only under `make app-shots`.
@@ -77,51 +87,37 @@ const startingFor = 8_000;
 // What every list says while that server is on its way up.
 const coming = "Starting ade for this checkout…";
 
-// The Refresh button on the My Day report.
-const MY_DAY_AGAIN = "my-day-again";
-
 interface Rows<T> {
   rows: T;
   why?: string;
 }
 
 const EMPTY_DIFF: { rows: Change[]; why: string } = { rows: [], why: "" };
-const EMPTY_TREE: { rows: { path: string }[]; why: string } = { rows: [], why: "" };
 
-// How often the window looks at what is on screen, and how often it tells
-// the server. Reading is reported, never inferred from a fetch.
-const lookEvery = 1_000;
-const tellEvery = 5_000;
-
-// The most pending ranges a failed report may hold onto, which is the server's
-// own limit on one report: past it nothing would be accepted.
-const maxPending = 500;
-
-// The dock asks a panel tab's question — is there a server to fetch from.
-const CHAT_TAB: Tab = { id: "chat", title: "Chat", icon: "session", what: { panel: "ade.openChat" } };
+// Where the files ticked off in a review are kept between reloads.
+const markKey = "ade.diff.viewed";
 
 interface Gathered {
   offline?: string;
   dash?: Dash & { error?: string };
-  designs?: Design[];
   repos?: Repo[];
-  hosts?: real.Machine[];
   active?: real.Active[];
-  todos?: real.Todo[];
   jobs?: real.Job[];
   spaces?: Space[];
-  limits?: Usage;
   trouble?: Record<string, string>;
 }
 
 class Ade {
   private world: World = real.offline("Reading ade…");
-  private place = "prs";
+  // The list last acted in: where the arrows move and what a pick belongs to.
+  private place = "sessions";
+  // The list open beside the bar on the right, or none.
+  private side = localStorage.getItem("ade.side") ?? "";
   private picked = new Map<string, string>();
-  // The pick the sidebar was last scrolled to, so a redraw does not do it again.
-  private revealed = "";
+  // The pick each list was last scrolled to, so a redraw does not do it again.
+  private revealed = new Map<HTMLElement, string>();
   private listening = false;
-  private unfolded = new Set<string>(["internal", "internal/dashboard"]);
+  private unfolded = new Set<string>();
   private folded = new Set<string>();
   private filters = new Map<string, string>();
   private trees = new Map<string, Node[]>();
@@ -132,22 +128,21 @@ class Ade {
   private openSpaces: Space[] = [];
   private changes: Change[] = [];
   private threads: Thread[] = [];
+  private commit = new CommitBox(this.commitDoes(), (text) => this.say(text));
+  // My Day: the day this window last built it unasked, and a build in flight.
+  private myDayAsked = "";
+  private myDayBuilding = false;
   private mine: real.Listed[] = [];
   private bus?: real.Bus;
-  private pr?: { number: number; title: string; body: string };
-  private reviews: Review[] = [];
   private pickTrouble = "";
   // Which threads are unfolded: a thread shows one comment, and the findings
   // behind it are a click away.
   private openThreads = new Set<string>();
   // How much of the review is waiting on GitHub, ready here, or going nowhere.
   private draft: real.DraftState = { inDraft: 0, ready: 0, notGoing: 0 };
-  // The plan windows, as the launcher last read them.
-  private limits?: Usage;
-  private prShown?: { row: Row; at: { repo: string; number: number }; url: string };
   // The space whose page is open, for the acts drawn on it.
   private spaceShown?: Space;
-  // Archived from a space page, until a read brings a list that agrees.
+  // Closed from here, until a read brings a list that agrees.
   private goneSessions = new Set<string>();
   private goneSpaces = new Set<string>();
   // Where the picked session's server is up to. "starting" is one
@@ -157,32 +152,36 @@ class Ade {
   // Every announced session as of the last reading: how the window
   // knows whether a session it is about to show is served.
   private announced: real.Active[] = [];
-  private todoList: real.Todo[] = [];
+  // Sessions whose agent has ended, and those whose agent needs you, as last read.
+  private endedIn = new Set<string>();
+  private needing: Set<string> | undefined;
+  private resumed = "";
   private jobs: real.Job[] = [];
   // Every read the window keeps, by age. See fresh.ts.
   private sources = new Sources();
   // The version the server publishes for exactly this diff.
   private diffNow = "";
   private diffRead = "";
-  // Which checkout holds a changed copy of each design in the store, so the
-  // row's Re-import knows where to read it from again.
-  private designChanged = new Map<string, string>();
-  // The store as the last read listed it.
-  private storeDesigns: real.Design[] = [];
   private faultsSaid = 0;
 
   // The checkout the window was opened on, when it was opened on one.
   // Only until a session is picked: after that the pick is the answer.
   private openedOn = "";
+  // The conversation the last run was in, read once on start.
+  private wasOn = "";
+  // The pictures in this session's outbox, and where the carousel is in them.
+  private pics: Shot[] = [];
+  private picAt = 0;
+  private picsSeen = readSeen();
+  // How tall the reviewers and comments sections may grow, once dragged.
+  private bands: Record<Band, number> = { run: 0, comments: 0 };
+  private pulling = false;
   private asked = false;
   private woke = new Set<string>();
-  // A session you just picked, until its server is on it. Cleared once
-  // acted on, so a conversation moved by hand afterwards stays put.
-  private wants = "";
-  // A checkout just made for a review: the window moves onto it as soon
-  // as the ade in it announces a session.
+  // A checkout just made: the window moves onto it as soon as the ade in
+  // it announces a session.
   private landing = "";
-  // What to show once it announces: the diff, or the conversation.
+  // What to show once it announces: the diff, or the agent.
   private landingFor: "review" | "chat" = "review";
   private landingSince = 0;
   // An Add to review in flight. Left live, a second press files the
@@ -200,37 +199,35 @@ class Ade {
   // A tab is being carried. The strip holds still until it is put down.
   private dragging = false;
   private panes = new Map<string, { node: HTMLElement; key: string; waiting: boolean }>();
-  // What each conversation had open, and which one the tabs now belong
+  // What each session had open, and which one the tabs now belong
   // to. Switching closes them and brings back the ones for the new.
   private keptTabs = new Map<string, Layout>();
   private tabsFor = "";
   private launcher?: { base: string; token: string };
   private omnibox: Omnibox;
-  private sidebarWidth = Number(localStorage.getItem("ade.sidebar")) || 300;
-  // The chat dock: its own width, and shut only because you shut it.
-  private chatWidth = Number(localStorage.getItem("ade.chat")) || 400;
-  private chatShut = localStorage.getItem("ade.chat.shut") === "1";
-  // What the sidebar last drew as, so an unchanged poll leaves it alone.
-  private sidebarHTML = "";
-  // Expanded: the chat takes the editor area, out to the sidebar.
-  private chatWide = localStorage.getItem("ade.chat.wide") === "1";
-  // The sidebar folded away, by the arrows under the activity bar.
-  private sideShut = localStorage.getItem("ade.side.shut") === "1";
+  // The three columns a grip drags: sessions, the Diff's files, the list on the right.
+  private widths: Record<Edge, number> = {
+    sidebar: Number(localStorage.getItem(WIDTHS.sidebar.key)) || 220,
+    files: Number(localStorage.getItem(WIDTHS.files.key)) || 280,
+    side: Number(localStorage.getItem(WIDTHS.side.key)) || 340,
+  };
+  // What each list last drew as, so an unchanged poll leaves it alone.
+  private drawnHTML = new Map<HTMLElement, string>();
+  // The sessions folded away by ⌘B or the titlebar button, kept between runs:
+  // the button is always there, so a kept fold can always be undone.
+  private sideShut = localStorage.getItem(SIDE_SHUT) === "1";
+  // The last review by named agents, and the one put away by its start.
+  private reviewRun?: real.ReviewRun;
+  private reviewShut = "";
   private split = localStorage.getItem("ade.diff.split") === "1";
-  // How much of what the agent wrote has been read, as the server counts it.
-  private ledger: Ledger = NO_LEDGER;
-  private viewedFiles = new Set<string>();
-  // What has been on screen since the last report, and when each clock ran.
-  private dwelt: Dwelt[] = [];
-  // The session the pending dwell was gathered in. It is reported there, not
-  // wherever the window has got to by the time the report goes out.
-  private dweltIn = "";
-  private lookedAt = 0;
-  private toldAt = 0;
+  // Files ticked off in the review. Switching session starts a fresh set.
+  private marks: Marks = {};
+  private marksFor = "";
   private started = false;
   private timer = 0 as unknown as ReturnType<typeof setTimeout>;
   private watching = "";
   private root = document.getElementById("window")!;
+  private shell?: Shell;
 
   constructor() {
     this.written();
@@ -241,36 +238,26 @@ class Ade {
         else this.run(hit.verb.command);
       },
     );
-    document.documentElement.style.setProperty("--sidebar-w", `${this.sidebarWidth}px`);
-    document.documentElement.style.setProperty("--chat-w", `${this.chatWidth}px`);
+    for (const edge of Object.keys(WIDTHS) as Edge[]) {
+      document.documentElement.style.setProperty(WIDTHS[edge].css, `${this.widths[edge]}px`);
+    }
+    for (const band of Object.keys(BANDS) as Band[]) {
+      const kept = Number(localStorage.getItem(BANDS[band].key) ?? 0);
+      if (kept > 0) {
+        this.bands[band] = bandHeight(band, kept);
+        document.documentElement.style.setProperty(BANDS[band].css, `${this.bands[band]}px`);
+      }
+    }
     this.saySplit();
-    // How the editor reaches a language server. The window holds the
-    // session, so it does the asking; the editor only says where.
-    reaching(
-      {
-        hover: async (path, line, col) =>
-          (await this.language<string>("hover", path, line, col, "hover")) ?? "",
-        definition: async (path, line, col) => {
-          const at = await this.language<{ path?: string; line?: number }>(
-            "definition",
-            path,
-            line,
-            col,
-          );
-          return at?.path ? { path: at.path, line: at.line ?? 1 } : undefined;
-        },
-      },
-      (to) => {
-        this.openFile(to.path);
-        this.say(`${to.path}:${to.line}`);
-      },
-    );
     // Arrows are not chords, so the shell does not carry them.
     document.addEventListener("keydown", (e) => this.key(e));
+    // Coming back to the window is looking at it, which is what clears a badge.
+    window.addEventListener("focus", () => void this.read());
     if (window.ade) {
       window.ade.onCommand((command) => this.run(command));
       window.ade.onEvent((name) => {
         tell({ kind: "event", name });
+        if (name === "shots") void this.readPics();
         // A page draws from what its host pushes and has no poll, so an
         // event is also the moment to hand it a fresh state.
         void stirred();
@@ -280,16 +267,6 @@ class Ade {
     } else {
       shotHarness((command) => this.run(command));
     }
-    if (this.only) {
-      this.session = new URLSearchParams(location.search).get("session") ?? "";
-      this.launcher = undefined;
-      void window.ade?.where().then((at) => {
-        this.launcher = at ?? undefined;
-        this.draw();
-      });
-      return;
-    }
-    setInterval(() => this.look(), lookEvery);
     // ade's lists change because of other people. Each read sets the
     // next one; see soon().
     void this.read();
@@ -332,21 +309,22 @@ class Ade {
     const repos = got.repos ?? [];
     const trouble = got.trouble ?? {};
     this.repos = repos;
-    this.reviews = got.dash?.reviews ?? [];
     const listed = got.spaces ?? [];
     this.goneSpaces = new Set(listed.map((s) => s.repo).filter((r) => this.goneSpaces.has(r)));
     this.openSpaces = listed.filter((s) => !this.goneSpaces.has(s.repo));
     this.goneSessions = real.stillListed(repos, this.goneSessions);
-    this.limits = got.limits;
     this.where = real.whereSessionsAre(repos, got.active ?? []);
     // Only when the read brought a list back: a failed scan knows of
     // nothing, and landing off that moved you out of the conversation.
-    const known = real.knownSessions(repos, got.active ?? [], got.hosts ?? []);
+    const known = real.knownSessions(repos, got.active ?? []);
     if (known.size > 0 && !known.has(this.session)) {
-      this.goTo(real.landOn(repos, this.openedOn));
+      this.goTo(real.landAgain(repos, known, this.openedOn, this.wasOn));
+      // Spent: a session closed later must not send the window back here.
+      this.wasOn = "";
     }
     this.landing = this.landed();
     this.homeDir = this.where.get(this.session) ?? repos[0]?.path ?? "";
+    void this.readPics();
     if (this.session !== this.watching) {
       this.watching = this.session;
       void window.ade.watch(this.session);
@@ -358,45 +336,35 @@ class Ade {
       void window.ade.listen();
     }
     this.announced = got.active ?? [];
-    this.todoList = got.todos ?? [];
     this.jobs = got.jobs ?? [];
+    if (real.myDayDue(real.myDay(this.jobs), new Date())) void this.buildMyDay(false);
     this.refreshMyDay();
     // This read is the one that finds out whether anything is serving
     // the session, so the other three do not repeat its failure.
     const doing = await this.doing();
+    this.reviewRun = doing.review;
+    this.badged(doing, got.active ?? []);
     // A pass while nothing serves the session shows what was last read.
     const starting = this.serving === "starting";
-    const [changes, files] = starting
-      ? [this.held(this.diffKey, EMPTY_DIFF, coming), this.held(this.treeKey, EMPTY_TREE, coming)]
-      : await this.looking();
+    const changes = starting ? this.held(this.diffKey, EMPTY_DIFF, coming) : await this.looking();
     this.draft = starting ? this.draft : await this.draftState();
     this.changes = changes.rows;
-    this.hold(ledgerIn(await this.readLedger()));
+    if (this.marksFor !== this.session) {
+      this.marksFor = this.session;
+      this.marks = readMarks(localStorage.getItem(markKey), this.session);
+    }
+    this.marks = pruned(this.marks, this.changes);
     this.world = {
       places: inBarOrder([
-        real.waiting(dash, got.active ?? []),
-        spacesPlace(this.openSpaces, this.designCounts()),
+        real.waiting(dash, this.bus),
+        spacesPlace(this.openSpaces),
         note(
-          without(
-            real.sessions(
-              repos,
-              "",
-              Date.now(),
-              got.hosts ?? [],
-              got.active ?? [],
-              inSpaces(this.openSpaces),
-            ),
-            this.goneSessions,
-          ),
+          without(real.sessions(repos, Date.now(), got.active ?? []), this.goneSessions),
           trouble.sessions,
-          "No session on this machine yet.",
+          "No session yet. ⌘N starts one.",
         ),
-        real.designs(this.noteChanged(got.designs ?? [])),
         real.prs(dash, this.mine, this.repoOf(this.session)),
-        note(real.agents(got.active ?? []), trouble.agents),
         real.issues(dash),
-        note(real.todos(got.todos ?? []), trouble.todos, "Nothing on the list."),
-        note(real.jobs(got.jobs ?? []), trouble.jobs, "No jobs on this machine."),
         real.inbox(dash),
         real.team(this.bus),
         note(
@@ -411,33 +379,15 @@ class Ade {
           },
           changes.why,
         ),
-        note({ id: "code", title: "Code", icon: "code", rows: [], files: files.rows }, files.why),
       ]),
-      status: {
-        ...real.status(dash, repos, doing),
-        // One server per checkout: the conversation it is in is not
-        // always the row that was picked, and the chat shows its own.
-        elsewhere: doing.on && this.session && doing.on !== this.session ? doing.on : "",
-      },
-      blame: this.world.blame,
+      status: real.status(dash, repos, doing, this.bus),
     };
     if (this.serving === "starting") this.soon(1_000);
     else this.soon(real.busy(doing) ? 3_000 : 30_000);
-    // By id: the places are in the bar's order by now, and the index this
-    // was written with pointed at Sessions.
-    this.world.places = this.world.places.map((place) =>
-      place.id === "designs" ? note(place, trouble.designs, "The designs store is empty.") : place,
-    );
     this.trees.clear();
     void this.heard();
     this.reopen();
     this.draw();
-    // One server per checkout, and it comes up in whatever conversation
-    // it was last in. Picking a session means moving it onto that one.
-    if (this.wants === this.session && doing.on && doing.on !== this.session) {
-      this.wants = "";
-      void this.resume();
-    }
   }
 
   private async up(): Promise<void> {
@@ -457,7 +407,7 @@ class Ade {
     if (what === "close") {
       this.goneSpaces.add(repo);
       this.openSpaces = this.openSpaces.filter((s) => s.repo !== repo);
-      this.redrawPlace(spacesPlace(this.openSpaces, this.designCounts()));
+      this.redrawPlace(spacesPlace(this.openSpaces));
       this.say(`closing ${repo}…`);
     }
     const got =
@@ -496,18 +446,15 @@ class Ade {
     if (!window.ade || !this.session) {
       this.threads = [];
       this.mine = [];
+      this.commit.show(NO_COMMIT);
       return real.NOTHING;
     }
     const got = (await window.ade
       .read("session", "/api/state", this.session)
       .catch((e: Error) => ({ error: e.message }))) as { error?: string };
     const unserved = real.unserved(got.error);
-    const was = this.serving;
     if (!unserved) {
       this.serving = "ok";
-      // A chat built while nothing answered gave up on its own. The pane
-      // is kept across a restart, so it is told rather than rebuilt.
-      if (was !== "ok") pushTo("chat", { kind: "reconnect" });
     } else if (!this.woke.has(this.session)) {
       // Once per session: one that will not come up would otherwise be
       // started again every three seconds.
@@ -521,13 +468,13 @@ class Ade {
     this.mine = ((got as { openPrs?: real.Listed[] | null })?.openPrs ?? []).filter((p) => p.number);
     this.bus = (got as { bus?: real.Bus })?.bus;
     this.threads = ((got as { threads?: Thread[] | null })?.threads ?? []).filter((t) => t.id);
+    this.commit.show(standingIn(got));
     this.diffNow = String((got as { diffVersion?: string }).diffVersion ?? "");
     // The version makes the diff stale, not the event that brought it.
     const at = `${this.session}:${this.diffNow}`;
     if (this.diffNow !== "" && at !== this.diffRead) {
       this.diffRead = at;
       this.sources.stale(this.diffKey);
-      this.sources.stale(this.treeKey);
     }
     return real.doingIn(got);
   }
@@ -548,11 +495,9 @@ class Ade {
       return this.landing;
     }
     this.goTo(id);
-    this.wants = id;
     this.picked.set("sessions", id);
     if (!this.servedAt(id)) this.serving = "starting";
-    if (this.landingFor === "chat") this.run("ade.openChat");
-    else this.place = "review";
+    this.run(this.landingFor === "chat" ? "ade.openAgent" : "ade.diffTurn");
     this.landingFor = "review";
     return "";
   }
@@ -579,25 +524,15 @@ class Ade {
     return `diff:${this.session}`;
   }
 
-  private get treeKey(): string {
-    return `tree:${this.session}`;
-  }
-
-  // looking is one pass's look at the diff and the file list.
-  private async looking(): Promise<[Rows<Change[]>, Rows<{ path: string }[]>]> {
-    if (!window.ade) return [{ rows: [] }, { rows: [] }];
-    if (!this.session) {
-      return [
-        { rows: [], why: "Pick a session: the diff is one checkout's." },
-        { rows: [], why: "Pick a session: Code is one checkout's." },
-      ];
-    }
+  // looking is one pass's look at the diff.
+  private async looking(): Promise<Rows<Change[]>> {
+    if (!window.ade) return { rows: [] };
+    if (!this.session) return { rows: [], why: "Pick a session: the diff is one checkout's." };
     this.sources.watch(this.diffKey, () => this.readDiff(), "diff");
-    this.sources.watch(this.treeKey, () => this.readTree(), "diff");
     // A source nothing looked at is dropped: a session left behind stops being read.
     await this.sources.settled();
     this.sources.looked();
-    return [this.held(this.diffKey, EMPTY_DIFF), this.held(this.treeKey, EMPTY_TREE)];
+    return this.held(this.diffKey, EMPTY_DIFF);
   }
 
   // held is a reading as a place takes it: rows, and a line for having none.
@@ -619,64 +554,6 @@ class Ade {
         ? ""
         : `Nothing in ${where}${view ? ` · ${view}` : ""}. ⌘K “scope” to change the view.`;
     return { rows, why };
-  }
-
-  private async readLedger(): Promise<unknown> {
-    if (!this.session) return undefined;
-    return window.ade?.read("session", "/api/ledger", this.session).catch(() => undefined);
-  }
-
-  private hold(ledger: Ledger): void {
-    this.ledger = ledger;
-    this.viewedFiles = viewedIn(ledger);
-  }
-
-  // look is what was on screen since the last look, and every so often it
-  // says so. A window nobody is looking at reports nothing.
-  private look(): void {
-    const now = Date.now();
-    const since = now - this.lookedAt;
-    this.lookedAt = now;
-    if (document.hidden || !document.hasFocus() || since > idleAfter) return;
-    // A switch of session reports what the last one earned before gathering more.
-    if (this.dwelt.length > 0 && this.dweltIn !== this.session) void this.tell();
-    const view = { top: 0, bottom: window.innerHeight };
-    for (const { file, rows } of rowsOf(this.root)) {
-      this.dwelt = plus(this.dwelt, onScreen(file, rows, view), since);
-    }
-    if (this.dwelt.length === 0) return;
-    this.dweltIn = this.session;
-    if (now - this.toldAt >= tellEvery) void this.tell();
-  }
-
-  // tell reports the dwell and takes the count back. A report that did not
-  // land is put back: five seconds of reading is not the server's to lose.
-  private async tell(): Promise<void> {
-    const seen = this.dwelt;
-    const to = this.dweltIn;
-    this.dwelt = [];
-    this.toldAt = Date.now();
-    if (!window.ade || !to || seen.length === 0) return;
-    const back = await window.ade
-      .act("session", "/api/ledger", { seen }, to)
-      .catch(() => undefined);
-    if (!back) {
-      const put = this.dweltIn === to ? merge(seen, this.dwelt) : this.dwelt;
-      if (put.length <= maxPending) this.dwelt = put;
-      return;
-    }
-    if (to !== this.session) return;
-    this.hold(ledgerIn(back));
-    if (this.place === "review") this.draw();
-  }
-
-  private async readTree(): Promise<{ rows: { path: string }[]; why: string }> {
-    const got = (await window.ade?.read("session", "/api/tree", this.session)) as {
-      files?: string[];
-      error?: string;
-    };
-    if (got.error) throw new Error(`/api/tree — ${got.error}`);
-    return { rows: (got.files ?? []).map((path) => ({ path })), why: "" };
   }
 
   // draftState is how far the review has got, which the Review place says and
@@ -702,22 +579,20 @@ class Ade {
   }
 
   run(command: string): void {
-    this.noted("command", command);
     const what = wired(command);
     if (!what || what.at === "soon") return this.say(owed(command));
     if (what.at === "panel") {
       this.omnibox.close();
-      if (isChat(what.panel)) return this.chat();
       // Run from a workspace, New session opens with that repository ticked.
       const from = what.panel === "ade.newSession" ? startIn(held(this.tabs, this.active)) : "";
       if (from) return this.show({ panel: `in:${from}` }, "New session", "session");
       const made = WHICH[what.panel];
-      const title = made ? made(this.reach(), this.sessionAt()).title : what.panel;
+      const title = made ? made(this.reach()).title : what.panel;
       return this.show({ panel: what.panel }, title, "session");
     }
     if (what.at === "report") {
       this.omnibox.close();
-      void this.report(what.from, what.path, what.render, what.also);
+      void this.report(what.from, what.path, what.render);
       return;
     }
     if (what.at === "rules") {
@@ -725,52 +600,87 @@ class Ade {
       void this.rules();
       return;
     }
-    if (what.at === "find") {
-      void this.find(what);
-      return;
-    }
-    if (what.at === "edit") {
-      void this.editPR();
-      return;
-    }
     if (what.at === "verdict") {
       void this.giveVerdict(what.which);
       return;
     }
-    if (what.at === "window") {
-      if (what.verb === "dismiss") {
-        if (this.omnibox.showing()) return this.omnibox.close();
-        if (!dismissable(held(this.tabs, this.active))) return;
-        return this.close();
-      }
-      this.omnibox.close();
-      if (what.verb === "omnibox") return this.omnibox.toggle();
-      if (what.verb === "refresh") return void this.again();
-      if (what.verb === "save") return void this.save();
-      if (what.verb === "review-draft") return void this.addToReview();
-      if (what.verb === "review-finish") return void this.finishReview();
-      if (what.verb === "open-pr") return void this.openPRLink();
-      if (what.verb === "start") return void this.up();
-      if (what.verb === "resume") return void this.resume();
-      if (what.verb === "new-chat") return void this.newChat();
-      if (what.verb === "ask") return void this.ask();
-      if (what.verb === "dictate") return this.dictate();
-      if (what.verb === "history") return void this.history();
-      if (what.verb === "float") {
-        void window.ade?.float("ade.concierge", this.session);
-        return;
-      }
-      if (what.verb === "terminal") {
-        return this.show({ kind: "term", title: "Terminal" }, "Terminal", "code");
-      }
-      if (what.verb === "sidebar") return this.shutSide(!this.sideShut);
-      if (what.place) {
-        this.place = what.place;
-        if (this.sideShut) return this.shutSide(false);
-      }
-      return this.draw();
-    }
+    if (what.at === "window") return this.windowVerb(what.verb, what.place);
     void this.perform(command, what);
+  }
+
+  // windowVerb is a command the window does itself, with no request behind it.
+  private windowVerb(verb: Verb | undefined, place: string | undefined): void {
+    if (verb === "dismiss") {
+      if (this.omnibox.showing()) return this.omnibox.close();
+      if (!dismissable(held(this.tabs, this.active))) return;
+      return this.close();
+    }
+    this.omnibox.close();
+    switch (verb) {
+      case "omnibox":
+        return this.omnibox.toggle();
+      case "refresh":
+        return void this.again();
+      case "save":
+        return void this.save();
+      case "review-draft":
+        return void this.addToReview();
+      case "review-finish":
+        return void this.finishReview();
+      case "open-pr":
+        return void this.openPRLink();
+      case "start":
+        return void this.up();
+      case "terminal":
+        return this.show({ kind: "term", title: "Shell" }, "Shell", "terminal");
+      case "agent":
+        return this.show({ kind: "agent", title: "Agent" }, "Agent", "session");
+      case "diff":
+        return this.toDiff();
+      case "findings":
+        return void this.sendFindings();
+      case "explain":
+        return void this.explainChange();
+      case "create-pr":
+        return void this.createPR();
+      case "close-session":
+        return void this.endSession(this.session);
+      case "my-day":
+        return this.openMyDay();
+      case "brief":
+        return void this.openBrief();
+      case "brief-send":
+        return void this.sendBrief();
+      case "find":
+        return void this.findSession();
+      case "tags":
+        return void this.tagSession();
+      case "sidebar":
+        return this.shutSide(!this.sideShut);
+    }
+    // The left is the sessions, always: any other list opens on the right.
+    if (place === "sessions") return this.shutSide(false);
+    if (place) return this.sideTo(place, true);
+    this.draw();
+  }
+
+  // toDiff brings the Diff tab forward on the file it had, or the first changed.
+  private toDiff(): void {
+    const held = this.tabs.find((t) => t.id === DIFF);
+    const empty = !held || ("kind" in held.what && held.what.kind === "diff");
+    const path = this.picked.get("review") ?? this.changes[0]?.path;
+    if (empty && path && this.changes.some((c) => c.path === path)) return this.openFile(path);
+    if (!held) return this.show(diffTab().what, "Diff", "diff");
+    this.active = DIFF;
+    this.remember();
+    this.draw();
+  }
+
+  // sideTo opens a list beside the bar, or shuts it when it is the one showing.
+  private sideTo(place: string, keep = false): void {
+    this.side = this.side === place && !keep ? "" : place;
+    localStorage.setItem("ade.side", this.side);
+    this.draw();
   }
 
   // perform sends one verb to ade. The table's body is merged with what
@@ -782,14 +692,6 @@ class Ade {
       id: this.session,
       ...(what.body ?? {}),
     };
-    if (what.at === "session" && what.onDoc) {
-      const doc = this.docShown();
-      if (!doc) return this.say("there is no design document open");
-      if (!doc.session) return this.say(`nothing is working on ${doc.name}: start work on it first`);
-      body.session = doc.session;
-      if (doc.file) body.file = doc.file;
-      this.moveTo(doc.session);
-    }
     let path = what.path;
     for (const need of what.needs ?? []) {
       const said = await this.askFor(need);
@@ -818,161 +720,18 @@ class Ade {
     from: "launcher" | "session",
     path: string,
     render: string,
-    also?: string,
   ): Promise<void> {
     if (!window.ade) return;
     this.say("reading…");
     const got = await window.ade
       .read(from, path, this.session)
       .catch((e: Error) => ({ error: e.message }));
-    const extra = also
-      ? await window.ade.read(from, also, this.session).catch(() => ({}))
-      : undefined;
     const err = (got as { error?: string }).error;
     const body = err
       ? `# ${render}\n\n${err}`
-      : REPORTS[render]?.(got, extra) ?? `# ${render}\n\nNothing to draw.`;
+      : REPORTS[render]?.(got) ?? `# ${render}\n\nNothing to draw.`;
     this.said = "";
     this.show({ kind: "doc", title: render, body }, render, "eye");
-  }
-
-  private async find(what: Extract<Doing, { at: "find" }>): Promise<void> {
-    if (!window.ade) return;
-    const q = await this.omnibox.type(what.title);
-    if (!q?.trim()) return this.omnibox.close();
-    const found = (await window.ade
-      .read(what.from, `${what.path}?q=${encodeURIComponent(q.trim())}`, this.session)
-      .catch((e: Error) => ({ error: e.message }))) as {
-      hits?: { path: string; line: number; snippet: string }[];
-      error?: string;
-    };
-    if (found.error) return this.say(found.error);
-    const hits = found.hits ?? [];
-    if (hits.length === 0) return this.say(`nothing matches "${q.trim()}"`);
-    const path = await this.omnibox.ask(
-      `${hits.length} for "${q.trim()}"`,
-      hits.map((hit) => ({ label: hit.path, note: hit.snippet, value: hit.path })),
-    );
-    this.omnibox.close();
-    if (typeof path !== "string") return;
-    const read = (await window.ade
-      .read(what.from, what.open + path.split("/").map(encodeURIComponent).join("/"), this.session)
-      .catch((e: Error) => ({ error: e.message }))) as { markdown?: string; error?: string };
-    this.show(
-      { kind: "doc", title: path, body: read.markdown ?? `# ${path}\n\n${read.error ?? ""}` },
-      path,
-      "design",
-    );
-  }
-
-  private async history(): Promise<void> {
-    const path = this.picked.get(this.place);
-    if (!window.ade || !path || !this.session) return this.say("pick a file in Code first");
-    const got = (await window.ade
-      .read("session", `/api/history?path=${encodeURIComponent(path)}`, this.session)
-      .catch((e: Error) => ({ error: e.message }))) as {
-      commits?: { sha: string; author: string; at: string; subject: string }[];
-      error?: string;
-    };
-    if (got.error) return this.say(got.error);
-    const rows = got.commits ?? [];
-    const body = rows.length
-      ? `# ${path}\n\n` +
-        rows
-          .map((c) => `- \`${c.sha.slice(0, 7)}\` ${real.ago(c.at)} · ${c.author} — ${c.subject}`)
-          .join("\n") +
-        "\n"
-      : `# ${path}\n\nNo commits touch this file.`;
-    this.show({ kind: "doc", title: `${path} · history`, body }, `${path} · history`, "ring");
-  }
-
-  private async ask(): Promise<void> {
-    const pick = selected();
-    if (!pick) return this.say("highlight something in Code first");
-    const got = await window.ade
-      ?.act("session", "/api/attach", pick, this.session)
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    this.chat();
-    this.say(`${pick.from} is on the next message`);
-  }
-
-  private dictate(): void {
-    this.chat();
-    tell({ kind: "dictate" });
-  }
-
-  // Chat is the dock on the right, not a tab: every command that used to
-  // open one opens that instead.
-  private chat(): void {
-    if (this.only) return;
-    this.chatShut = false;
-    localStorage.removeItem("ade.chat.shut");
-    this.draw();
-    pushTo("chat", { kind: "focus" });
-  }
-
-  // Flex on one class, not a width this would have to keep in step.
-  private wideChat(on: boolean): void {
-    this.chatWide = on;
-    if (on) localStorage.setItem("ade.chat.wide", "1");
-    else localStorage.removeItem("ade.chat.wide");
-    this.draw();
-  }
-
-  private shutChat(): void {
-    this.chatShut = true;
-    localStorage.setItem("ade.chat.shut", "1");
-    this.draw();
-  }
-
-  // The head redraws every pass; the page below it only when the
-  // conversation or the server it reaches has moved.
-  private drawDock(): void {
-    if (!this.shell) return;
-    const { dock, dockHead, dockBody, chatGrip } = this.shell;
-    dock.hidden = this.chatShut;
-    chatGrip.hidden = this.chatShut || this.chatWide;
-    this.root.classList.toggle("chatwide", !this.chatShut && this.chatWide);
-    if (this.chatShut) return;
-    dockHead.replaceChildren(...this.dockHead());
-    const wait = this.waiting(CHAT_TAB);
-    if (wait) {
-      const now = dockBody.firstElementChild;
-      if (now?.className !== "nothing" || now.textContent !== wait) {
-        dockBody.replaceChildren(el("div", "nothing", wait));
-      }
-      return;
-    }
-    const made = WHICH["ade.openChat"](this.reach(), this.sessionAt());
-    const node = frame(made, `chat:${this.session}:${this.launcher?.base ?? ""}`);
-    if (dockBody.firstElementChild !== node) dockBody.replaceChildren(node);
-  }
-
-  private dockHead(): HTMLElement[] {
-    const name = el("div", "nm", "Chat");
-    const wide = el("div", "x");
-    wide.append(icon(this.chatWide ? "narrower" : "wider", 12));
-    wide.title = this.chatWide ? "Back to the dragged width" : "Widen it to the sidebar";
-    wide.addEventListener("click", () => this.wideChat(!this.chatWide));
-    const again = el("div", "x");
-    again.append(icon("refresh", 12));
-    again.title = "Read the conversation again";
-    again.addEventListener("click", () => pushTo("chat", { kind: "reconnect" }));
-    const shut = el("div", "x", "✕");
-    shut.title = "Hide the chat";
-    shut.addEventListener("click", () => this.shutChat());
-    return [name, wide, again, shut];
-  }
-
-  // In the tab strip, so the dock comes back by mouse as well as omnibox.
-  private chatToggle(): HTMLElement {
-    const node = el("div", this.chatShut ? "chattoggle" : "chattoggle on");
-    node.append(icon("session", 13));
-    node.title = this.chatShut ? "Show the chat" : "Hide the chat";
-    node.addEventListener("click", () => (this.chatShut ? this.chat() : this.shutChat()));
-    return node;
   }
 
   // wake starts the ade that serves the picked session's checkout.
@@ -996,50 +755,6 @@ class Ade {
     // it comes up. Scheduled, not awaited — this is inside a read.
     this.say("started; waiting for it");
     this.soon(900);
-  }
-
-  // The provider is carried over, not defaulted: a codex session asked to
-  // start again on claude is not the conversation that was asked for.
-  private async newChat(): Promise<void> {
-    if (!window.ade) return;
-    // Nothing picked, so there is no conversation to replace: the panel
-    // that starts one is the answer.
-    if (!this.session) return this.run("ade.newSession");
-    const message = await this.omnibox.type("What is the new conversation for?");
-    this.omnibox.close();
-    if (!message?.trim()) return;
-    const doing = await this.doing();
-    this.say("starting a new conversation…");
-    const got = await window.ade
-      .act(
-        "session",
-        "/api/chat/new",
-        { message: message.trim(), provider: doing.provider || "claude" },
-        this.session,
-      )
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    this.run("ade.openChat");
-    await this.read();
-  }
-
-  private async resume(): Promise<void> {
-    if (!window.ade || !this.session) return;
-    const doing = await this.doing();
-    this.say("moving the conversation…");
-    const got = await window.ade
-      .act(
-        "session",
-        "/api/chat/resume",
-        { id: this.session, provider: doing.provider || "claude" },
-        this.session,
-      )
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    await this.read();
-    this.say("resumed");
   }
 
   private async onThread(asked: Asked): Promise<void> {
@@ -1071,10 +786,11 @@ class Ade {
       this.split = !this.split;
       localStorage.setItem("ade.diff.split", this.split ? "1" : "0");
       return this.draw();
-    } else if (asked.what === "tick") {
-      if (!asked.span) return;
-      const back = await send("/api/ledger", { tick: asked.span, on: Boolean(asked.on) });
-      this.hold(ledgerIn(back));
+    } else if (asked.what === "viewed") {
+      const file = this.changes.find((c) => c.path === asked.file);
+      if (!file) return;
+      this.marks = flip(this.marks, file);
+      localStorage.setItem(markKey, writeMarks(this.marks, this.session));
       return this.draw();
     } else if (asked.what === "unfold") {
       this.openThreads = toggled(this.openThreads, asked.id ?? "");
@@ -1125,13 +841,7 @@ class Ade {
     const view: View = {
       kind: "rules",
       title: "Permissions",
-      rules: {
-        allow: got.allow ?? [],
-        deny: got.deny ?? [],
-        session: got.session ?? [],
-        free: Boolean(got.free),
-        file: got.file ?? "",
-      },
+      rules: { deny: got.deny ?? [], file: got.file ?? "" },
     };
     this.show(view, "Permissions", "shield");
   }
@@ -1144,24 +854,6 @@ class Ade {
     const back = real.answered(got);
     if (back.error) return this.say(back.error);
     await this.rules();
-  }
-
-  private async editPR(): Promise<void> {
-    if (!window.ade) return;
-    const state = (await window.ade
-      .read("session", "/api/state", this.session)
-      .catch((e: Error) => ({ error: e.message }))) as {
-      branchPr?: { number: number; title: string; body?: string };
-      error?: string;
-    };
-    if (state.error) return this.say(state.error);
-    const pr = state.branchPr;
-    if (!pr) return this.say("this branch has no pull request");
-    const title = await this.omnibox.type(`#${pr.number} — the title`, pr.title);
-    this.omnibox.close();
-    if (!title) return;
-    this.pr = { number: pr.number, title, body: pr.body ?? "" };
-    this.show({ panel: `pr:${pr.number}` }, `#${pr.number}`, "pr");
   }
 
   // sessionAt is the picked session's address, through the proxy: one
@@ -1181,12 +873,9 @@ class Ade {
       call: (at, path, method, body) => this.acted(window.ade!.call(at, path, method, body, this.session)),
       send: (at, path, body, method) =>
         this.acted(window.ade!.act(at, path, body, this.session, method)),
-      open: (path) => this.fromPanel(path),
       link: (href) => void window.ade!.link(href),
-      run: (command) => this.run(command),
       push: (id, said) => pushTo(id, said),
       follow: (dir) => this.follow(dir),
-      ask: (title, rows) => this.omnibox.ask(title, rows),
     };
   }
 
@@ -1210,16 +899,12 @@ class Ade {
     return got;
   }
 
-  private todoAt(id: string): string {
-    return this.todoList.find((each) => each.id === id)?.text ?? "";
-  }
-
   // servedAt is whether an ade already answers for a session. Its
   // checkout counts: one server answers for every conversation in it.
   private servedAt(session: string): boolean {
     const dir = this.where.get(session);
     return this.announced.some(
-      (each) => !each.machine && (each.id === session || (Boolean(dir) && each.dir === dir)),
+      (each) => each.id === session || (Boolean(dir) && each.dir === dir),
     );
   }
 
@@ -1227,17 +912,6 @@ class Ade {
     const dir = this.where.get(session);
     const repo = this.repos.find((r) => (r.checkouts ?? []).some((c) => c.path === dir));
     return repo ? `${repo.owner ? repo.owner + "/" : ""}${repo.name}` : "";
-  }
-
-  private fromPanel(path: string): void {
-    const dir = this.where.get(this.session) ?? "";
-    // A design document is a document, not a file to edit as text.
-    const doc = docRef(path, dir);
-    if (doc) return this.showDesign(doc.panel, doc.title);
-    const inside = dir && path.startsWith(dir + "/") ? path.slice(dir.length + 1) : path;
-    this.place = "code";
-    this.picked.set("code", inside);
-    this.openFile(inside);
   }
 
   // askFor puts a verb's question through the omnibox, the only place
@@ -1318,134 +992,45 @@ class Ade {
     return this.world.places.find((p) => p.id === this.place) ?? this.world.places[0];
   }
 
-  // shut closes whatever is framed over the editor area.
-  // Set when this window is a float: one panel, named in the url.
-  private only = new URLSearchParams(location.search).get("only") ?? "";
-  private shell?: Shell;
 
   // open is a row clicked, in the place it was clicked in: a pull
   // request is in two lists at once.
   private open(row: Row, from = this.place): void {
     this.place = from;
-    this.picked.set(this.place, row.id);
-    // A different session is a different diff. A sub-agent's id
-    // carries the session it belongs to.
-    const want = this.place === "agents" ? row.id.split(":")[0] : row.id;
-    if (this.place === "sessions" || this.place === "agents") this.moveTo(want);
-    this.openRow(row);
-  }
-
-  private moveTo(want: string): void {
-    if (!want || want === this.session) return;
-    this.goTo(want);
-    // Picking a conversation means that conversation: one server per
-    // checkout, so the read that follows moves it onto this one.
-    this.wants = want;
-    // Said here, not when the first read lands: openRow() draws the
-    // chat at once, and it would fetch a 404 and print it.
-    if (!this.servedAt(want)) this.serving = "starting";
-    void this.read();
-  }
-
-  // showDesign opens a design where its work is: a document another space
-  // holds is read from the session holding it, not from the one you are on.
-  private showDesign(panel: string, title: string): void {
-    this.moveTo(this.docFor(panel)?.session ?? "");
-    this.show({ panel }, title, "design");
-  }
-
-  private docShown(): { session: string; file: string; name: string } | undefined {
-    const tab = held(this.tabs, this.active);
-    return this.docFor(tab && "panel" in tab.what ? tab.what.panel : "");
-  }
-
-  // docFor is a design panel as the session that holds its document and the
-  // file there. A store design names no file: that session has it open.
-  private docFor(panel: string): { session: string; file: string; name: string } | undefined {
-    if (panel.startsWith("design:")) {
-      const file = panel.slice("design:".length);
-      return { session: this.session, file, name: file };
+    this.picked.set(from, row.id);
+    if (from !== "sessions") return this.openRow(row);
+    // A different session is a different diff, and its own set of tabs.
+    if (this.session !== row.id) {
+      this.goTo(row.id);
+      if (!this.servedAt(row.id)) this.serving = "starting";
+      void this.read();
     }
-    if (panel.startsWith("spacedesign:")) {
-      const [dir, file] = panel.slice("spacedesign:".length).split("|");
-      const on = real.sessionForDoc(this.repos, this.where, this.storeDesigns, dir, file);
-      return { session: on, file, name: file };
-    }
-    if (panel.startsWith("store:")) {
-      const name = panel.slice("store:".length);
-      return { session: real.sessionOn(this.storeDesigns, name), file: "", name };
-    }
-    return undefined;
-  }
-
-  private async fold(session: string, file: string, rows: unknown[], what: string): Promise<void> {
-    if (rows.length === 0) return;
-    if (!session) return this.say(`nothing is working on ${what}: start work on it first`);
-    this.moveTo(session);
-    const got = await window
-      .ade!.act("session", "/api/design/accept", { rows, file }, session)
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got as real.Answer);
-    this.say(back.error || `folding ${rows.length} into ${what}`);
+    this.draw();
   }
 
   // What a row opens as.
   private openRow(row: Row): void {
-    // A session opens as its conversation, which is what it is.
-    if (this.place === "sessions" || this.place === "agents") return this.chat();
-    // A todo is a thing to do: opening one offers to start it. The
-    // omnibox opens rows, so this is its way in as well as the list's.
-    if (this.place === "todos") return this.fromTodo(row.id);
     if (row.id.startsWith("who:")) return void this.conversation(row.id.slice("who:".length));
-    const reading = { kind: "doc" as const, title: row.name, body: `# ${row.name}\n\nReading…` };
-    if (this.place === "designs") return this.showDesign(`store:${row.id}`, row.name);
-    if (this.place === "jobs") {
-      const job = this.jobs.find((one) => `job:${one.name}` === row.id);
-      this.show(
-        {
-          kind: "doc",
-          title: row.name,
-          body: job ? real.jobReport(job) : `# ${row.name}\n\nNo run history.`,
-        },
-        row.name,
-        "eye",
-      );
-      // Reading the reports is the whole of reviewing them, and what takes
-      // the alert off the Jobs icon.
-      if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
-      return;
-    }
     if (this.place === "spaces") return this.openSpace(row.id.slice("space:".length));
-    // The row says which pull request it is, not the list it was in. A
-    // notification's id is its own, so the number comes off its url.
-    const pr = row.pr ?? prAt(row.id);
-    if (pr) {
-      this.show(reading, row.name, "pr");
-      void this.readPR(row, pr);
-      return;
-    }
+    // A pull request opens as a session on its diff, as one from a link does.
+    const pr = this.place === "prs" ? (row.pr ?? prAt(row.id)) : undefined;
+    if (pr) return void this.openPR(pr, row.name);
     // Not something ade holds: it lives on a website, so it opens there.
     if (row.url) {
       void window.ade?.link(row.url);
       this.say(`opened ${row.url}`);
       return;
     }
-    this.show(
-      { kind: "doc", title: row.name, body: `# ${row.name}\n\nNothing opens this yet.` },
-      row.name,
-      "file",
-    );
+    this.say(`${row.name}: nothing opens this`);
   }
 
-  // markJobSeen puts a job's reports away. No time named marks every outcome
-  // it holds, which is what the page just drew.
+  // markJobSeen puts My Day's reports away, which takes the alert off its button.
   private async markJobSeen(name: string): Promise<void> {
     await window.ade?.act("launcher", "/api/jobs/seen", { name }).catch(() => undefined);
     void this.read();
   }
 
-  // openSpace draws a repository. The numbers are a second read, so the
-  // page is shown without them and drawn again when they land.
+  // openSpace draws a repository: the sessions in it, and a way to start one.
   private openSpace(key: string): void {
     // The space shown stands in when a read came back without it.
     const space =
@@ -1454,215 +1039,52 @@ class Ade {
     if (!space) return;
     this.spaceShown = space;
     this.show({ kind: "space", title: space.repo, seen: this.seenOf(space) }, space.repo, "space");
-    if (space.path) void this.spaceStats(space);
   }
 
-  // nowSeen is a space page's content as it is now, keeping the numbers it
-  // has already read: only the lists move while the page is open.
+  // nowSeen is a space page's content as it is now: the lists move while it is open.
   private nowSeen(was: Seen): Seen {
-    const space = this.openSpaces.find((s) => s.repo === was.space.repo) ?? was.space;
-    return this.seenOf(space, was.stats, was.note);
+    return this.seenOf(this.openSpaces.find((s) => s.repo === was.space.repo) ?? was.space);
   }
 
-  private seenOf(space: Space, stats?: Stats, note?: string): Seen {
+  private seenOf(space: Space): Seen {
     const repo = this.repos.find((r) => keyOf(r) === space.repo);
-    return {
-      space,
-      sessions: sessionsOf(repo, Date.now(), this.goneSessions),
-      designs: designsOf(this.storeDesigns, space.repo),
-      stats,
-      note,
-    };
+    return { space, sessions: sessionsOf(repo, Date.now(), this.goneSessions) };
   }
 
-  private async spaceStats(space: Space): Promise<void> {
-    if (!window.ade) return;
-    const at = `/api/repo?dir=${encodeURIComponent(space.path ?? "")}`;
-    const got = (await window.ade
-      .read("launcher", at)
-      .catch((e: Error) => ({ error: e.message }))) as Stats & { error?: string };
-    // Gone elsewhere while it was reading: the page it would redraw is
-    // not the one showing.
-    if (this.spaceShown !== space) return;
-    const seen = this.seenOf(space, got.error ? undefined : got, got.error);
-    // Numbers landing must not take the tab back: New session opened while
-    // they were reading is the one you asked for.
-    this.restate({ kind: "space", title: space.repo, seen }, space.repo, "space");
-  }
-
-  // restate redraws a tab already open, leaving which one is showing alone.
-  private restate(what: Tab["what"], title: string, icon: string): void {
-    const id = idOf(what);
-    if (!this.tabs.some((tab) => tab.id === id)) return;
-    this.tabs = opened(this.tabs, { id, title, icon, what });
-    this.remember();
-    this.draw();
-  }
-
-  // spaceAct is a link or an Archive on that page.
-  private async spaceAct(did: SpaceAct): Promise<void> {
+  // spaceAct is a link on that page.
+  private spaceAct(did: SpaceAct): void {
     const space = this.spaceShown;
-    if (!window.ade || !space) return;
-    if (did.what === "open-session") {
-      const row = this.world.places
-        .find((p) => p.id === "sessions")
-        ?.rows.find((r) => r.id === did.id);
-      if (row) this.open(row, "sessions");
-      return;
-    }
-    if (did.what === "open-design") {
-      return this.showDesign(`store:${did.name}`, did.name);
-    }
+    if (!space) return;
     if (did.what === "new-session") {
       if (!space.path) return this.say(`${space.repo} is not cloned on this machine`);
       return this.show({ panel: `in:${space.path}` }, "New session", "session");
     }
-    if (did.what === "import-session") return this.importSession(space.repo);
-    // Off the page first, then the request: a row that stays put reads as a
-    // button that did nothing.
-    this.goneSessions.add(did.id);
-    const listed = this.world.places.find((p) => p.id === "sessions");
-    if (listed) this.redrawPlace(without(listed, this.goneSessions));
-    this.say("archiving the session…");
-    this.openSpace(space.repo);
-
-    const got = await window.ade.act("launcher", "/api/archive", { id: did.id, archived: true });
-    const back = real.answered(got as real.Answer);
-    if (back.error) {
-      this.goneSessions.delete(did.id);
-      this.openSpace(space.repo);
-      return this.say(back.error);
-    }
-    this.say("archived");
-    // Not awaited: the read is the whole world, and the page is already right.
-    void this.read();
+    if (did.what === "close-session") return void this.endSession(did.id);
+    const row = this.world.places.find((p) => p.id === "sessions")?.rows.find((r) => r.id === did.id);
+    if (row) this.open(row, "sessions");
   }
 
-  // importSession pins a conversation into this space by id, for one the list
-  // window drops: older than a fortnight, or past the row cap.
-  private async importSession(repo: string): Promise<void> {
-    const id = await this.omnibox.type("Session id to import");
-    this.omnibox.close();
-    if (!id?.trim() || !window.ade) return;
-
-    this.say("looking for that session…");
-    const got = await window.ade.act("launcher", "/api/sessions/import", { repo, id: id.trim() });
-    const back = real.answered(got as real.Answer) as real.Answer & {
-      session?: real.Session;
-      elsewhere?: string;
-    };
-    if (back.error) return this.say(back.error);
-
-    // Recorded in another repository: adopting is the only way in, and it is
-    // the reader's call rather than ours.
-    if (back.elsewhere) return this.offerAdopt(repo, back.elsewhere, back.session);
-
-    this.say(`imported ${back.session?.title || back.session?.id || "the session"}`);
-    this.openSpace(repo);
-    void this.read();
-  }
-
-  // offerAdopt asks before taking a conversation off another repository. The
-  // transcript stays where it was written; only where it is listed changes.
-  private async offerAdopt(repo: string, elsewhere: string, found?: real.Session): Promise<void> {
-    const name = found?.title || found?.id || "that session";
-    const pick = await this.omnibox.ask(`${name} belongs to ${elsewhere}`, [
-      { label: `Open it in ${elsewhere}`, value: "open" },
-      { label: `Adopt it into ${repo}`, note: "it remembers the directory it was recorded in", value: "adopt" },
-    ]);
-    this.omnibox.close();
-    if (pick === "open") {
-      if (found) await window.ade?.act("launcher", "/api/open", { dir: found.dir, id: found.id });
-      return;
-    }
-    if (pick !== "adopt" || !window.ade) return;
-
-    const into = this.spaceShown?.path;
-    if (!into) return this.say("that space has no checkout here to adopt into");
-    const got = await window.ade.act("launcher", "/api/sessions/import", {
-      repo,
-      id: found?.id,
-      into,
-    });
+  // openPR checks a listed pull request out and lands on its diff.
+  private async openPR(at: { repo: string; number: number }, name: string): Promise<void> {
+    const agent = await this.whichAgent();
+    if (!agent) return;
+    this.say(`checking out ${name}…`, true);
+    const got = await window.ade
+      ?.act("launcher", "/api/reviews/open", { repo: at.repo, number: at.number })
+      .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
     if (back.error) return this.say(back.error);
-    this.say(`adopted into ${repo}`);
-    this.openSpace(repo);
-    void this.read();
+    await this.landOnReview((back.body as { path?: string } | undefined)?.path ?? "", agent);
   }
 
-  // readPR renders the pull request with `app/pages/prpage.ts`, and
-  // what can be done with it as buttons above.
-  private async readPR(row: Row, at: { repo: string; number: number }): Promise<void> {
-    if (!window.ade) return;
-    const [got, branch] = await Promise.all([
-      window.ade
-        .pr(at.repo, at.number)
-        .catch((e: Error) => ({ error: e.message })) as Promise<{
-        pr?: BranchPR;
-        checks?: Check[] | null;
-        error?: string;
-      }>,
-      this.branchPR(at),
-    ]);
-    if (this.picked.get(this.place) !== row.id) return;
-    const requested = this.reviews.find(
-      (r) => r.repo === at.repo && r.number === at.number,
-    );
-    const blocked = branch && {
-      approveBlocked: branch.approveBlocked,
-      requestChangesBlocked: branch.requestChangesBlocked,
-      mergeBlocked: branch.mergeBlocked,
-    };
-    const pr = got.pr ? { ...got.pr, ...blocked, checks: got.checks ?? null } : undefined;
-    const url = pr?.url ?? requested?.url ?? row.url ?? "";
-    const acts = prActs({ url, requested, branch });
-    const body = pr ? prPage(pr) : `# ${row.name}\n\n${got.error ?? "Nothing came back."}`;
-    this.prShown = { row, at, url };
-    this.show({ kind: "pr", title: row.name, body, acts }, row.name, "pr");
-  }
-
-  // branchPR is the session's own pull request when it is this one: the
-  // session holds why a verdict or a merge would be refused.
-  private async branchPR(at: { repo: string; number: number }): Promise<BranchPR | undefined> {
-    if (!window.ade || !this.session) return undefined;
-    const mine = this.repoOf(this.session);
-    if (!mine || !(at.repo === mine || at.repo.endsWith(`/${mine}`))) return undefined;
-    const state = (await window.ade.read("session", "/api/state", this.session).catch(() => ({}))) as {
-      branchPr?: BranchPR;
-    };
-    return state.branchPr?.number === at.number ? state.branchPr : undefined;
-  }
-
-  // prAct is one button on the pull request's page.
-  private async prAct(id: PrActId): Promise<void> {
-    const shown = this.prShown;
-    if (!window.ade || !shown) return;
-    const { at, url } = shown;
-    if (id === "web") return void window.ade.link(url);
-    let got: unknown;
-    if (id === "ade") {
-      this.say(`checking out #${at.number}…`);
-      got = await window.ade.act("launcher", "/api/reviews/open", { repo: at.repo, number: at.number });
-      this.landing = (real.answered(got as real.Answer).body as { path?: string })?.path ?? "";
-      this.landingSince = Date.now();
-    } else if (id === "mute" || id === "unmute") {
-      got = await window.ade.act("launcher", "/api/reviews/mute", {
-        repo: at.repo,
-        number: at.number,
-        muted: id === "mute",
-      });
-    } else {
-      const ask = await this.verdict(id, at.number);
-      if (!ask) return;
-      got = await window.ade.act("session", ask.path, ask.body, this.session);
-    }
+  // mutePR puts a review request aside, or brings it back.
+  private async mutePR(at: { repo: string; number: number }, muted: boolean): Promise<void> {
+    const got = await window.ade
+      ?.act("launcher", "/api/reviews/mute", { repo: at.repo, number: at.number, muted })
+      .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
-    if (back.error) return this.say(back.error);
-    const path = (back.body as { path?: string } | undefined)?.path;
-    this.say(id === "ade" && path ? `#${at.number} is checked out in ${path}` : `#${at.number}: done`);
-    await this.again();
-    if (this.prShown === shown) await this.readPR(shown.row, at);
+    this.say(back.error || (muted ? "put aside" : "brought back"));
+    await this.again("prs");
   }
 
   // openPRLink checks a pasted pull request out and lands on it. The
@@ -1671,19 +1093,85 @@ class Ade {
     const link = await this.omnibox.type("Paste a pull request link", "");
     this.omnibox.close();
     if (!link?.trim()) return;
+    const agent = await this.whichAgent();
+    if (!agent) return;
     this.say(`checking out ${link.trim()}; cloning first if you do not have it…`, true);
     const got = await window.ade!
       .act("launcher", "/api/reviews/open", { link: link.trim() })
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
     if (back.error) return this.say(back.error);
-    const path = (back.body as { path?: string } | undefined)?.path ?? "";
+    await this.landOnReview((back.body as { path?: string } | undefined)?.path ?? "", agent);
+  }
+
+  // landOnReview is a pull request just checked out: an agent seated in it,
+  // and the window landing on its diff once it announces.
+  private async landOnReview(path: string, agent: string): Promise<void> {
     if (!path) return this.say("it was opened, but nothing said where");
+    if (agent) await this.seatAgent(path, agent);
     this.landing = path;
     this.landingFor = "review";
     this.landingSince = Date.now();
     this.say(`checked out in ${path}`);
     await this.read();
+  }
+
+  // claimReview takes a review a teammate asked for over agentbus and opens
+  // it exactly as Open PR from link does.
+  private async claimReview(id: string): Promise<void> {
+    const agent = await this.whichAgent();
+    if (!agent) return;
+    this.say("claiming the review and checking it out…", true);
+    const got = await window.ade
+      ?.act("launcher", "/api/bus/claim", { id, open: true })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    await this.landOnReview((back.body as { path?: string } | undefined)?.path ?? "", agent);
+  }
+
+  // answerOffer is a teammate's question, answered in the omnibox: one of
+  // its options when it gave some, your own words otherwise.
+  private async answerOffer(id: string): Promise<void> {
+    const offer = this.bus?.offers?.find((one) => one.id === id);
+    if (!offer) return this.say("that question is no longer waiting");
+    const title = `${offer.from} asks: ${offer.question ?? ""}`;
+    let option = "";
+    if (offer.options?.length) {
+      const rows = offer.options.map((one) => ({ label: one, value: one }));
+      const picked = await this.omnibox.ask(title, [...rows, { label: "Something else…", value: "" }]);
+      this.omnibox.close();
+      if (typeof picked !== "string") return;
+      option = picked;
+    }
+    const text = option ? "" : ((await this.omnibox.type(title, ""))?.trim() ?? "");
+    this.omnibox.close();
+    if (!option && !text) return;
+    const got = await window.ade
+      ?.act("launcher", "/api/bus/answer", { id, option, text })
+      .catch((e: Error) => ({ error: e.message }));
+    this.say(real.answered(got as real.Answer).error || `answered ${offer.from}`);
+    void this.read();
+  }
+
+  // whichAgent asks which CLI a session runs, the last one used first.
+  private async whichAgent(): Promise<string> {
+    const rows = ["claude", "codex"].map((one) => ({ label: one, value: one }));
+    if (lastAgent() === "codex") rows.reverse();
+    const picked = await this.omnibox.ask("Which agent?", rows);
+    this.omnibox.close();
+    if (typeof picked !== "string") return "";
+    setLastAgent(picked);
+    return picked;
+  }
+
+  // seatAgent puts an open checkout on the picked CLI; a running agent keeps its own.
+  private async seatAgent(dir: string, agent: string): Promise<void> {
+    const got = await window.ade!
+      .act("launcher", "/api/open", { dir, fresh: true, direct: true, agent, terminal: true, sandbox: false })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) this.say(back.error);
   }
 
   // giveVerdict is the omnibox's Approve, Request changes and Merge. They
@@ -1730,59 +1218,43 @@ class Ade {
   // Built once and updated in place: moving an iframe in the DOM
   // reloads it, and a read happens every few seconds.
   draw(): void {
-    // A floating window is one panel and no chrome.
-    if (this.only) {
-      if (!this.launcher) return;
-      const make = WHICH[this.only];
-      if (!make) return;
-      if (this.root.firstChild) return;
-      this.root.className = "window only";
-      this.root.replaceChildren(frame(make(this.reach(), this.sessionAt()), `only:${this.only}`));
-      return;
-    }
     if (!this.shell) this.shell = this.build();
-    const { titlebar, activity, sidebar, head, sheet, statusbar, sideGrip } = this.shell;
-    sidebar.hidden = this.sideShut;
-    sideGrip.hidden = this.sideShut;
-    this.drawDock();
+    const { titlebar, activity, sidebar, files, side, head, sheet, statusbar } = this.shell;
+    const { sideGrip, filesGrip, listGrip } = this.shell;
+    // With nothing being dragged nothing should be shaded, whatever left it:
+    // the poll redraws every few seconds, so a stuck hint cannot outlive one.
+    if (!this.dragging) this.hint(undefined);
     titlebar.replaceChildren(...this.titlebar());
     activity.replaceChildren(...this.activity());
-    // The filter keeps the keyboard across a redraw.
-    const typing = document.activeElement?.classList.contains("find");
-    // The list is rebuilt every few seconds, so where you had scrolled to
-    // is kept across it, as the panes below keep theirs.
-    const read = sidebar.querySelector(".list")?.scrollTop ?? 0;
-    // Only when it draws differently. A rebuild under the pointer takes
-    // the node a press started on, and the click never lands.
-    const drawn = el("div");
-    drawn.append(...this.sidebar());
-    const moved = drawn.innerHTML !== this.sidebarHTML;
-    if (moved) {
-      this.sidebarHTML = drawn.innerHTML;
-      sidebar.replaceChildren(...drawn.childNodes);
+
+    // The left is the sessions, whatever else is clicked.
+    sidebar.hidden = sideGrip.hidden = this.sideShut;
+    this.fill(sidebar, this.listOf(this.placeAt("sessions")));
+    // The Diff's files, comments and commit box, beside the diff they are of.
+    const diffing = Boolean(this.session) && this.actives.includes(DIFF);
+    files.hidden = filesGrip.hidden = !diffing;
+    if (diffing) {
+      this.fill(
+        files,
+        [...this.listOf(this.placeAt("review")), ...this.band("run", this.reviewStrip()), ...this.band("comments", this.commentList())],
+        this.commit.el,
+      );
     }
-    const list = sidebar.querySelector(".list");
-    if (moved && list && read) list.scrollTop = read;
-    if (moved && typing) {
-      const find = sidebar.querySelector<HTMLInputElement>(".find");
-      find?.focus();
-      find?.setSelectionRange(find.value.length, find.value.length);
-    }
-    // Only when the pick moved. On every draw it dragged the list back
-    // under the pointer a second after you scrolled away from it.
-    const pick = `${this.place}:${this.picked.get(this.place) ?? ""}`;
-    if (pick !== this.revealed) {
-      this.revealed = pick;
-      sidebar.querySelector(".row.on, .twig.on")?.scrollIntoView({ block: "nearest" });
-    }
+    // One of the bar's lists, or nothing.
+    const beside = this.world.places.find((p) => p.id === this.side && SIDE.includes(p.id));
+    side.hidden = listGrip.hidden = !beside;
+    if (beside) this.fill(side, this.listOf(beside));
+
     if (!this.dragging) head.replaceChildren(...this.head());
     statusbar.replaceChildren(...this.statusbar());
 
-    // Every open tab keeps its pane; hidden, not taken out, because an
-    // iframe reloads when it moves and the terminal reconnects.
+    // A built pane is kept: hidden, not taken out, because an iframe reloads
+    // when it moves and a terminal reconnects.
     for (const tab of this.tabs) {
       const want = this.paneKey(tab);
       const wait = Boolean(this.waiting(tab));
+      const g = groupOf(tab);
+      const front = tab.id === this.actives[g];
       let held = this.panes.get(tab.id);
       let was = 0;
       if (held && rebuilt(held, want, wait)) {
@@ -1791,6 +1263,9 @@ class Ade {
         held.node.remove();
         held = undefined;
       }
+      // Built when first looked at, so a shell starts when it is wanted. The
+      // agent is the exception: picking its session is what resumes it.
+      if (!held && !front && tab.id !== AGENT) continue;
       if (!held) {
         const node = el("div", "pane");
         node.append(this.inPane(tab));
@@ -1800,9 +1275,8 @@ class Ade {
         if (was) node.scrollTop = was;
       }
       // Only the pane's edges move: a reparented iframe would reload.
-      const g = groupOf(tab);
       const hid = held.node.hidden;
-      held.node.hidden = tab.id !== this.actives[g];
+      held.node.hidden = !front;
       // Back in front, so its panel reads the stir it sat out while hidden.
       if (hid && !held.node.hidden) void shown(held.node);
       held.node.classList.toggle("left", this.sideBySide && g === 0);
@@ -1810,7 +1284,7 @@ class Ade {
     }
     sheet.classList.toggle("two", this.sideBySide);
     head.classList.toggle("two", this.sideBySide);
-    // A save or a selection is about the focused half's editor.
+    // A save is about the focused half's editor.
     focusEditor(this.focus);
     // The sheet's own line, not the one a waiting pane holds.
     const empty = sheet.querySelector(":scope > .nothing");
@@ -1818,15 +1292,58 @@ class Ade {
     if (this.tabs.length > 0 && empty) empty.remove();
   }
 
+  // fill redraws one list only when it draws differently: a rebuild under the
+  // pointer takes the node a press started on, and the click never lands.
+  private fill(host: HTMLElement, nodes: HTMLElement[], keep?: HTMLElement): void {
+    const on = document.activeElement;
+    const typing = host.contains(on) && Boolean(on?.classList.contains("find"));
+    // Where you had scrolled to is kept across a rebuild.
+    const read = host.querySelector(".list")?.scrollTop ?? 0;
+    const drawn = el("div");
+    drawn.append(...nodes);
+    if (drawn.innerHTML !== this.drawnHTML.get(host)) {
+      this.drawnHTML.set(host, drawn.innerHTML);
+      // A kept node stays where it is: moving it would take its focus.
+      for (const old of [...host.children]) if (old !== keep) old.remove();
+      if (keep) keep.before(...drawn.childNodes);
+      else host.append(...drawn.childNodes);
+      const list = host.querySelector(".list");
+      if (list && read) list.scrollTop = read;
+      if (typing) {
+        const find = host.querySelector<HTMLInputElement>(".find");
+        find?.focus();
+        find?.setSelectionRange(find.value.length, find.value.length);
+      }
+    }
+    // Only when the pick moved. On every draw it dragged the list back
+    // under the pointer a second after you scrolled away from it.
+    const pick = host.querySelector(".row.on, .twig.on");
+    const key = pick?.textContent ?? "";
+    if (key === this.revealed.get(host)) return;
+    this.revealed.set(host, key);
+    pick?.scrollIntoView({ block: "nearest" });
+  }
+
+  private placeAt(id: string): Place {
+    return this.world.places.find((p) => p.id === id) ?? { id, title: id, icon: "dot", rows: [] };
+  }
+
   // paneKey is what a pane was built with: a session and an address for a
   // live one, and for a diff everything it draws beyond the diff itself.
   private paneKey(tab: Tab): string {
-    if (live(tab)) return `${this.session}:${this.launcher?.base ?? ""}`;
+    // A terminal that would not start is redrawn when that changes.
+    const off = this.stuck(tab) ? ":off" : "";
+    if (!("panel" in tab.what) && tab.what.kind === "agent") {
+      return `${this.session}:${this.launcher?.base ?? ""}:${this.agentEnded() ? "ended" : "up"}${off}`;
+    }
+    if (live(tab)) return `${this.session}:${this.launcher?.base ?? ""}${off}`;
     const view = tab.what;
     if ("panel" in view) return "";
     // A space is its documents and its conversations, which move while the
     // page is open: archiving one is the whole point of the Archive on it.
     if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
+    if (view.kind === "doc" && view.again) return `${view.again}:${view.body}`;
+    if (view.kind === "shots") return shotsDrawnFrom(this.pics, this.picAt);
     if (view.kind !== "hunks") return "";
     if (view.editing) return `editing:${view.file.path}`;
     const how = this.split ? "split" : "unified";
@@ -1836,21 +1353,21 @@ class Ade {
   // waiting is why a panel tab cannot draw its page yet, or empty when
   // it can: a page built now would fetch the proxy's 404 and print it.
   private waiting(tab: Tab): string {
-    if (!("panel" in tab.what)) return "";
+    if (!live(tab)) return "";
     if (!this.sessionAt()) return this.session ? "Waiting for ade…" : "Pick a session.";
+    if (this.stuck(tab)) return "This session would not start. Click “session would not start” in the status bar to try again.";
     return this.serving === "starting" ? "Starting ade for this checkout…" : "";
+  }
+
+  // stuck is a terminal whose ade did not come up: a dial now is a 404 and nothing else.
+  private stuck(tab: Tab): boolean {
+    return this.serving === "failed" && !("panel" in tab.what);
   }
 
   // show opens something in the editor area. The same thing twice is
   // the same tab, with whatever it now says.
   private show(what: Tab["what"], title: string, icon = "file"): void {
     const id = idOf(what);
-    // The expanded chat covers the editor area, so opening something new
-    // into it is a verb that does nothing at all. Opening wins.
-    if (this.chatWide) {
-      this.chatWide = false;
-      localStorage.removeItem("ade.chat.wide");
-    }
     // Already open stays in its own half; a new one lands in the focused.
     const was = this.tabs.find((t) => t.id === id);
     const group = was ? groupOf(was) : this.focus;
@@ -1895,7 +1412,6 @@ class Ade {
   // kept is what the window picks up again: where you were, and the
   // tabs it can open from an id alone.
   private remember(): void {
-    if (this.only) return;
     this.keptTabs.set(this.tabsFor, {
       tabs: keepable(inGroup(this.tabs, 0)),
       active: this.actives[0],
@@ -1917,10 +1433,7 @@ class Ade {
   // left, so it is written down and closed, and that one's comes back.
   private goTo(session: string): void {
     if (session === this.session) return;
-    if (this.only) {
-      this.session = session;
-      return;
-    }
+    this.commit.reset();
     this.remember();
     for (const pane of this.panes.values()) pane.node.remove();
     this.panes.clear();
@@ -1930,46 +1443,200 @@ class Ade {
     this.sideBySide = false;
     this.session = session;
     this.tabsFor = session;
+    // Until its ade answers, no pane dials it. Picking it earns one more start.
+    if (session && !this.servedAt(session)) {
+      this.serving = "starting";
+      this.woke.delete(session);
+    }
     this.reopen();
   }
 
-  // again opens what was open, after the first read: a file tab needs
-  // the session its checkout belongs to.
+  // reopen brings back what a session had open: its three tabs, the panels it
+  // can open from an id alone, and which half each was in.
   private reopen(): void {
-    if (this.only || this.tabs.length > 0) return;
+    if (this.tabs.length > 0) return;
+    if (!this.session) return;
+    this.seat();
     const kept = this.keptTabs.get(this.tabsFor);
     const right = kept?.right ?? [];
-    if (!kept || kept.tabs.length + right.length === 0) return;
-    // Replaying a file tab moves the sidebar to Code, which is how
-    // openFile knows what it is opening. Where you were is not its to change.
-    const was = this.place;
-    for (const id of [...kept.tabs, ...right]) {
-      const [kind, ...rest] = id.split(":");
-      const path = rest.join(":");
-      // A layout kept before the dock still names the chat, which the dock
-      // remembers for itself.
-      if (kind === "panel") {
-        if (!isChat(path)) this.run(path);
-      }
-      else if (kind === "term") this.run("ade.openTerminal");
-      else if (kind === "code" || kind === "hunks") {
-        this.place = kind === "hunks" ? "review" : "code";
-        this.picked.set(this.place, path);
-        this.openFile(path);
-      }
+    for (const id of [...(kept?.tabs ?? []), ...right]) {
+      if (id.startsWith("panel:")) this.run(id.slice("panel:".length));
     }
-    this.place = was;
     for (const id of right) this.tabs = moved(this.tabs, id, 1);
-    if (kept.at) {
+    if (kept?.at) {
       this.splitAt = kept.at;
       this.saySplit();
     }
     const here = (id: string | undefined) => (id && this.tabs.some((t) => t.id === id) ? id : "");
     const last = (g: Group) => inGroup(this.tabs, g).slice(-1)[0]?.id ?? "";
-    this.actives = [here(kept.active) || last(0), here(kept.rightOn) || last(1)];
+    this.actives = [here(kept?.active) || AGENT, here(kept?.rightOn) || last(1)];
     this.settle();
     this.remember();
     this.draw();
+  }
+
+  // badged follows the agents' terminals: one looked at is seen, and one
+  // that needs you while you are elsewhere says so.
+  private badged(doing: real.Doing, active: real.Active[]): void {
+    const looking = document.hasFocus() && this.actives.includes(AGENT);
+    const needing = new Set<string>();
+    this.endedIn.clear();
+    for (const one of active) {
+      const at = one.id === this.session ? doing.terminal : (one.agent?.terminal ?? "");
+      if (at === "ended") this.endedIn.add(one.id);
+      if (at !== "needs") continue;
+      needing.add(one.id);
+      const here = one.id === this.session && looking;
+      if (this.needing && !this.needing.has(one.id) && !here) this.notify(one);
+    }
+    if (doing.terminal === "ended") this.endedIn.add(this.session);
+    if (!this.endedIn.has(this.session)) this.resumed = "";
+    this.needing = needing;
+    if (doing.terminal === "needs" && looking) {
+      void window.ade?.act("session", "/api/agent/seen", {}, this.session).catch(() => undefined);
+    }
+    // A socket the server dropped under a living agent is picked up again.
+    const up = doing.terminal !== "" && doing.terminal !== "ended";
+    if (up && this.panes.has(AGENT) && termLost(AGENT)) {
+      openTerm(this.session, (why) => this.say(why), AGENT);
+    }
+  }
+
+  private notify(one: real.Active): void {
+    try {
+      const note = new Notification(one.name || one.branch || "ade", { body: "The agent needs you." });
+      note.onclick = () => {
+        window.focus();
+        this.goTo(one.id);
+        this.picked.set("sessions", one.id);
+        this.run("ade.openAgent");
+        void this.read();
+      };
+    } catch {
+      // A window that cannot notify still shows the badge.
+    }
+  }
+
+  private agentEnded(): boolean {
+    return this.endedIn.has(this.session) && this.resumed !== this.session;
+  }
+
+  private async resumeAgent(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/terminal", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.resumed = this.session;
+    this.draw();
+  }
+
+  // sendFindings hands the open comments to the session's agent, then shows it.
+  private async sendFindings(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/findings", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say(`sent ${(back.body as { sent?: number })?.sent ?? 0} findings to the agent`);
+    this.run("ade.openAgent");
+  }
+
+  // explainChange asks the agent for a page anyone can be sent: the change
+  // in plain words and a flow diagram. The agent's artifact tool makes it.
+  private async explainChange(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/explain", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    const n = (back.body as { files?: number })?.files ?? 0;
+    this.say(`asked the agent to explain the change in ${n} file${n === 1 ? "" : "s"} as an artifact`);
+    this.run("ade.openAgent");
+  }
+
+  // createPR pushes the branch and opens a draft pull request for it.
+  // createPR answers with why it could not, or nothing when the draft is up.
+  private async createPR(): Promise<string> {
+    const got = await window.ade
+      ?.act("session", "/api/pr/create", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return back.error;
+    const made = back.body as { asked?: boolean; number?: number; url?: string };
+    if (made?.asked) {
+      this.say("asked the agent to open the pull request");
+      this.run("ade.openAgent");
+      return "";
+    }
+    this.say(`opened #${made?.number ?? "?"} as a draft`);
+    if (made?.url) void window.ade?.link(made.url);
+    void this.read();
+    return "";
+  }
+
+  // commitDoes is the commit box's reach into the picked session.
+  private commitDoes(): Does {
+    const post = async (path: string, body: Record<string, unknown>, said: (back: Record<string, unknown>) => string) => {
+      const got = await window.ade
+        ?.act("session", path, body, this.session)
+        .catch((e: Error) => ({ error: e.message }));
+      const back = real.answered(got as real.Answer);
+      if (back.error) return back.error;
+      const text = said((back.body ?? {}) as Record<string, unknown>);
+      if (text) this.say(text);
+      void this.read();
+      return "";
+    };
+    return {
+      write: () => post("/api/commit-message", {}, () => "writing a commit message"),
+      commit: async (title, body, how) => {
+        const why = await post("/api/commit", { title, body, amend: Boolean(how.amend) }, (back) =>
+          back.amended ? "amended the last commit" : `committed ${String(back.sha ?? "")}`,
+        );
+        if (why || !how.push) return why;
+        return post("/api/push", {}, (back) => `pushed to ${String(back.upstream || "the remote")}`);
+      },
+      push: () => post("/api/push", {}, (back) => `pushed to ${String(back.upstream || "the remote")}`),
+      createPR: () => this.createPR(),
+      // No paths: the session's own git decides what "all" is, at the moment of the press.
+      stageAll: () => post("/api/stage", { all: true }, (back) => `staged ${String(back.staged ?? 0)} file(s)`),
+    };
+  }
+
+  // endedCard stands where an agent that exited was: resuming is asked for.
+  private endedCard(): HTMLElement {
+    const card = el("div", "nothing");
+    const again = el("span", "btn", "Resume");
+    again.addEventListener("click", () => void this.resumeAgent());
+    card.append(el("p", "", "The agent in this session has ended."), again);
+    return card;
+  }
+
+  // seat gives a session its three tabs, first in the strip.
+  // The outbox belongs to the session, so a switch reads the other one.
+  private async readPics(): Promise<void> {
+    if (!window.ade || !this.session) {
+      this.pics = [];
+      return;
+    }
+    const got = await window.ade
+      .read("session", "/api/shots", this.session)
+      .catch(() => undefined);
+    const was = this.pics[this.picAt];
+    this.pics = shotsOf(got);
+    this.picAt = holdAt(this.pics, was, this.picAt);
+    this.draw();
+  }
+
+  private picSrc(name: string): string {
+    return window.ade?.shotSrc(this.session, name) ?? "";
+  }
+
+  private seat(): void {
+    if (!this.session) return;
+    this.tabs = seated(this.tabs);
+    if (!this.actives[0]) this.actives[0] = AGENT;
   }
 
   // written is what the last run left: the place it was in, and the
@@ -1988,6 +1655,7 @@ class Ade {
       return;
     }
     if (kept.place) this.place = kept.place;
+    this.wasOn = kept.session ?? "";
     for (const [session, one] of kept.kept ?? []) this.keptTabs.set(session, one);
     // What a run before this change wrote: one set, for whichever
     // conversation was open when it was written.
@@ -1998,7 +1666,7 @@ class Ade {
 
   private close(id = this.active): void {
     const tab = this.tabs.find((t) => t.id === id);
-    if (!tab) return;
+    if (!tab || standing(id)) return;
     // Where it lands is its own half's business: the other half is not
     // disturbed by a tab closing over here.
     const from = groupOf(tab);
@@ -2018,12 +1686,12 @@ class Ade {
     // A sweep takes the tabs beside this one, which are its own half's.
     const mine = inGroup(this.tabs, tab ? groupOf(tab) : 0);
     const sweep = (which: Sweep): MenuRow => {
-      const ids = sweeping(mine, id, which);
+      const ids = sweeping(mine, id, which).filter((one) => !standing(one));
       const label = { others: "Close others", right: "Close to the right", left: "Close to the left", all: "Close all" };
       return { label: label[which], off: ids.length === 0, run: () => this.closeMany(ids) };
     };
     menu(at, [
-      { label: "Close", run: () => this.close(id) },
+      { label: "Close", off: standing(id), run: () => this.close(id) },
       sweep("others"),
       sweep("right"),
       sweep("left"),
@@ -2053,6 +1721,7 @@ class Ade {
       this.panes.get(id)?.node.remove();
       this.panes.delete(id);
       if (id === "term") closeTerm();
+      if (id === AGENT) closeTerm(AGENT);
     }
   }
 
@@ -2063,8 +1732,12 @@ class Ade {
 
   private build(): Shell {
     const titlebar = el("div", "titlebar");
+    dragsBy(titlebar);
     const activity = el("div", "activity");
-    const sidebar = el("div", "sidebar");
+    const sidebar = el("div", "sidebar left");
+    const files = el("div", "sidebar files");
+    files.append(this.commit.el);
+    const side = el("div", "sidebar side");
     const head = el("div", "head");
     const sheet = el("div", "sheet");
     const statusbar = el("div", "statusbar");
@@ -2072,71 +1745,61 @@ class Ade {
     const landing = el("div", "landing");
     landing.hidden = true;
     sheet.append(this.splitGrip(), landing);
-    main.append(head, sheet);
-    // Built once and filled in place: its iframe reloads if it is moved.
-    const dockHead = el("div", "dockhead");
-    const dockBody = el("div", "dockbody");
-    const dock = el("div", "dock");
-    dock.append(dockHead, dockBody);
-    const chatGrip = this.grip("chat");
-    const sideGrip = this.grip();
+    const sideGrip = this.grip("sidebar");
+    const filesGrip = this.grip("files");
+    const listGrip = this.grip("side");
+    // The Diff's files sit under the strip, beside the diff they are of.
+    const work = el("div", "work");
+    work.append(files, filesGrip, sheet);
+    main.append(head, work);
     const body = el("div", "body");
-    body.append(activity, sidebar, sideGrip, main, chatGrip, dock);
+    body.append(sidebar, sideGrip, main, listGrip, side, activity);
     this.root.replaceChildren(titlebar, body, statusbar);
     this.root.className = "window";
-    return { titlebar, activity, sidebar, head, sheet, statusbar, dock, dockHead, dockBody, chatGrip, sideGrip };
+    return { titlebar, activity, sidebar, files, side, head, sheet, statusbar, sideGrip, filesGrip, listGrip };
   }
 
   private titlebar(): HTMLElement[] {
     const box = el("div", "box", "⌘K  ·  anything");
     box.addEventListener("click", () => this.omnibox.show());
-    const bell = el("div", "bell");
-    bell.append(icon("bell", 15));
-    if (this.world.status.waiting > 0)
-      bell.append(el("span", "count", String(this.world.status.waiting)));
-    return [el("div", "where", this.world.status.repo), box, bell];
+    // Always drawn, folded or not: the chord alone leaves no way back in.
+    const fold = document.createElement("button");
+    fold.className = "fold-side";
+    fold.title = this.sideShut ? "Show the sessions (⌘B)" : "Hide the sessions (⌘B)";
+    fold.append(icon(this.sideShut ? "unfold" : "fold", 16));
+    fold.addEventListener("click", () => this.shutSide(!this.sideShut));
+    return [fold, el("div", "where", this.repoOf(this.session) || "ade"), box];
   }
 
+  // The bar on the right: a button opens its list beside it, and closes it again.
   private activity(): HTMLElement[] {
     const bar: HTMLElement[] = [];
-    for (const place of this.world.places) {
+    for (const id of BAR) {
+      const place = this.world.places.find((p) => p.id === id);
+      if (!place) continue;
       const button = document.createElement("button");
-      button.className = place.id === this.place ? "on" : "";
+      button.className = id === this.side ? "on" : "";
       if (place.alert) button.classList.add("alert");
       button.title = place.title;
       button.append(icon(place.icon, 21));
       const n = counted(place);
       if (n > 0) button.append(el("span", "count", String(n)));
-      button.addEventListener("click", () => {
-        // The same place twice folds the sidebar away; another opens it.
-        this.sideShut = place.id === this.place ? !this.sideShut : false;
-        this.place = place.id;
-        localStorage.setItem("ade.side.shut", this.sideShut ? "1" : "0");
-        this.remember();
-        this.draw();
-      });
-      if (place.id === "review") bar.push(el("div", "gap"));
+      button.addEventListener("click", () => this.sideTo(id));
       bar.push(button);
       // Under the bell, where what the morning holds belongs.
-      if (place.id === "waiting") {
-        const day = this.myDayButton();
-        if (day) bar.push(day);
-      }
+      if (id === "waiting") bar.push(this.myDayButton());
     }
-    bar.push(this.terminalButton(), this.foldButton());
     return bar;
   }
 
-  // Not a place: one click opens this morning's report. The Jobs place keeps
-  // the older fires. Absent when the machine has no my-day job to open.
-  private myDayButton(): HTMLElement | undefined {
+  // Not a list: one click opens this morning's report as a tab.
+  private myDayButton(): HTMLElement {
     const job = real.myDay(this.jobs);
-    if (!job) return undefined;
-    const unread = real.jobUnread(job);
+    const unread = job ? real.jobUnread(job) : 0;
     const button = document.createElement("button");
     button.className = this.tabs.some((tab) => tab.id === "doc:My Day") ? "on" : "";
     if (unread) button.classList.add("alert");
-    button.title = real.myDayTitle(job);
+    button.title = job ? real.myDayTitle(job) : "My Day";
     button.append(icon("calendar", 21));
     if (unread) button.append(el("span", "count", String(unread)));
     button.addEventListener("click", () => this.openMyDay());
@@ -2145,11 +1808,13 @@ class Ade {
 
   // refreshMyDay puts the next fire into the tab already showing the last one.
   // In place rather than through show(), which would pull focus to it.
-  private refreshMyDay(busy?: string): void {
+  private refreshMyDay(): void {
     const body = real.myDayReport(real.myDay(this.jobs));
+    const again = this.myDayAgain();
     this.tabs = this.tabs.map((tab) =>
-      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc"
-        ? { ...tab, what: { ...tab.what, body, busy } }
+      tab.id === "doc:My Day" && "kind" in tab.what && tab.what.kind === "doc" &&
+      (tab.what.body !== body || tab.what.again !== again)
+        ? { ...tab, what: { ...tab.what, body, again } }
         : tab,
     );
   }
@@ -2158,65 +1823,42 @@ class Ade {
   // the same every day so the tab is reused; the report dates its own heading.
   private openMyDay(): void {
     const job = real.myDay(this.jobs);
-    this.show(
-      {
-        kind: "doc",
-        title: "My Day",
-        body: real.myDayReport(job),
-        acts: [{ id: MY_DAY_AGAIN, label: "Refresh" }],
-      },
-      "My Day",
-      "calendar",
-    );
+    const view = { kind: "doc" as const, title: "My Day", body: real.myDayReport(job), again: this.myDayAgain() };
+    this.show(view, "My Day", "calendar");
     if (job && real.jobUnread(job)) void this.markJobSeen(job.name);
   }
 
-  // docAct is the one verb a drawn report offers: ask for it again. The run
-  // is the job's own, so the report it writes is the one the timer writes.
-  private async docAct(id: string): Promise<void> {
-    if (id !== MY_DAY_AGAIN) return;
-    this.refreshMyDay(id);
-    this.draw();
+  private myDayAgain(): "idle" | "busy" {
+    return this.myDayBuilding || real.myDay(this.jobs)?.running ? "busy" : "idle";
+  }
+
+  // buildMyDay runs the report now. Unasked is the first open of a weekday,
+  // once a day from this window, and says nothing if it cannot.
+  private async buildMyDay(asked: boolean): Promise<void> {
+    const today = new Date().toDateString();
+    if (this.myDayBuilding || (!asked && this.myDayAsked === today)) return;
+    this.myDayAsked = today;
+    this.myDayBuilding = true;
+    // Unasked is called from inside a read, which draws when it is done.
+    if (asked) {
+      this.refreshMyDay();
+      this.draw();
+    }
     const got = await window.ade
       ?.act("launcher", "/api/jobs/run", { name: real.MY_DAY })
       .catch((e: Error) => ({ error: e.message }));
+    this.myDayBuilding = false;
     const back = real.answered(got as real.Answer);
+    if (!asked) return this.soon(300);
     if (back.error) this.say(back.error);
     await this.read();
-    this.refreshMyDay();
-    this.draw();
   }
 
-  private foldButton(): HTMLElement {
-    const button = document.createElement("button");
-    button.className = "fold";
-    button.title = this.sideShut ? "Show the sidebar" : "Hide the sidebar";
-    button.append(icon(this.sideShut ? "unfold" : "fold", 18));
-    button.addEventListener("click", () => this.shutSide(!this.sideShut));
-    return button;
-  }
-
-  private shutSide(on: boolean): void {
-    this.sideShut = on;
-    localStorage.setItem("ade.side.shut", on ? "1" : "0");
-    this.draw();
-  }
-
-  // Not a place: it opens a tab rather than filling the sidebar.
-  private terminalButton(): HTMLElement {
-    const button = document.createElement("button");
-    button.className = this.tabs.some((tab) => tab.id === "term") ? "on" : "";
-    button.title = "Terminal";
-    button.append(icon("terminal", 21));
-    button.addEventListener("click", () => this.run("ade.openTerminal"));
-    return button;
-  }
-
-  // grip drags one side wider, by one variable on the root. The chat is
-  // on the right, so a pointer moving left widens it.
-  private grip(which: "sidebar" | "chat" = "sidebar"): HTMLElement {
+  // grip drags one edge wider, by one variable on the root. The lists on the
+  // right grow leftwards, so a pointer moving left widens them.
+  private grip(which: Edge): HTMLElement {
     const grip = el("div", "grip");
-    const chat = which === "chat";
+    const { key, css, back } = WIDTHS[which];
     // Pointer capture, and the panes made deaf: an iframe hit-tests the
     // pointer itself, so a drag over one never saw the mouse come up.
     grip.addEventListener("pointerdown", (down) => {
@@ -2224,37 +1866,27 @@ class Ade {
       grip.setPointerCapture(down.pointerId);
       grip.classList.add("held");
       document.body.classList.add("dragging");
-      const from = chat ? this.chatWidth : this.sidebarWidth;
+      const from = this.widths[which];
       const at = down.clientX;
       const move = (e: PointerEvent) => {
-        const width = sideWidth(which, from + (chat ? at - e.clientX : e.clientX - at));
-        if (chat) this.chatWidth = width;
-        else this.sidebarWidth = width;
-        document.documentElement.style.setProperty(
-          chat ? "--chat-w" : "--sidebar-w",
-          `${width}px`,
-        );
+        this.widths[which] = sideWidth(which, from + (back ? at - e.clientX : e.clientX - at));
+        document.documentElement.style.setProperty(css, `${this.widths[which]}px`);
       };
       const done = () => {
         grip.classList.remove("held");
         document.body.classList.remove("dragging");
         grip.removeEventListener("pointermove", move);
-        grip.removeEventListener("lostpointercapture", done);
-        localStorage.setItem(
-          chat ? "ade.chat" : "ade.sidebar",
-          String(chat ? this.chatWidth : this.sidebarWidth),
-        );
+        for (const end of ENDS) grip.removeEventListener(end, done);
+        localStorage.setItem(key, String(this.widths[which]));
       };
       grip.addEventListener("pointermove", move);
-      // Not pointerup: a capture lost any other way — the window
-      // blurring, the pointer cancelled — has to clear the drag too.
-      grip.addEventListener("lostpointercapture", done);
+      for (const end of ENDS) grip.addEventListener(end, done);
     });
     return grip;
   }
 
-  private sidebar(): HTMLElement[] {
-    const place = this.at();
+  // listOf is one place drawn as a list: its heading and filter, then its lines.
+  private listOf(place: Place): HTMLElement[] {
     const want = (this.filters.get(place.id) ?? "").toLowerCase();
     const list = el("div", "list");
     if (place.files) {
@@ -2266,19 +1898,105 @@ class Ade {
       for (const shown of flatten(tree, open)) list.append(this.twig(shown));
       if (files.length === 0) list.append(this.note(this.empty(place, want)));
     } else {
-      const rows = want
-        ? place.rows.filter((r) => `${r.name} ${r.meta ?? ""}`.toLowerCase().includes(want))
-        : place.rows;
+      const rows = want ? place.rows.filter((r) => matches(r, want)) : place.rows;
       for (const group of grouped(rows)) {
         const shut = this.folded.has(`${place.id}:${group.name}`);
         if (group.name) list.append(this.heading(place.id, group, shut));
         if (shut) continue;
-        for (const row of group.rows) list.append(this.row(row));
+        for (const row of group.rows) list.append(this.row(row, place.id));
       }
       if (rows.length === 0) list.append(this.note(this.empty(place, want)));
     }
-    if (place.id !== "review") return [this.head2(place), list];
-    return [this.head2(place), list, this.commentList()];
+    if (place.id === "review" && this.folded.has("review:files")) return [this.head2(place)];
+    return [this.head2(place), list];
+  }
+
+  // band is a section with the grip that sizes it, when there is anything
+  // under its heading to size.
+  private band(which: Band, node: HTMLElement): HTMLElement[] {
+    const folded = this.folded.has(`review:${which}`);
+    if (node.childElementCount === 0 || folded) return [node];
+    return [this.rowGrip(which, node), node];
+  }
+
+  // rowGrip drags a section's top edge: its cap is kept between runs.
+  private rowGrip(which: Band, section: HTMLElement): HTMLElement {
+    const grip = el("div", "rowgrip");
+    const { key, css } = BANDS[which];
+    grip.addEventListener("pointerdown", (down) => {
+      down.preventDefault();
+      grip.setPointerCapture(down.pointerId);
+      grip.classList.add("held");
+      document.body.classList.add("dragging", "rows");
+      const from = this.bands[which] || section.getBoundingClientRect().height;
+      const at = down.clientY;
+      const move = (e: PointerEvent) => {
+        this.bands[which] = bandHeight(which, from + (at - e.clientY));
+        document.documentElement.style.setProperty(css, `${this.bands[which]}px`);
+      };
+      const done = () => {
+        grip.classList.remove("held");
+        document.body.classList.remove("dragging", "rows");
+        grip.removeEventListener("pointermove", move);
+        for (const end of ENDS) grip.removeEventListener(end, done);
+        localStorage.setItem(key, String(this.bands[which]));
+      };
+      grip.addEventListener("pointermove", move);
+      for (const end of ENDS) grip.addEventListener(end, done);
+    });
+    return grip;
+  }
+
+  // fold is a section's chevron: the heading stays, what is under it goes.
+  private fold(key: string): HTMLElement {
+    const shut = this.folded.has(key);
+    const chev = el("button", shut ? "fold-chev folded" : "fold-chev");
+    chev.title = shut ? "Show" : "Hide";
+    chev.append(icon("chevron", 12));
+    chev.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.folded = toggled(this.folded, key);
+      this.draw();
+    });
+    return chev;
+  }
+
+  // reviewStrip is a review by named agents as it goes: each reviewer, then
+  // the stage. It stays when the review is over, until it is shut.
+  private reviewStrip(): HTMLElement {
+    const out = el("div", "review-run");
+    const run = this.reviewRun;
+    if (!run || run.startedAt === this.reviewShut) return out;
+    const head = el("div", "head", real.reviewHead(run));
+    head.prepend(this.fold("review:run"));
+    if (this.folded.has("review:run")) {
+      out.append(head);
+      return out;
+    }
+    if (run.running) {
+      const stop = el("button", "shut stop", "Stop");
+      stop.title = "Stop the reviewers; the session's own agent keeps going";
+      stop.addEventListener("click", () => void this.stopReview());
+      head.append(stop);
+    } else {
+      const shut = el("button", "shut", "×");
+      shut.title = "Put this away";
+      shut.addEventListener("click", () => {
+        this.reviewShut = run.startedAt;
+        this.draw();
+      });
+      head.append(shut);
+    }
+    out.append(head);
+    for (const one of real.reviewLines(run)) {
+      const row = el("div", `who ${one.state}`);
+      row.append(el("span", "dot"), el("span", "name", one.name), el("span", "note", one.note));
+      row.title = `${one.name} ${one.note}`;
+      out.append(row);
+    }
+    if (run.running && run.stage) out.append(el("div", "stage", run.stage));
+    if (run.summary) out.append(el("div", "summary", run.summary));
+    return out;
   }
 
   // commentList is the review's open comments under its files, worst first:
@@ -2287,7 +2005,10 @@ class Ade {
     const out = el("div", "comments");
     const all = listed(this.threads);
     if (all.length === 0) return out;
-    out.append(el("div", "head", `Comments · ${all.length}`));
+    const head = el("div", "head", `Comments · ${all.length}`);
+    head.prepend(this.fold("review:comments"));
+    out.append(head);
+    if (this.folded.has("review:comments")) return out;
     for (const one of all) {
       const row = el("div", "comment");
       row.append(el("span", `sev ${one.severity}`, `${one.severity}:`), el("span", "title", one.title));
@@ -2304,6 +2025,7 @@ class Ade {
   // The heading and its filter. One field per place, kept while away.
   private head2(place: Place): HTMLElement {
     const head = el("div", "side-head");
+    if (place.id === "review") head.append(this.fold("review:files"));
     head.append(el("h2", "", place.title));
     const find = document.createElement("input");
     find.className = "find";
@@ -2311,20 +2033,21 @@ class Ade {
     find.spellcheck = false;
     find.value = this.filters.get(place.id) ?? "";
     find.addEventListener("input", () => {
+      this.place = place.id;
       this.filters.set(place.id, find.value);
       this.draw();
     });
     const again = el("button", "again");
     again.title = "Refresh: ask GitHub and ade again";
     again.append(icon("refresh", 14));
-    again.addEventListener("click", () => void this.again());
+    again.addEventListener("click", () => void this.again(place.id));
     head.append(find);
     const all = this.foldAll(place);
     if (all) head.append(all);
     head.append(again);
     if (place.id !== "review") return head;
     const heads = el("div", "heads");
-    heads.append(head, this.reviewBar());
+    heads.append(head, this.scopePick(), this.reviewBar());
     return heads;
   }
 
@@ -2355,7 +2078,7 @@ class Ade {
     if (place.files) return [];
     const want = (this.filters.get(place.id) ?? "").toLowerCase();
     const rows = want
-      ? place.rows.filter((r) => `${r.name} ${r.meta ?? ""}`.toLowerCase().includes(want))
+      ? place.rows.filter((r) => matches(r, want))
       : place.rows;
     return grouped(rows)
       .map((g) => g.name)
@@ -2363,10 +2086,36 @@ class Ade {
   }
 
   // reviewBar is where the review stands and the one thing that ends it.
+  // What the diff is of, where you are looking when you want it changed.
+  // Committed-only stays on ⌘K: it is rarely the one you want.
+  private scopePick(): HTMLElement {
+    const bar = el("div", "scope-pick");
+    const now = this.world.status.scope || "branch";
+    const picks = [
+      ["branch", "Branch", "ade.scopeBranch", "Everything this branch adds over its base"],
+      ["uncommitted", "Change", "ade.scopeUncommitted", "What is not committed yet"],
+    ] as const;
+    for (const [scope, name, command, why] of picks) {
+      const on = now === scope;
+      const pick = el("span", on ? "btn on" : "btn", name);
+      pick.title = why;
+      if (!on) pick.addEventListener("click", () => this.run(command));
+      bar.append(pick);
+    }
+    if (now === "committed") bar.append(el("span", "quiet", "committed only"));
+    return bar;
+  }
+
   private reviewBar(): HTMLElement {
     const bar = el("div", "review-bar");
     const said = real.reviewNote(this.draft);
     bar.append(el("span", "quiet", said || "nothing to say yet"));
+    if (this.world.status.branch) {
+      const pull = el("span", this.pulling ? "btn quiet off" : "btn quiet", this.pulling ? "Pulling…" : "Pull latest");
+      pull.title = "Fetches origin's copy of this branch and fast-forwards onto it.";
+      if (!this.pulling) pull.addEventListener("click", () => void this.pullLatest());
+      bar.append(pull);
+    }
     const behind = this.world.status.behind ?? 0;
     if (behind > 0) {
       const up = el("span", "btn quiet", `Catch up · ${behind} behind`);
@@ -2374,16 +2123,28 @@ class Ade {
       up.addEventListener("click", () => void this.catchUp());
       bar.append(up);
     }
+    const explain = el("span", "btn quiet", "Explain this change");
+    explain.title = "Asks the agent for a shareable page: the change in plain words, with a flow diagram.";
+    explain.addEventListener("click", () => void this.explainChange());
+    bar.append(explain);
+    const open = listed(this.threads).length;
+    if (open > 0 && this.world.status.prMine !== false) {
+      const send = el("span", "btn quiet", `Resolve all ${open}`);
+      send.title = "Writes the open comments to a file and asks the agent to work through them.";
+      send.addEventListener("click", () => void this.sendFindings());
+      bar.append(send);
+    }
     if (this.draft.ready > 0) {
       const add = el("span", this.adding ? "btn quiet add off" : "btn quiet add", `Add ${this.draft.ready} to the review`);
       add.title = this.adding ? "Adding them…" : "Into the draft review, which only you can see.";
       if (!this.adding) add.addEventListener("click", () => void this.addToReview());
       bar.append(add);
     }
-    if (this.draft.inDraft > 0) {
-      const finish = el("span", "btn", `Send the review · ${this.draft.inDraft}`);
-      finish.title = "Submits the draft with a verdict. This is what the author sees.";
-      finish.addEventListener("click", () => void this.finishReview());
+    const toSend = this.draft.inDraft + this.draft.ready;
+    if (this.world.status.pr && toSend > 0) {
+      const finish = el("span", this.adding ? "btn off" : "btn", `Send the review · ${toSend}`);
+      finish.title = "Puts what is ready into the draft and submits it with a verdict. This is what the author sees.";
+      if (!this.adding) finish.addEventListener("click", () => void this.sendReview());
       bar.append(finish);
     }
     return bar;
@@ -2415,7 +2176,7 @@ class Ade {
   // key moves in the list, when the keyboard is the window's: a filter,
   // the omnibox or a panel owns its own.
   private key(e: KeyboardEvent): void {
-    if (this.only || this.omnibox.showing()) return;
+    if (this.omnibox.showing()) return;
     const on = document.activeElement;
     if (on instanceof HTMLInputElement || on instanceof HTMLTextAreaElement) {
       // The filter is the one input the arrows still move under: you
@@ -2463,7 +2224,7 @@ class Ade {
       return flatten(tree, want ? everyDir(tree) : this.unfolded).map((s) => s.node.path);
     }
     const rows = want
-      ? place.rows.filter((r) => `${r.name} ${r.meta ?? ""}`.toLowerCase().includes(want))
+      ? place.rows.filter((r) => matches(r, want))
       : place.rows;
     return grouped(rows)
       .filter((g) => !this.folded.has(`${place.id}:${g.name}`))
@@ -2515,8 +2276,8 @@ class Ade {
   private twig(shown: Shown): HTMLElement {
     const { node, depth, open } = shown;
     const row = el("div", `twig${node.status ? " " + node.status : ""}`);
-    if (this.picked.get(this.place) === node.path) row.className += " on";
-    if (this.place === "review" && this.viewedFiles.has(node.path)) row.className += " viewed";
+    if (this.picked.get("review") === node.path) row.className += " on";
+    if (this.marks[node.path]) row.className += " viewed";
     for (let i = 0; i < depth; i++) row.append(el("span", "pad guide"));
 
     const chev = el("span", node.dir ? (open ? "chev open" : "chev") : "chev leaf");
@@ -2527,7 +2288,8 @@ class Ade {
     if (node.status) row.append(el("span", "mark", node.status[0].toUpperCase()));
 
     row.addEventListener("click", () => {
-      this.picked.set(this.place, node.path);
+      this.place = "review";
+      this.picked.set("review", node.path);
       if (node.dir) {
         this.unfolded = toggled(this.unfolded, node.path);
         this.draw();
@@ -2538,76 +2300,22 @@ class Ade {
     return row;
   }
 
-  // openFile puts a file in a tab of its own: the diff when it is under
-  // review, the file otherwise. The path is the title, since names repeat.
+  // openFile puts a changed file in the Diff tab: one tab, whatever it shows.
   private openFile(path: string, at?: At): void {
-    const name = path.split("/").pop() ?? path;
-    if (this.place === "review") {
-      const file = this.changes.find((c) => c.path === path);
-      if (file) {
-        this.show({ kind: "hunks", title: path, file, threads: this.threads, at }, name, "diff");
-        return;
-      }
+    const file = this.changes.find((c) => c.path === path);
+    if (!file) return this.say(`${path} is not in this diff`);
+    this.picked.set("review", path);
+    this.show({ kind: "hunks", title: path, file, threads: this.threads, at }, "Diff", "diff");
+  }
+
+  private shutSide(on: boolean): void {
+    this.sideShut = on;
+    try {
+      localStorage.setItem(SIDE_SHUT, on ? "1" : "0");
+    } catch {
+      // A window that cannot write still folds for this run.
     }
-    this.show({ kind: "code", title: path, source: "" }, name, "file");
-    void this.readFile(path);
-  }
-
-  // language asks one of the session's language routes. A file with no
-  // server answers empty, which is most of them.
-  private async language<T>(
-    route: string,
-    path: string,
-    line: number,
-    col: number,
-    field?: string,
-  ): Promise<T | undefined> {
-    if (!window.ade || !this.session) return undefined;
-    const at = `/api/${route}?path=${encodeURIComponent(path)}&line=${line}&col=${col}`;
-    const got = (await window.ade.read("session", at, this.session).catch(() => undefined)) as
-      | Record<string, unknown>
-      | undefined;
-    if (!got || got.error) return undefined;
-    return (field ? got[field] : got) as T;
-  }
-
-  // blame is who last touched the picked line. git answers one line at
-  // a time, so this is asked for the line you click and no other.
-  private async blame(line: number): Promise<void> {
-    const view = this.showing();
-    if (view?.kind !== "code") return;
-    const path = view.title;
-    if (!window.ade) return;
-    const at = `/api/blame?path=${encodeURIComponent(path)}&line=${line}`;
-    const got = (await window.ade
-      .read("session", at, this.session)
-      .catch((e: Error) => ({ error: e.message }))) as {
-      author?: string;
-      short?: string;
-      summary?: string;
-      at?: string;
-      error?: string;
-    };
-    this.world = {
-      ...this.world,
-      blame: got.error
-        ? got.error
-        : [got.author, real.ago(got.at), got.short, got.summary].filter(Boolean).join(" · "),
-    };
     this.draw();
-  }
-
-  // readFile is a file of the picked session's checkout, off disk.
-  private async readFile(path: string): Promise<void> {
-    if (!window.ade || !this.session) return this.say("pick a session: a file is one checkout's");
-    const got = (await window.ade
-      .read("session", `/api/source?path=${encodeURIComponent(path)}`, this.session)
-      .catch((e: Error) => ({ error: e.message }))) as { source?: string; sum?: string; error?: string };
-    if (this.picked.get(this.place) !== path) return;
-    const view: View = got.error
-      ? { kind: "doc", title: path, body: `# ${path}\n\n${got.error}` }
-      : { kind: "code", title: path, source: got.source ?? "", sum: got.sum };
-    this.show(view, path.split("/").pop() ?? path, "file");
   }
 
   // conversation is everything said with one person, which this machine kept:
@@ -2661,12 +2369,40 @@ class Ade {
     await this.read();
   }
 
+  private async pullLatest(): Promise<void> {
+    if (!window.ade || !this.session || this.pulling) return;
+    this.pulling = true;
+    this.draw();
+    const got = await window.ade
+      .act("session", "/api/branch/pull", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.pulling = false;
+    if (back.error) return this.say(back.error);
+    this.say(real.pulled(back.body as real.Pulled));
+    await this.read();
+  }
+
+  private async stopReview(): Promise<void> {
+    if (!window.ade || !this.session) return;
+    const got = await window.ade
+      .act("session", "/api/review/stop", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say("reviewers stopped");
+    await this.read();
+  }
+
   // addToReview puts every converted comment into the pull request's draft
   // review, which is where you read what would be submitted.
-  private async addToReview(): Promise<void> {
+  private async addToReview(): Promise<boolean> {
     const pr = this.world.status.pr;
-    if (!window.ade || !pr) return this.say("this branch has no pull request");
-    if (this.adding) return;
+    if (!window.ade || !pr) {
+      this.say("this branch has no pull request");
+      return false;
+    }
+    if (this.adding) return false;
     this.adding = true;
     this.draw();
     const got = await window.ade
@@ -2674,9 +2410,20 @@ class Ade {
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
     this.adding = false;
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      this.say(back.error);
+      return false;
+    }
     this.say(real.draftSaid(back.body as real.Drafted, pr));
     await this.read();
+    return true;
+  }
+
+  // sendReview is both steps as one: what is ready joins the draft, then
+  // the draft goes with a verdict.
+  private async sendReview(): Promise<void> {
+    if (this.draft.ready > 0 && !(await this.addToReview())) return;
+    await this.finishReview();
   }
 
   // finishReview submits the draft with a verdict, which is the moment the
@@ -2752,7 +2499,7 @@ class Ade {
   private async save(): Promise<void> {
     const view = this.showing();
     const changed = edits();
-    const editable = view?.kind === "code" || (view?.kind === "hunks" && view.editing);
+    const editable = view?.kind === "hunks" && view.editing;
     if (!view || !editable || !changed || changed.path !== view.title)
       return this.say("nothing to save");
     if (!window.ade || !this.session) return;
@@ -2769,16 +2516,20 @@ class Ade {
     if (view.kind === "hunks") await this.read();
   }
 
-  private row(row: Row): HTMLElement {
-    const on = this.picked.get(this.place) === row.id;
-    const node = el("div", on ? "row on" : "row");
-    if (row.depth) node.classList.add("under");
+  private row(row: Row, place: string): HTMLElement {
+    // The session the window landed on is the pick until another is made.
+    const pick = this.picked.get(place) ?? (place === "sessions" ? this.session : "");
+    const node = el("div", pick === row.id ? "row on" : "row");
     const ico = el("span", row.tone ? `ico ${row.tone}` : "ico");
     ico.append(icon(row.icon));
     node.append(ico, el("span", "name", row.name));
-    if (row.meta) node.append(el("span", "meta", row.meta));
+    // A session's name keeps its line: its tags and facts go under it.
+    const more = place === "sessions" ? el("span", "more") : node;
+    if (more !== node) node.classList.add("session");
+    if (row.tags?.length) more.append(this.tags(row));
+    if (row.meta) more.append(el("span", "meta", row.meta));
     if (row.tag) node.append(el("span", `tag ${row.tag.kind}`, row.tag.text));
-    // What the row does besides open, shown on hover.
+    // What the line does besides open, shown on hover.
     for (const act of row.acts ?? []) {
       if (act.menu) continue;
       const node2 = el("span", "act", act.label);
@@ -2801,108 +2552,188 @@ class Ade {
         );
       });
     }
-    node.addEventListener("click", () => this.open(row));
+    if (more !== node) node.append(more);
+    node.addEventListener("click", () => this.open(row, place));
     return node;
   }
 
-  // rowAct is the one thing a row does besides open. Each is a verb
-  // ade already has; the row only says which and on what.
-  private async rowAct(act: NonNullable<Row["acts"]>[number]): Promise<void> {
-    this.noted("verb", `${act.what} ${act.name}`);
-    if (act.what === "design-start") return this.startDesign(act.name);
-    if (act.what === "design-again") return this.againDesign(act.name);
-    if (act.what === "space-close" || act.what === "space-clone") {
-      return this.space(act.what === "space-close" ? "close" : "clone", act.name);
+  // tags sit beside a session's name. The brief's is a button: it opens the brief.
+  private tags(row: Row): HTMLElement {
+    const box = el("span", "tags");
+    for (const tag of row.tags ?? []) {
+      const node = el("span", `tag ${tag.kind}`, tag.text);
+      if (tag.kind === "brief") {
+        node.title = "Open the brief";
+        node.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void this.openBrief(row.id);
+        });
+        node.addEventListener("click", (e) => e.stopPropagation());
+      }
+      box.append(node);
     }
-    if (act.what === "todo-start") return this.fromTodo(act.name);
-    if (act.what === "todo-done" || act.what === "todo-drop") return this.todoOff(act);
-    if (act.what === "bus-dismiss") {
-      const team = this.world.places.find((p) => p.id === "team");
-      if (team) this.redrawPlace(without(team, new Set([act.name])));
-      const got = await window.ade
-        ?.act("launcher", "/api/bus/dismiss", { id: act.name })
-        .catch((e: Error) => ({ error: e.message }));
-      const back = real.answered(got as real.Answer);
-      this.say(back.error || "dismissed");
-      return void this.read();
-    }
-    if (act.what === "queue-first") {
-      await window.ade
-        ?.act(
-          "session",
-          `/api/queue/${encodeURIComponent(act.name)}/urgent`,
-          {},
-          act.on ?? this.session,
-        )
-        .catch((e: Error) => ({ error: e.message }));
-      return void this.read();
-    }
-    if (act.what === "side-stop") {
-      const got = await window.ade
-        ?.act(
-          "session",
-          `/api/sides/${encodeURIComponent(act.name)}/cancel`,
-          {},
-          act.on ?? this.session,
-        )
-        .catch((e: Error) => ({ error: e.message }));
-      const back = real.answered(got as real.Answer);
-      this.say(back.error || "stopped");
-      return void this.read();
-    }
-    if (act.what === "session-end") return this.endSession(act.name);
-    // Both are the launcher's, and row-only verbs in the fork too. The
-    // label says which way it goes: Pause stops it, Resume starts.
-    const paused = act.label === "Pause";
-    const at = act.what === "job-run" ? "/api/jobs/run" : "/api/jobs/pause";
-    const got = await window.ade
-      ?.act("launcher", at, act.what === "job-run" ? { name: act.name } : { name: act.name, paused })
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    this.say(act.what === "job-run" ? `${act.name} started` : paused ? "paused" : "resumed");
-    void this.read();
+    return box;
   }
 
-  // endSession is the one verb on a session row, in Sessions and in
-  // Agents: stop the run, stop the ade under it, or put it away for good.
+  // rowAct is the one thing a line does besides open: which verb, and on what.
+  private async rowAct(act: NonNullable<Row["acts"]>[number]): Promise<void> {
+    switch (act.what) {
+      case "session-end":
+        return this.endSession(act.name);
+      case "session-tags":
+        return this.tagSession(act.name);
+      case "brief-open":
+        return this.openBrief(act.name);
+      case "brief-send":
+        return this.sendBrief(act.name);
+      case "space-close":
+        return this.space("close", act.name);
+      case "space-clone":
+        return this.space("clone", act.name);
+      case "pr-web":
+        return void window.ade?.link(act.name);
+      case "pr-mute":
+      case "pr-unmute": {
+        const at = prAt(act.name);
+        return at ? this.mutePR(at, act.what === "pr-mute") : undefined;
+      }
+      case "bus-claim":
+        return this.claimReview(act.name);
+      case "bus-answer":
+        return this.answerOffer(act.name);
+      case "bus-dismiss": {
+        const team = this.world.places.find((p) => p.id === "team");
+        if (team) this.redrawPlace(without(team, new Set([act.name])));
+        const got = await window.ade
+          ?.act("launcher", "/api/bus/dismiss", { id: act.name })
+          .catch((e: Error) => ({ error: e.message }));
+        this.say(real.answered(got as real.Answer).error || "dismissed");
+        return void this.read();
+      }
+    }
+  }
+
+  // endSession closes a session: its ade stops and its tab goes. Asked first
+  // only when its agent is in the middle of something.
   private async endSession(id: string): Promise<void> {
-    if (!window.ade) return;
-    // Every place, not just Agents: it is offered from Sessions too, and
-    // without the row the dialog is titled with a uuid.
-    const row = this.world.places.flatMap((p) => p.rows).find((r) => r.id === id);
-    const state = this.announced.find((a) => a.id === id);
-    const what = await this.omnibox.ask(
-      `${row?.name ?? id}`,
-      real.endings(real.stateOf(state?.agent), real.spoken(this.repos, id)),
-    );
-    this.omnibox.close();
-    if (!what) return;
-    // Deleting is the one that cannot be undone, so it is asked twice.
-    if (what === "delete") {
-      const sure = await this.omnibox.ask(`Delete ${row?.name ?? id}?`, [
-        { label: "Delete it", value: "yes" },
-        { label: "Keep it", value: "no" },
+    if (!window.ade || !id) return;
+    const up = this.announced.find((a) => a.id === id);
+    if (real.running(real.stateOf(up?.agent))) {
+      const picked = await this.omnibox.ask("Its agent is still working. Close the session anyway?", [
+        { label: "Close it", value: "yes" },
+        { label: "Leave it running", value: "" },
       ]);
       this.omnibox.close();
-      if (sure !== "yes") return;
+      if (picked !== "yes") return;
     }
-    const dir = this.where.get(id) ?? "";
-    const leaves = what === "archive" || what === "delete" || what === "done";
-    if (leaves) {
-      this.goneSessions.add(id);
-      const listed = this.world.places.find((p) => p.id === "sessions");
-      if (listed) this.redrawPlace(without(listed, this.goneSessions));
-    }
-    this.say(`${real.underway(what)}…`);
-    const got = await this.ending(what, id, dir);
-    const back = real.answered(got as real.Answer);
+    this.goneSessions.add(id);
+    const sessions = this.world.places.find((p) => p.id === "sessions");
+    if (sessions) this.redrawPlace(without(sessions, this.goneSessions));
+    // Only a served one has an ade to stop: its checkout may hold older sessions.
+    const dir = up ? (up.dir ?? this.where.get(id) ?? "") : "";
+    const back = real.answered((await this.stopAndPutAway(id, dir)) as real.Answer);
     if (back.error) {
       this.goneSessions.delete(id);
       this.say(back.error);
-      return void this.read();
+    } else if (id === this.session) {
+      this.goTo("");
     }
-    this.say(real.ended(what, back.body));
+    void this.read();
+  }
+
+  // onSession moves to a session an act names, so what follows is about it.
+  private async onSession(id: string): Promise<void> {
+    if (!id || id === this.session) return;
+    this.goTo(id);
+    this.picked.set("sessions", id);
+    if (!this.servedAt(id)) this.serving = "starting";
+    await this.read();
+  }
+
+  // briefRead asks the session's ade for its brief, waiting out one just started.
+  private async briefRead(): Promise<{ path?: string; body?: string; error?: string }> {
+    let got: { path?: string; body?: string; error?: string } = {};
+    for (let tries = 0; tries < 10; tries++) {
+      got = (await window.ade
+        ?.read("session", "/api/brief", this.session)
+        .catch((e: Error) => ({ error: e.message }))) as typeof got;
+      if (!real.unserved(got?.error)) break;
+      await new Promise((done) => setTimeout(done, 1_000));
+    }
+    return got ?? {};
+  }
+
+  // openBrief shows a session's brief as a tab, with the button that sends it.
+  private async openBrief(id = this.session): Promise<void> {
+    if (!window.ade) return;
+    await this.onSession(id);
+    if (!this.session) return this.say("pick a session first");
+    const got = await this.briefRead();
+    if (got.error || !got.path) {
+      const why = got.error || "this session has no brief yet";
+      this.say(why);
+      return this.show({ kind: "doc", title: "Brief", body: real.noBrief(why) }, "Brief", "file");
+    }
+    const name = got.path.split("/").pop() ?? "Brief";
+    this.show({ kind: "doc", title: `Brief: ${name}`, body: got.body ?? "", brief: true }, "Brief", "file");
+  }
+
+  // sendBrief types one line at the agent: read the brief, say where it leaves off.
+  private async sendBrief(id = this.session): Promise<void> {
+    if (!window.ade) return;
+    await this.onSession(id);
+    if (!this.session) return this.say("pick a session first");
+    const got = await window.ade
+      .act("session", "/api/agent/brief", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say("asked the agent to read the brief");
+    this.run("ade.openAgent");
+  }
+
+  // findSession takes up any conversation claude holds, closed sessions
+  // included: ade forgets its record, claude keeps the transcript.
+  private async findSession(): Promise<void> {
+    if (!window.ade) return;
+    const first = encodeURIComponent(this.where.get(this.session) ?? "");
+    const got = await window.ade
+      .read("launcher", `/api/conversations?first=${first}`)
+      .catch((e: Error) => ({ error: e.message }));
+    const listed = real.answered(got as real.Answer);
+    if (listed.error) return this.say(listed.error);
+    const held = (listed.body as { conversations?: real.Conversation[] })?.conversations ?? [];
+    if (held.length === 0) return this.say("claude holds no conversation on this machine");
+    const picked = await this.omnibox.ask("Find which session?", real.conversationRows(held));
+    this.omnibox.close();
+    if (typeof picked !== "string") return;
+    this.say("opening that session…", true);
+    const moved = await window.ade
+      .act("launcher", "/api/conversations/import", { id: picked })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(moved as real.Answer);
+    if (back.error) return this.say(back.error);
+    const at = (back.body ?? {}) as { session?: string; dir?: string };
+    const id = at.session || picked;
+    if (at.dir) this.where.set(id, at.dir);
+    this.say("opened");
+    await this.onSession(id);
+    this.run("ade.openAgent");
+  }
+
+  // tagSession edits the tags typed by hand: the ticket and the brief are ade's own.
+  private async tagSession(id = this.session): Promise<void> {
+    if (!window.ade) return;
+    if (!id) return this.say("pick a session first");
+    const typed = await this.omnibox.type("Tags, with spaces between", real.ownTags(this.repos, id).join(" "));
+    this.omnibox.close();
+    if (typed === undefined) return;
+    const got = await window.ade
+      .act("launcher", "/api/session/tags", { id, tags: real.typedTags(typed) })
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
     await this.read();
   }
 
@@ -2924,169 +2755,11 @@ class Ade {
       .catch((e: Error) => ({ error: e.message }));
   }
 
-  private ending(what: string, id: string, dir: string): Promise<unknown> {
-    const ade = window.ade!;
-    switch (what) {
-      case "agent":
-        return ade.act("session", "/api/cancel", {}, id).catch((e: Error) => ({ error: e.message }));
-      case "ade":
-        return ade.act("launcher", "/api/graph/stop", { dir }).catch((e: Error) => ({ error: e.message }));
-      case "done":
-        return this.stopAndPutAway(id, dir);
-      case "archive":
-        return ade
-          .act("launcher", "/api/archive", { id, archived: true })
-          .catch((e: Error) => ({ error: e.message }));
-      default:
-        return ade
-          .act("launcher", "/api/sessions/delete", { ids: [id] })
-          .catch((e: Error) => ({ error: e.message }));
-    }
-  }
-
-  // fromTodo opens the New session screen with the todo in it. Not
-  // started here: what it runs against is a choice.
-  private fromTodo(id: string): void {
-    // Always a tab, seeded when the list has the todo: a button that
-    // answers with nothing reads as broken.
-    if (!this.todoAt(id)) this.say("that todo is not on the list any more");
-    this.show({ panel: `todo:${id}` }, "New session", "session");
-  }
-
-  // todoOff takes a todo off the list: done keeps it as history, dropped
-  // deletes it. The row goes at once, before the next read confirms it.
-  private async todoOff(act: NonNullable<Row["acts"]>[number]): Promise<void> {
-    if (!window.ade) return;
-    const done = act.what === "todo-done";
-    const todos = this.world.places.find((p) => p.id === "todos");
-    if (todos) this.redrawPlace(without(todos, new Set([act.name])));
-    const at = `/api/todos/${encodeURIComponent(act.name)}`;
-    const got = await window.ade
-      .act(
-        "launcher",
-        done ? at : `${at}?dir=${encodeURIComponent(this.homeDir)}`,
-        done ? { dir: this.homeDir, done: true } : {},
-        undefined,
-        done ? "PATCH" : "DELETE",
-      )
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got as real.Answer);
-    this.say(back.error || (done ? "marked as done" : "dropped"));
-    await this.read();
-  }
-
-  // startDesign checks out every repository the document names, on one
-  // branch, and opens a session across them.
-  // noted puts one line in the audit trail: what was set off, and where
-  // from. What came of it is written by the reach it makes.
-  private noted(kind: "command" | "verb" | "panel", what: string): void {
-    window.ade?.note({
-      kind,
-      what,
-      where: this.place,
-      session: this.session,
-      dir: this.where.get(this.session) ?? "",
-    });
-  }
-
-  private async startDesign(asked: string): Promise<void> {
-    if (!window.ade) return;
-    const name = await this.intoStore(asked);
-    if (!name) return;
-    const machine = await this.whichMachine(name);
-    if (machine === undefined) return;
-    this.say(`starting ${name}…`);
-    const got = await window.ade
-      .act("launcher", "/api/designs/start", { name, machine: machine || undefined })
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    await this.read();
-    this.say(machine ? `started ${name} on ${machine}` : `started ${name}`);
-  }
-
-  // noteChanged remembers where each design's changed copy is, and hands the
-  // list back as it came.
-  // designCounts is the store's designs per repository, for the Spaces rows.
-  private designCounts(): Map<string, number> {
-    const out = new Map<string, number>();
-    for (const one of this.storeDesigns) {
-      const repo = one.repo ?? "";
-      if (repo) out.set(repo, (out.get(repo) ?? 0) + 1);
-    }
-    return out;
-  }
-
-  private noteChanged(all: real.Design[]): real.Design[] {
-    this.designChanged = new Map(all.filter((d) => d.changed).map((d) => [d.name, d.changed!]));
-    this.storeDesigns = all;
-    return all;
-  }
-
-  // Re-import reads the checkout's copy over the store's, for a design the two
-  // have been edited apart.
-  private async againDesign(name: string): Promise<void> {
-    const dir = this.designChanged.get(name);
-    if (!dir) return this.say("nothing to re-import");
-    this.say(`re-importing ${name}…`);
-    const got = await window
-      .ade!.act("launcher", `/api/designs/import?dir=${encodeURIComponent(dir)}`, {
-        file: `${name}.md`,
-        again: true,
-      })
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) return this.say(back.error);
-    await this.read();
-    this.say(`re-imported ${name}`);
-  }
-
-  // Only the store's documents can start, so one written in a checkout is
-  // imported on the way. A name already in the store is handed straight back.
-  private async intoStore(asked: string): Promise<string | undefined> {
-    const space = asked.startsWith("space:");
-    if (!space && !asked.startsWith("here:")) return asked;
-    const rest = asked.slice(asked.indexOf(":") + 1);
-    const cut = space ? rest.indexOf("|") : -1;
-    const dir = space ? rest.slice(0, cut) : this.homeDir;
-    const file = space ? rest.slice(cut + 1) : rest;
-    if (!dir) {
-      this.say("that document has no checkout on this machine");
-      return undefined;
-    }
-    this.say(`importing ${file}…`);
-    const got = await window
-      .ade!.act("launcher", `/api/designs/import?dir=${encodeURIComponent(dir)}`, { file })
-      .catch((e: Error) => ({ error: e.message }));
-    const back = real.answered(got);
-    if (back.error) {
-      this.say(back.error);
-      return undefined;
-    }
-    return (back.body as { name?: string }).name;
-  }
-
-  // Connected machines only; "" is here, undefined a cancelled pick.
-  private async whichMachine(name: string): Promise<string | undefined> {
-    type Host = { name: string; label?: string; connected?: boolean; local?: boolean };
-    const got = (await window.ade
-      ?.read("launcher", "/api/hosts")
-      .catch(() => ({}))) as { hosts?: Host[] } | undefined;
-    const away = (got?.hosts ?? [])
-      .filter((h) => h.connected && !h.local)
-      .map((h) => ({ label: h.label || h.name, note: h.name, value: h.name }));
-    if (away.length === 0) return "";
-    return this.omnibox.ask<string>(`Where to start ${name}?`, [
-      { label: "Here", note: "this machine", value: "" },
-      ...away,
-    ]);
-  }
-
   // The strip, or one strip per half. Each is its own scroller, so a
   // long row of tabs on one side does not push the other off screen.
   private head(): Element[] {
-    if (this.tabs.length === 0) return [el("span", "", "Nothing open"), this.chatToggle()];
-    const strips = (this.sideBySide ? [0, 1] : [0]).map((g) => {
+    if (this.tabs.length === 0) return [el("span", "", "Nothing open")];
+    return (this.sideBySide ? [0, 1] : [0]).map((g) => {
       const side = g === 0 ? "left" : "right";
       const strip = el("div", g === this.focus ? `strip ${side} focus` : `strip ${side}`);
       strip.append(...this.strip(g as Group));
@@ -3095,7 +2768,6 @@ class Ade {
       });
       return strip;
     });
-    return [...strips, this.chatToggle()];
   }
 
   private focusOn(g: Group): void {
@@ -3107,8 +2779,13 @@ class Ade {
   private strip(group: Group): Element[] {
     return inGroup(this.tabs, group).map((tab) => {
       const node = el("div", tab.id === this.actives[group] ? "tab on" : "tab");
+      if (standing(tab.id)) node.classList.add("standing");
       node.append(icon(tab.icon, 13), el("span", "nm", tab.title));
-      node.title = tab.title;
+      node.title = "kind" in tab.what && tab.what.kind === "hunks" ? tab.what.title : tab.title;
+      if (tab.id === SHOTS && !this.actives.includes(SHOTS)) {
+        const n = unseen(this.pics, this.picsSeen);
+        if (n > 0) node.append(el("span", "count", String(n)));
+      }
       node.dataset.tab = tab.id;
       const what = tab.what;
       if (!("panel" in what) && what.kind === "hunks") {
@@ -3121,13 +2798,16 @@ class Ade {
         });
         node.append(swap);
       }
-      const x = el("span", "x", "✕");
-      x.title = "Close";
-      x.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.close(tab.id);
-      });
-      node.append(x);
+      // The three every session has do not close.
+      if (!standing(tab.id)) {
+        const x = el("span", "x", "✕");
+        x.title = "Close";
+        x.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.close(tab.id);
+        });
+        node.append(x);
+      }
       node.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         this.tabMenu(tab.id, { x: e.clientX, y: e.clientY });
@@ -3163,6 +2843,10 @@ class Ade {
       const done = () => {
         head.removeEventListener("pointermove", move);
         head.removeEventListener("lostpointercapture", done);
+        // A capture never granted is never lost, and the hint stayed drawn
+        // over the panes with nothing left to clear it.
+        window.removeEventListener("pointerup", done);
+        window.removeEventListener("pointercancel", done);
         if (!this.dragging) return;
         this.dragging = false;
         document.body.classList.remove("tabbing");
@@ -3171,8 +2855,10 @@ class Ade {
         this.draw();
       };
       head.addEventListener("pointermove", move);
-      // Not pointerup: a capture lost any other way has to clear it too.
+      // Not pointerup alone: a capture lost any other way has to clear it too.
       head.addEventListener("lostpointercapture", done);
+      window.addEventListener("pointerup", done);
+      window.addEventListener("pointercancel", done);
     });
   }
 
@@ -3229,105 +2915,27 @@ class Ade {
         grip.classList.remove("held");
         document.body.classList.remove("dragging");
         grip.removeEventListener("pointermove", move);
-        grip.removeEventListener("lostpointercapture", done);
+        for (const end of ENDS) grip.removeEventListener(end, done);
         localStorage.setItem("ade.split.at", String(this.splitAt));
         this.remember();
       };
       grip.addEventListener("pointermove", move);
-      grip.addEventListener("lostpointercapture", done);
+      for (const end of ENDS) grip.addEventListener(end, done);
     });
     return grip;
-  }
-
-  // writable is the document a panel id names: a design, or a pull
-  // request's description. Both are markdown edited as it reads.
-  private writable(which: string): Written | undefined {
-    if (which.startsWith("design:")) {
-      const file = which.slice("design:".length);
-      return {
-        id: which,
-        title: file.replace(/\.md$/, ""),
-        // `raw`, not `body`: this route answers with both, and `body`
-        // is the document already rendered to HTML.
-        read: async (reach) =>
-          ((await reach.get("session", `/api/design?file=${encodeURIComponent(file)}`)) as {
-            raw?: string;
-          }).raw ?? "",
-        write: async (reach, text) => {
-          await reach.send("session", "/api/design", { file, body: text }, "PUT");
-        },
-        notes: true,
-        file,
-        accept: (rows) => this.fold(this.session, file, rows, file),
-      };
-    }
-    // A design in a space other than the session's: read and written
-    // through the launcher, which takes the checkout it is in.
-    if (which.startsWith("spacedesign:")) {
-      const [dir, file] = which.slice("spacedesign:".length).split("|");
-      const at = `dir=${encodeURIComponent(dir)}&file=${encodeURIComponent(file)}`;
-      return {
-        id: which,
-        title: file.replace(/\.md$/, ""),
-        read: async (reach) =>
-          ((await reach.get("launcher", `/api/design?${at}`)) as { body?: string }).body ?? "",
-        write: async (reach, text) => {
-          await reach.send("launcher", `/api/design?dir=${encodeURIComponent(dir)}`, { file, body: text }, "PUT");
-        },
-        accept: (rows) => this.fold(real.sessionIn(this.where, dir), file, rows, file),
-      };
-    }
-    if (which.startsWith("store:")) {
-      const name = which.slice("store:".length);
-      return {
-        id: which,
-        title: name,
-        read: async (reach) =>
-          ((await reach.get("launcher", `/api/designs/read?name=${encodeURIComponent(name)}`)) as {
-            body?: string;
-          }).body ?? "",
-        write: async (reach, text) => {
-          await reach.send("launcher", "/api/designs/write", { name, body: text }, "PUT");
-        },
-        accept: (rows) => this.fold(real.sessionOn(this.storeDesigns, name), "", rows, name),
-      };
-    }
-    if (which.startsWith("pr:") && this.pr) {
-      const pr = this.pr;
-      return {
-        id: which,
-        title: `#${pr.number} ${pr.title}`,
-        read: async () => pr.body,
-        write: async (reach, text) => {
-          pr.body = text;
-          await reach.send("session", "/api/pr", { title: pr.title, body: text }, "PUT");
-        },
-      };
-    }
-    return undefined;
   }
 
   // inPane is what one tab holds, built once.
   private inPane(tab: Tab): HTMLElement {
     if ("panel" in tab.what) {
-      // A design names its own file, so it is a panel per document
-      // rather than one of the fixed set.
       const which = tab.what.panel;
-      const doc = this.writable(which);
-      const fromTodo = which.startsWith("todo:");
-      const todo = fromTodo ? this.todoAt(which.slice(5)) : "";
+      // New session opened from a space starts with that repository ticked.
       const inDir = which.startsWith("in:") ? which.slice(3) : "";
-      const make = doc
-        ? (reach: Reach, at?: { base: string; token: string }) => written(reach, at, doc)
-        : fromTodo
-          ? (reach: Reach) => newSession(reach, { message: todo })
-          : inDir
-            ? (reach: Reach) => newSession(reach, { mode: "work", repos: [inDir] })
-            : WHICH[which];
+      const make = inDir
+        ? (reach: Reach) => newSession(reach, { ...newSeed(), mode: "work", repos: [inDir] })
+        : WHICH[which];
       if (!make) return el("div", "nothing", `no panel called ${which}`);
-      // The chat reaches the session's own server, so it is given that
-      // address rather than the launcher's.
-      const panel = make(this.reach(), this.sessionAt());
+      const panel = make(this.reach());
       // A launcher page draws with no session picked: New session is how
       // you get one, and it used to say "Pick a session." instead.
       const wait = panel.launcher ? "" : this.waiting(tab);
@@ -3335,18 +2943,34 @@ class Ade {
       return frame(panel, `${tab.id}:${this.session}:${this.launcher?.base ?? ""}`);
     }
     const view = tab.what;
-    if (view.kind === "term") return openTerm(this.session, (why) => this.say(why));
-    // Code is monaco: one instance, moved into the tab that is showing
-    // a file. Moving a div is free; each file keeps its own model.
-    if (view.kind === "code") {
-      return mount(groupOf(tab), view.source, view.title, view.line ?? 0, (line) =>
-        void this.blame(line),
+    if (view.kind === "shots") {
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      this.picsSeen = writeSeen(this.pics);
+      return carousel(
+        this.pics,
+        this.picAt,
+        (name) => this.picSrc(name),
+        (to) => {
+          this.picAt = to;
+          this.draw();
+        },
       );
     }
+    if (view.kind === "term") {
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      return openTerm(this.session, (why) => this.say(why));
+    }
+    if (view.kind === "agent") {
+      // Opening its pane is what starts the agent, so not before ade is up.
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      if (this.agentEnded()) return this.endedCard();
+      return openTerm(this.session, (why) => this.say(why), AGENT);
+    }
     if (view.kind === "hunks" && view.editing) {
-      return mountDiff(groupOf(tab), view.base ?? "", view.source ?? "", view.title, 0, (line) =>
-        void this.blame(line),
-      );
+      return mountDiff(groupOf(tab), view.base ?? "", view.source ?? "", view.title);
     }
     // A diff is drawn from what is true now, not from what was true when
     // the file was opened, and the jump it carried happens once.
@@ -3359,19 +2983,20 @@ class Ade {
     }
     return sheet(
       drawn,
-      (line) => this.blame(line),
-      (rule) => void this.forget(rule),
-      (asked) => void this.onThread(asked),
-      (id) => void this.prAct(id),
+      {
+        forget: (rule) => void this.forget(rule),
+        thread: (asked) => void this.onThread(asked),
+        ask: (who, text) => void this.askPerson(who, text),
+        space: (did) => void this.spaceAct(did),
+        again: () => void this.buildMyDay(true),
+        send: () => void this.sendBrief(),
+      },
       {
         hasPR: Boolean(this.world.status.pr),
         open: this.openThreads,
         split: this.split,
-        ledger: this.ledger,
+        viewed: new Set(Object.keys(this.marks)),
       },
-      (who, text) => void this.askPerson(who, text),
-      (did) => void this.spaceAct(did),
-      (id) => void this.docAct(id),
     );
   }
 
@@ -3385,24 +3010,16 @@ class Ade {
     if (dir) {
       const where = el("div", "item");
       where.append(icon("folder", 13), el("span", "", dir.split("/").pop() ?? dir));
-      where.title = `${dir} — click for the repository`;
-      where.addEventListener("click", () => this.run("ade.showRepo"));
+      where.title = `${dir}: click to copy`;
+      where.addEventListener("click", () => void this.copy(dir));
       bar.push(where);
     }
 
-    const branch = el("div", "item branch");
-    branch.append(icon("branch", 13), el("span", "", status.branch));
-    branch.title = "Switch branch, or move this session to another worktree";
-    branch.addEventListener("click", () => this.run("ade.switchWorktree"));
-
-    bar.push(branch);
-    const spent = plan(this.limits, Date.now());
-    if (spent) {
-      const item = el("div", spent.warn ? "item bad" : "item");
-      item.append(icon("gauge", 13), el("span", "", `${spent.stale ? "~" : ""}${spent.bars}`));
-      item.title = spent.tooltip;
-      item.addEventListener("click", () => this.run("ade.showUsage"));
-      bar.push(item);
+    // With no branch to name, the icon alone says nothing.
+    if (status.branch) {
+      const branch = el("div", "item branch");
+      branch.append(icon("branch", 13), el("span", "", status.branch));
+      bar.push(branch);
     }
     // Which view of the diff you are on. Review's empty list says the
     // scope too, but by then you have already been surprised by it.
@@ -3419,16 +3036,7 @@ class Ade {
       const bad = /failed|stopped/.test(status.checks);
       const checks = el("div", bad ? "item bad" : "item");
       checks.append(icon(bad ? "warn" : "check", 13), el("span", "", status.checks));
-      checks.title = "⌘K “checks” to run them";
-      checks.addEventListener("click", () => this.run("ade.checks"));
       bar.push(checks);
-    }
-    if (status.sandboxed) {
-      const boxed = el("div", "item boxed");
-      boxed.append(icon("shield", 13), el("span", "", "sandboxed"));
-      boxed.title = "The agent runs in a container. Click for its mounts.";
-      boxed.addEventListener("click", () => this.run("ade.sandboxPanel"));
-      bar.push(boxed);
     }
     // What is running, by name: a review by three agents is three names.
     if (status.doing) {
@@ -3438,7 +3046,7 @@ class Ade {
       bar.push(run);
     }
     // Nothing serving the session fails every pane at once, so it is
-    // one line — and not red until a start has been tried.
+    // one line, and not red until a start has been tried.
     if (this.serving === "starting") {
       const up = el("div", "item");
       up.append(el("span", "pulse"), el("span", "", "starting ade for this checkout…"));
@@ -3451,13 +3059,6 @@ class Ade {
       off.addEventListener("click", () => void this.wake(true));
       bar.push(off);
     }
-    if (status.elsewhere) {
-      const other = el("div", "item elsewhere");
-      other.append(icon("warn", 13), el("span", "", "chat is on another conversation"));
-      other.title = "Click to move this checkout's ade onto the session you picked";
-      other.addEventListener("click", () => void this.resume());
-      bar.push(other);
-    }
     if (this.said) {
       const saying = el("div", "item saying", this.said);
       saying.title = "Click to copy";
@@ -3465,17 +3066,13 @@ class Ade {
       bar.push(saying);
     }
     bar.push(el("div", "gap"));
-    if (this.showing()?.kind === "code" && this.world.blame)
-      bar.push(el("div", "item blame", this.world.blame));
-    if (status.model) {
-      const model = el("div", "item", status.model);
-      model.title = "Which model this session answers with. Click to change it.";
-      model.addEventListener("click", () => this.run("ade.pickModel"));
-      bar.push(model);
-    }
     return bar;
   }
 }
+
+// Every way a held grip lets go. A capture lost without a pointerup still
+// ends the drag; a pointerup WebKit never follows with lostpointercapture too.
+const ENDS = ["pointerup", "pointercancel", "lostpointercapture"] as const;
 
 // The verbs that sweep comments, and what each says it was looking for.
 const SWEPT: Record<string, string> = {
@@ -3504,14 +3101,14 @@ interface Shell {
   titlebar: HTMLElement;
   activity: HTMLElement;
   sidebar: HTMLElement;
+  files: HTMLElement;
+  side: HTMLElement;
   head: HTMLElement;
   sheet: HTMLElement;
   statusbar: HTMLElement;
-  dock: HTMLElement;
-  dockHead: HTMLElement;
-  dockBody: HTMLElement;
-  chatGrip: HTMLElement;
   sideGrip: HTMLElement;
+  filesGrip: HTMLElement;
+  listGrip: HTMLElement;
 }
 
 // prAt reads a pull request out of a row id of the window's own

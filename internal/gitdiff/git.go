@@ -536,9 +536,18 @@ func FetchBase(ctx context.Context, root, base string) (string, error) {
 	if base == "" {
 		base = BaseBranch(ctx, root)
 	}
-	branch := strings.TrimPrefix(base, "origin/")
-	if branch == "" {
+	if strings.TrimPrefix(base, "origin/") == "" {
 		return "", errors.New("no base branch to fetch")
+	}
+	return FetchBranch(ctx, root, base)
+}
+
+// FetchBranch brings origin's copy of one branch up to date and names the
+// remote-tracking ref it filled.
+func FetchBranch(ctx context.Context, root, branch string) (string, error) {
+	branch = strings.TrimPrefix(branch, "origin/")
+	if branch == "" {
+		return "", errors.New("no branch to fetch")
 	}
 	if _, err := runEnv(ctx, root, noPrompt, "fetch", "--no-tags", "origin", branch); err != nil {
 		return "", fmt.Errorf("fetch origin/%s: %w", branch, err)

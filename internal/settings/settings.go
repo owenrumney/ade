@@ -16,8 +16,6 @@ import (
 	"testing"
 
 	"github.com/owenrumney/ade/internal/homeassistant"
-	"github.com/owenrumney/ade/internal/preview"
-	"github.com/owenrumney/ade/internal/sandbox"
 	"github.com/owenrumney/ade/internal/statedir"
 )
 
@@ -67,9 +65,8 @@ type Settings struct {
 	// GitHubPackagesToken authenticates private npm packages in sandboxes.
 	GitHubPackagesToken string `json:"github_packages_token,omitempty"`
 
-	// Sandbox is what every container gets, whatever the repository. A
-	// repository's own sandbox.json is laid over this.
-	Sandbox sandbox.Workspace `json:"sandbox,omitempty"`
+	// Sandbox is kept as it was written: nothing reads it, and a save must not drop it.
+	Sandbox json.RawMessage `json:"sandbox,omitempty"`
 
 	// Preview is screenshot capture for every repository. A repository's own
 	// preview.json overrides the URL.
@@ -131,21 +128,6 @@ type Agentbus struct {
 type Preview struct {
 	URL string `json:"url,omitempty"`
 	Off bool   `json:"off,omitempty"`
-}
-
-// PreviewURL is the URL to capture, given a repository's own. Empty means
-// nothing to capture.
-func (p Preview) PreviewURL(repo string) string {
-	if p.Off {
-		return ""
-	}
-	if repo != "" {
-		return repo
-	}
-	if p.URL != "" {
-		return p.URL
-	}
-	return preview.DefaultURL
 }
 
 type HomeAssistant struct {

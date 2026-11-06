@@ -11,50 +11,33 @@ import (
 
 	"github.com/owenrumney/ade/internal/dash"
 	"github.com/owenrumney/ade/internal/jobs"
-	"github.com/owenrumney/ade/internal/models"
 	"github.com/owenrumney/ade/internal/sessions"
-	"github.com/owenrumney/ade/internal/wiki"
 )
 
-// The window's mirror of what this launcher answers. The checkout server
-// has the same test against its own client; between them every field the
-// window names is one something actually sends.
-const pageLauncher = "../../app/pages/launcher.ts"
+// The window's mirrors of what this launcher answers: every field one of
+// them names is one something here actually sends.
+const (
+	windowRail = "../../app/renderer/real.ts"
+	windowJobs = "../../app/renderer/myday.ts"
+)
 
-func TestThePagesNameFieldsTheLauncherActuallySends(t *testing.T) {
-	data, err := os.ReadFile(pageLauncher) // #nosec G304 -- a path in this repository
-	require.NoError(t, err, "the window's launcher client is missing")
-	src := string(data)
-
-	// A row stitched from two routes names the second as a nested interface,
-	// which is checked on its own line rather than as a field of the first.
-	nested := map[string]string{"Host.load": "Load"}
-
+func TestTheWindowNamesFieldsTheLauncherActuallySends(t *testing.T) {
 	for _, c := range []struct {
 		iface string
-		of    []any
+		file  string
+		of    any
 	}{
-		{"Load", []any{loadRow{}}},
-		{"Session", []any{sessions.Session{}}},
-		{"Checkout", []any{sessions.Dir{}}},
-		{"Repo", []any{sessions.Repo{}}},
-		{"Host", []any{hostView{}}},
-		{"Waiting", []any{sessions.Row{}}},
-		{"Job", []any{jobs.View{}}},
-		{"Skipped", []any{jobs.Skipped{}}},
-		{"Hit", []any{wiki.Hit{}}},
-		{"Model", []any{models.Model{}}},
-		{"Review", []any{dash.Review{}}},
+		{"Session", windowRail, sessions.Session{}},
+		{"Checkout", windowRail, sessions.Dir{}},
+		{"Repo", windowRail, sessions.Repo{}},
+		{"Review", windowRail, dash.Review{}},
+		{"Job", windowJobs, jobs.View{}},
 	} {
 		t.Run(c.iface, func(t *testing.T) {
-			var sent []string
-			for _, from := range c.of {
-				sent = append(sent, jsonTags(reflect.TypeOf(from))...)
-			}
-			for _, named := range tsFields(t, src, c.iface, pageLauncher) {
-				if _, ok := nested[c.iface+"."+named]; ok {
-					continue
-				}
+			data, err := os.ReadFile(c.file) // #nosec G304 -- a path in this repository
+			require.NoError(t, err, "the window's own file is missing")
+			sent := jsonTags(reflect.TypeOf(c.of))
+			for _, named := range tsFields(t, string(data), c.iface, c.file) {
 				assert.Contains(t, sent, named,
 					"%s.%s is not a field anything the launcher sends has", c.iface, named)
 			}

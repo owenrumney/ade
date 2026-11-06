@@ -1,101 +1,33 @@
 package web
 
 import (
-	"context"
 	"net/http"
+	"net/http/httptest"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/owenrumney/ade/internal/gitdiff"
 )
 
-func TestPRCreateQueuesBehindAConcurrentRun(t *testing.T) {
+// The button used to run gh --fill, which pastes the commit messages in as
+// the description. The agent's skill writes one for a reviewer instead.
+func TestCreatePRHandsTheBranchToTheAgentsSkill(t *testing.T) {
+	fakeAgent(t)
 	s := newTestServer(t)
-	_, ok := s.agent.begin(context.Background(), "review")
-	require.True(t, ok)
-	defer s.agent.finish(nil)
+	t.Cleanup(s.closeTerminal)
+	origin := t.TempDir()
+	for _, args := range [][]string{
+		{"-C", origin, "init", "--bare", "-q", "-b", "main"},
+		{"-C", s.startRoot, "remote", "add", "origin", origin},
+	} {
+		out, err := exec.Command("git", args...).CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
 
-	rec := do(t, s, "POST", "/api/pr-create", "")
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-
-	// A button pressed twice still means once.
-	rec = do(t, s, "POST", "/api/pr-create", "")
-	assert.Contains(t, rec.Body.String(), `"queued":1`)
-}
-
-func TestPRCreateRejectsAnExistingPR(t *testing.T) {
-	s := newTestServer(t)
-	s.ws.pr = &PRInfo{Number: 7}
-
-	rec := do(t, s, "POST", "/api/pr-create", "")
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "already PR #7")
-}
-
-func TestPRCreateRejectsASnapshot(t *testing.T) {
-	s := newTestServer(t)
-	s.ws.snapshot = true
-
-	rec := do(t, s, "POST", "/api/pr-create", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "snapshot")
-}
-
-func TestPushRejectsASnapshot(t *testing.T) {
-	s := newTestServer(t)
-	s.ws.snapshot = true
-
-	rec := do(t, s, "POST", "/api/push", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "snapshot")
-}
-
-func TestRefreshWorktreeIsSkippedForASnapshot(t *testing.T) {
-	s := newTestServer(t)
-	s.ws.snapshot = true
-	s.worktree = nil
-
-	assert.False(t, s.refreshWorktree(context.Background()))
-	assert.Nil(t, s.currentWorktree())
-}
-
-func TestRefreshWorktreeReportsOnlyRealChanges(t *testing.T) {
-	s := newTestServer(t)
-	require.False(t, s.refreshWorktree(context.Background()), "an unchanged worktree is not a change")
-
-	require.NoError(t, gitdiff.Stage(context.Background(), s.ws.homeRoot, []string{"a.go"}))
-	assert.False(t, s.refreshWorktree(context.Background()), "a.go was already committed, so nothing moved")
-}
-
-func TestPRCreateRefusesTheBaseBranch(t *testing.T) {
-	s := newTestServer(t)
-
-	s.mu.Lock()
-	s.diff.Commits = 0
-	s.mu.Unlock()
-
-	rec := do(t, s, "POST", "/api/pr-create", "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "no commits ahead of the base")
-}
-
-func TestDiffCountsCommitsAheadOfTheBase(t *testing.T) {
-	s := newTestServer(t)
-
-	// The test repo branches feature off main with one commit on top.
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	assert.Equal(t, 1, s.diff.Commits)
-}
-
-func TestPRCreateRefusesWhenTheBranchAlreadyHasOne(t *testing.T) {
-	s := newTestServer(t)
-	s.setBranchPR(&BranchPR{Number: 960, Title: "Reap abandoned executions"})
-
-	rec := do(t, s, "POST", "/api/pr-create", "")
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "already has PR #960")
+	rec := httptest.NewRecorder()
+	s.handleCreatePR(rec, httptest.NewRequest(http.MethodPost, "/api/pr/create", nil))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"asked":true`)
+	assert.Contains(t, seen(t, s.agentTerm(), prCreateSkill), prCreateSkill)
 }

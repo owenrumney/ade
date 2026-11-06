@@ -51,6 +51,7 @@ export const PATHS: Record<string, string> = {
   answer: "M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7",
   // A prompt and a caret: a shell, not the chevrons that mean source.
   terminal: "M3 5h18v14H3zM7 10l3 2.5-3 2.5M12.5 15H17",
+  image: "M3 5h18v14H3zM3 16l5-5 4 4 3-3 5 5M8.5 10a1.5 1.5 0 1 0 0-.01",
   calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
 };
 

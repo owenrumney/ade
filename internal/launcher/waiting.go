@@ -2,7 +2,6 @@ package launcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,49 +47,6 @@ func (c *waitingCache) forget() {
 
 func (s *Server) handleWaiting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"waiting": s.waiting(r.Context())})
-}
-
-// handleSay answers a session from wherever you are. The message queues
-// behind whatever that session is doing; nothing is interrupted.
-func (s *Server) handleSay(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID      string `json:"id"`
-		Message string `json:"message"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		writeError(w, http.StatusBadRequest, "say something")
-		return
-	}
-	if !s.knownSession(req.ID) {
-		writeError(w, http.StatusBadRequest, "that is not one of this machine's sessions")
-		return
-	}
-	url, err := s.sessionURL(r.Context(), req.ID)
-	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
-	body, err := json.Marshal(map[string]string{"message": message})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := sendFirst(r.Context(), url, string(body)); err != nil {
-		writeError(w, http.StatusBadGateway, "carry that to the session: "+err.Error())
-		return
-	}
-	// Answered is dealt with: the bell clears now rather than when the agent
-	// next speaks.
-	if err := settings.MarkSeen(req.ID, time.Now()); err != nil {
-		slog.Debug("mark a session seen after answering it", "err", err)
-	}
-	s.wait.forget()
-	s.hub.Broadcast("waiting", nil)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSeen marks a session looked at without opening it.
@@ -152,7 +108,7 @@ func (s *Server) walkWaiting(ctx context.Context) []Waiting {
 			slog.Debug("prune the seen sessions", "err", err)
 		}
 	}
-	return sessions.WaitingIn(repos, s.runningSessions(ctx, repos), settings.Seen(), settings.Archived())
+	return sessions.WaitingIn(repos, s.badges(ctx, repos), settings.Seen())
 }
 
 func sessionIDs(repos []sessions.Repo) map[string]bool {
@@ -167,16 +123,16 @@ func sessionIDs(repos []sessions.Repo) map[string]bool {
 	return out
 }
 
-// runningSessions is what an agent is working on, by id — not by checkout.
-func (s *Server) runningSessions(ctx context.Context, repos []sessions.Repo) map[string]bool {
-	out := map[string]bool{}
+// badges is what each live session's agent last reported, by session id.
+func (s *Server) badges(ctx context.Context, repos []sessions.Repo) map[string]string {
+	out := map[string]string{}
 	for _, repo := range sessions.Graph(ctx, repos, s.probe) {
 		for _, dir := range repo.Checkouts {
 			if dir.Server == nil || dir.Server.Agent == nil {
 				continue
 			}
-			if agent := dir.Server.Agent; agent.Running && agent.Session != "" {
-				out[agent.Session] = true
+			if agent := dir.Server.Agent; agent.Session != "" {
+				out[agent.Session] = agent.Terminal
 			}
 		}
 	}

@@ -123,13 +123,13 @@ func TestLive(t *testing.T) {
 
 	t.Run("probe says what the agent is doing", func(t *testing.T) {
 		url := healthServer(t, Health{Ade: true, Root: "/repo", PID: mine, Branch: "feat",
-			Agent: &AgentHealth{Running: true, Kind: "chat", SideRuns: []AgentSide{{ID: "r1", Name: "security"}}}})
+			Agent: &AgentHealth{Running: true, Kind: "chat", SideRuns: []string{"security"}}})
 		health, ok := Probe(context.Background(), &Record{PID: mine, URL: url, Root: "/repo"})
 		require.True(t, ok)
 		assert.Equal(t, "feat", health.Branch)
 		require.NotNil(t, health.Agent)
 		assert.True(t, health.Agent.Running)
-		assert.Equal(t, []AgentSide{{ID: "r1", Name: "security"}}, health.Agent.SideRuns)
+		assert.Equal(t, []string{"security"}, health.Agent.SideRuns)
 	})
 
 	t.Run("a probe without the token is live but told nothing more", func(t *testing.T) {

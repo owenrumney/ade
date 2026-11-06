@@ -43,6 +43,9 @@ func (s *Server) importComments(threads []ghpr.Thread) int {
 	added := 0
 	for _, thread := range threads {
 		external := strconv.FormatInt(thread.Root.ID, 10)
+		if w.store.Dismissed(external) {
+			continue
+		}
 		incoming := externalComments(thread)
 
 		if existing, ok := w.store.ByExternal(external); ok {
