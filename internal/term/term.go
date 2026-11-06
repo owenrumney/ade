@@ -51,9 +51,9 @@ type shell struct {
 	rows uint16
 }
 
-// scrollMax is how much output is kept for replay. Enough for a few screens of
-// context, small enough that an idle session is not holding a log file.
-const scrollMax = 256 << 10
+// scrollMax is how much output is kept for replay. A reattach comes back to
+// what was on screen, pictures included, without holding a log file.
+const scrollMax = 2 << 20
 
 // chunkQueue is how many chunks a browser may fall behind before it is dropped.
 // Dropping it costs a reconnect and a replay, which redraws correctly; blocking

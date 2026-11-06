@@ -43,17 +43,11 @@ version:
 # The app spike: a window of ade's own. See app/README.md.
 ESBUILD := ./node_modules/.bin/esbuild
 
-# Electron is a hundred megabytes, so it is installed on demand rather than
-# by every target that only needs the bundles. The check is for the binary
-# itself: a shim with no download behind it is the usual way this fails,
-# and `electron: command not found` is not a useful thing to be told.
+# The bundles are plain web code, so this is npm and nothing else. The
+# scripts are not run: nothing here has one worth running.
 app-deps:
-	cd app && ./deps.sh
-
-# Every precondition make app needs, checked one at a time. Run this
-# first when the window will not start.
-app-doctor:
-	cd app && ./doctor.sh
+	cd app && { [ -d node_modules/monaco-editor ] || \
+		npm install --no-audit --no-fund --ignore-scripts; }
 
 # The window's own bundles, the panels among them: a missing one is a
 # blank pane with a 404 nobody sees.
@@ -69,14 +63,6 @@ app-build:
 				--log-level=warning || exit 1; \
 		done \
 		&& cp ../internal/render/assets/mermaid.min.js dist/mermaid.min.js \
-		&& $(ESBUILD) src/main.ts --bundle --outfile=dist/main.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/preload.ts --bundle --outfile=dist/preload.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/webview.ts --bundle --outfile=dist/webview.js \
-			--platform=node --external:electron --format=cjs \
-		&& $(ESBUILD) src/keymap.ts --bundle --outfile=dist/keymap.js \
-			--platform=node --format=cjs \
 		&& $(ESBUILD) renderer/app.ts --bundle --outfile=dist/renderer.js \
 			--format=iife --platform=browser \
 			--loader:.ttf=dataurl --external:vs/* \
@@ -88,11 +74,10 @@ app-test:
 	cd app && ./node_modules/.bin/tsc -p . \
 		&& ./node_modules/.bin/vitest run --root . --reporter=dot
 
-# Starts the real window headless and checks it drew. Needs a display, or
-# xvfb-run on a machine without one.
+# Serves the window without opening one, and checks the page and its
+# bundle come back. No display needed.
 app-smoke: app-deps app-build
-	cd app && ./node_modules/.bin/electron smoke.js --no-sandbox --disable-gpu 2>&1 \
-		| grep -vE 'libva|GPU|dbus|Fontconfig|gbm|EGL|bus\.cc|Floss|vulkan|interface_endpoint'
+	tools/appsmoke.sh
 
 # A browser harness for pictures only: the keyboard is the shell's, so this
 # is never a way to run ade.
@@ -108,7 +93,7 @@ app-install: app-package
 	cd app && ./install.sh
 
 app: app-deps app-build
-	cd app && ./node_modules/.bin/electron .
+	go run ./cmd/adewindow
 
 test:
 	go test ./...

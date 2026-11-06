@@ -11,6 +11,9 @@ export const WIDTHS: Record<Edge, { key: string; css: string; min: number; max: 
   side: { key: "ade.side.w", css: "--side-w", min: 240, max: 720, back: true },
 };
 
+// SIDE_SHUT is whether the sessions are folded away, kept between runs.
+export const SIDE_SHUT = "ade.sessions.shut";
+
 // A column that hides itself as the window narrows reads as a bug.
 export function sideWidth(which: Edge, want: number): number {
   return Math.min(WIDTHS[which].max, Math.max(WIDTHS[which].min, Math.round(want)));

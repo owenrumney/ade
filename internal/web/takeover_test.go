@@ -535,3 +535,31 @@ func withoutConfig(argv []string) []string {
 	}
 	return out
 }
+
+// The rule travels with the binary: no file on the machine carries it, so a
+// second machine needs nothing synced to it.
+func TestTheTakeoverTellsTheAgentTheTerminalDrawsPictures(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := &agentRunner{provider: "claude"}
+
+	argv, err := a.takeoverArgv("", false)
+	if err != nil {
+		t.Skip("claude is not on this machine's PATH")
+	}
+	at := slices.Index(argv, "--append-system-prompt")
+	require.GreaterOrEqual(t, at, 0, argv)
+	require.Less(t, at+1, len(argv))
+	assert.Contains(t, argv[at+1], "ade show <file>")
+}
+
+// Codex takes no such flag, so it is told nothing rather than handed one.
+func TestCodexIsNotGivenAFlagItDoesNotTake(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := &agentRunner{provider: "codex"}
+
+	argv, err := a.takeoverArgv("", false)
+	if err != nil {
+		t.Skip("codex is not on this machine's PATH")
+	}
+	assert.NotContains(t, argv, "--append-system-prompt")
+}

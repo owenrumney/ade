@@ -219,6 +219,13 @@ func codexArgv(resume string, started bool, config ...string) []string {
 	return argv
 }
 
+// paneRules is what only ade knows: this terminal draws pictures. It ships
+// with the binary, so no file on the machine has to carry it.
+const paneRules = `You are in ade's terminal, which draws images inline. After a change with a
+visible result, capture it and run ` + "`ade show <file>`" + ` to put the picture in front of
+the user; --width takes columns, a percentage or auto. A picture of the change
+beats a paragraph claiming it works.`
+
 // claudeArgv names a new conversation up front, so the id is known before
 // the first message. Until its pane has run there is nothing to resume.
 func (a *agentRunner) claudeArgv(resume string, started bool) []string {
@@ -244,6 +251,7 @@ func (a *agentRunner) claudeArgv(resume string, started bool) []string {
 	default:
 		argv = append(argv, "--resume", resume)
 	}
+	argv = append(argv, "--append-system-prompt", paneRules)
 	if a.model != "" {
 		argv = append(argv, "--model", a.model)
 	}

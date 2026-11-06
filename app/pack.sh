@@ -1,50 +1,56 @@
 #!/usr/bin/env bash
-# Builds the window into something launchable: ADE.app on a Mac,
-# a directory anywhere else. Signed with an identity of its own, because
-# the cli's is pinned to the cli and two programs may not share one.
+# Builds the window into ADE.app: the Go host, the bundles it serves, and
+# an Info.plist. Signed with an identity of its own, because the cli's is
+# pinned to the cli and two programs may not share one.
+#
+# The bundle id is the one Electron's packager used. macOS keys every
+# permission to that string, so renaming it starts from no permission.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 out="${ADE_APP_OUT:-$PWD/out}"
+app="$out/ADE.app"
+id=uk.co.owenrumney.ade-window
+version=$(node -p 'require("./package.json").version' 2>/dev/null || echo 0.0.0)
 
-# The panels are pages the window frames, read off disk at run time rather
-# than from inside the asar, so they are staged beside it and main.ts reads
-# them from there when packaged.
-stage="$PWD/out/stage"
-rm -rf "$stage"
-mkdir -p "$stage/ade/app"
 [ -d dist ] || { echo "app/dist is missing: run make app-build" >&2; exit 1; }
-cp -R dist "$stage/ade/app/dist"
-cp -R media "$stage/ade/app/media"
-packager="./node_modules/.bin/electron-packager"
-[ -x "$packager" ] || packager="./node_modules/@electron/packager/bin/electron-packager.js"
-[ -e "$packager" ] || {
-  echo "the packager is missing: run make app-deps" >&2
-  exit 1
-}
 
-# Only what the window runs: the bundles, and the page that loads them.
-# node_modules is 113 MB of monaco source that esbuild already inlined,
-# and main.js requires nothing outside electron and node itself.
-node "$packager" . "ADE" \
-  --out="$out" \
-  --overwrite \
-  --app-bundle-id=uk.co.owenrumney.ade-window \
-  --app-version="$(node -p 'require("./package.json").version')" \
-  --icon=icon.icns \
-  --ignore='/node_modules($|/)' \
-  --ignore='^/(src|out)($|/)' \
-  --ignore='^/renderer/.*\.(ts|map)$' \
-  --ignore='\.(sh|md|icns)$' \
-  --ignore='^/smoke\.js$' \
-  --ignore='^/dist/shots($|/)' \
-  --extra-resource="$stage/ade" \
-  --prune=true
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/ade/app"
 
-app=$(find "$out" -maxdepth 2 -name '*.app' -print -quit)
-if [ -n "$app" ]; then
-  ADE_BUNDLE_ID=uk.co.owenrumney.ade-window ../tools/sign.sh "$app"
-  echo "built $app"
-  exit 0
-fi
-echo "built $(find "$out" -maxdepth 1 -mindepth 1 -type d -print -quit)"
+# The host finds these at ../Resources/ade/app, which is what assets()
+# in cmd/adewindow looks for first.
+cp -R dist "$app/Contents/Resources/ade/app/dist"
+cp -R media "$app/Contents/Resources/ade/app/media"
+mkdir -p "$app/Contents/Resources/ade/app/renderer"
+cp renderer/*.html renderer/*.css "$app/Contents/Resources/ade/app/renderer/"
+cp icon.icns "$app/Contents/Resources/ade.icns"
+
+# Built here rather than installed, so packaging never picks up a stale
+# binary from someone's GOPATH.
+CGO_ENABLED=1 go build -trimpath \
+  -ldflags "-X main.version=$version" \
+  -o "$app/Contents/MacOS/ADE" ../cmd/adewindow
+
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>ADE</string>
+  <key>CFBundleDisplayName</key><string>ADE</string>
+  <key>CFBundleExecutable</key><string>ADE</string>
+  <key>CFBundleIdentifier</key><string>$id</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>ade</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$version</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+</dict>
+</plist>
+PLIST
+
+ADE_BUNDLE_ID="$id" ../tools/sign.sh "$app"
+echo "built $app"

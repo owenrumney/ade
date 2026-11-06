@@ -68,7 +68,7 @@ func TestTheWindowOnlyAsksForRoutesThatExist(t *testing.T) {
 	}
 
 	for path, where := range asked(t,
-		"app/src/main.ts",
+		"app/renderer/shell.ts",
 		"app/renderer/doing.ts",
 		"app/renderer/panels.ts",
 		"app/renderer/sources.ts",

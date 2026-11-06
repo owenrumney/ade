@@ -113,19 +113,29 @@ nothing; duplicate Settings rows; and a relaunch to pick up a fresh grant.
 
 `make app-shots` is how a UI change gets looked at rather than described. It
 drives a headless chromium over a fixture home and writes PNGs to
-`.git/ade/outbox/`, which ade attaches to the reply. The views are listed in
+`.git/ade/outbox/`. The views are listed in
 `tools/appshots.mjs`.
 
 Run it after any change under `app/renderer`, `app/pages` or `app/media`. A
 picture of the change is worth more than a paragraph claiming it works.
 
-The outbox itself is not specific to this repository: `$ADE_OUTBOX` names it in
-every session, and the system prompt tells every editing agent to use it.
+A terminal session has no reply to attach to, so the outbox reaches nobody
+from one: `ade show <file>` draws the picture in the terminal instead, which
+is where the claim about it is being made.
+
+```
+make app-shots VIEWS="app-session app-diff"
+ade show --width 60 .git/ade/outbox/*.png
+```
+
+It takes png, jpeg and gif, and `--width` is a column count, a percentage or
+`auto`. `$ADE_OUTBOX` still names the outbox in every session, and a one-shot
+run ade makes does attach what it finds there.
 
 It will not send a view you did not name: `make app-shots VIEWS="app-session
 app-diff"`. Named views are the only ones shot and the only ones copied to the
-outbox; a bare run writes every view to `app/dist/shots` and sends none. `make
-app-shots VIEWS=nope` lists the names. A reply carries four pictures.
+outbox; a bare run writes every view to `app/dist/shots` and copies none. `make
+app-shots VIEWS=nope` lists the names.
 
 A reprovisioned container has no chromium, and nothing installs one for you.
 The script says so and exits 3; on Debian it is `apt-get install -y chromium`,
@@ -186,11 +196,16 @@ sets.
 
 ## The front end
 
-ade's own window is the whole of it: `app/`, an Electron shell over a renderer
-that talks to the launcher and the session servers over HTTP. `make app` runs
-it from source, `make app-install` puts it in /Applications. The VSCodium fork
-and the VS Code extension are both gone; `.git/ade/docs/editor-removal.md` is
-the plan they went by.
+ade's own window is the whole of it: `app/`, a renderer served over loopback
+by the Go host in `cmd/adewindow` — an `NSWindow` holding a `WKWebView`. The
+page opens its own websockets and does its own fetches; the host only serves
+the files, proxies the launcher with its token, and holds the panels' pages.
+`make app` runs it from source, `make app-install` puts it in /Applications.
+
+Electron went on 2026-11-06 because Chromium stalls this platform's renderer
+for most of a second at a time and WebKit does not; the measurements and the
+plan are `.git/ade/docs/webview-host.md`. The VSCodium fork and the VS Code
+extension went before it, by `.git/ade/docs/editor-removal.md`.
 
 - `app/renderer` is the window: sessions on the left, a session's three tabs, the diff, the lists on the right.
 - `app/pages` are the panels it frames, one iframe each, talking to a host in

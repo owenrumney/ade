@@ -114,7 +114,7 @@ a reminder and carry on.
 | `cmd/ade` | the CLI: flags, subcommands, and starting the server |
 | `internal/` | everything else. 58 packages; see below for the large one |
 | `web/` | the browser page — Vite, Preact, TypeScript |
-| `app/` | ade's own window: an Electron shell, the renderer, and the pages it frames |
+| `app/` | ade's own window: the renderer and the pages it frames, served by `cmd/adewindow` |
 | `extension/` | the Firefox add-on that puts *Open in ADE* on a GitHub PR |
 | `tools/` | screenshots, icons, and other build-time scripts |
 
@@ -235,11 +235,15 @@ licence — there is no separate CLA to sign.
 
 ## The front end
 
-ade's own window is the whole front end: `app/`, an Electron shell with a
-renderer of its own. `make app` runs it from source, `make app-test` type
-checks and tests it, `make app-install` puts `ADE.app` in /Applications. The
-VSCodium fork and the VS Code extension are both gone; the plan they went by
-is `.git/ade/docs/editor-removal.md`.
+ade's own window is the whole front end: `app/`, a renderer served over
+loopback by the Go host in `cmd/adewindow`, which is an `NSWindow` holding a
+`WKWebView`. `make app` runs it from source, `make app-test` type checks and
+tests it, `make app-install` puts `ADE.app` in /Applications.
+
+Electron went on 2026-11-06, because Chromium stalls this platform's renderer
+for most of a second at a time and WebKit does not: `.git/ade/docs/webview-host.md`
+holds the measurements. The VSCodium fork and the VS Code extension went
+before it, by `.git/ade/docs/editor-removal.md`.
 
 - `app/renderer` is the window itself.
 - `app/pages` are the panels it frames, one iframe each, talking to a host in

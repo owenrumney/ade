@@ -91,6 +91,17 @@ describe("a source read because something is looking at it", () => {
     expect(got.error).toBe("no route");
   });
 
+  it("hands back the empty value when a source has been watched but never read", async () => {
+    const sources = new Sources();
+    const read = () => Promise.reject(new Error("no route"));
+
+    sources.watch("diff:a", read, "diff");
+    await sources.settled();
+    const got = sources.reading("diff:a", { rows: [], why: "" });
+    expect(got.value).toEqual({ rows: [], why: "" });
+    expect(got.error).toBe("no route");
+  });
+
   it("re-reads a source marked stale without reading one nothing is watching", async () => {
     const sources = new Sources();
     let shown = 0;

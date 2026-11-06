@@ -103,10 +103,12 @@ export class Sources {
 
   // reading is what is held, for a draw that must not start a fetch.
   reading<T>(key: string, empty: T): Reading<T> {
-    const held = this.held.get(key) as Entry<T> | undefined;
+    const held = this.held.get(key) as Entry<T | undefined> | undefined;
     if (!held) return { value: empty, refreshing: false, at: 0 };
     return {
-      value: held.value,
+      // Watched and not yet read holds no value at all; a draw takes the
+      // empty one and the error says why there is nothing in it.
+      value: held.value ?? empty,
       refreshing: held.reading !== undefined,
       at: held.at,
       error: held.error,

@@ -1,4 +1,5 @@
 import "./bridge";
+import "./shell";
 import { REPORTS } from "./reports";
 import * as real from "./real";
 import type { Dash, Repo } from "./real";
@@ -56,7 +57,7 @@ import {
   type Tab,
 } from "./tabs";
 import { lastAgent, newSeed, setLastAgent } from "./terminalmode";
-import { WIDTHS, sideWidth, type Edge } from "./dock";
+import { SIDE_SHUT, WIDTHS, sideWidth, type Edge } from "./dock";
 import { menu, type Row as MenuRow } from "./menu";
 import { edits, focusEditor, mountDiff, saved } from "./code";
 import { close as closeTerm, lost as termLost, open as openTerm } from "./term";
@@ -193,8 +194,9 @@ class Ade {
   };
   // What each list last drew as, so an unchanged poll leaves it alone.
   private drawnHTML = new Map<HTMLElement, string>();
-  // The sessions folded away by ⌘B, for this run: a kept fold hid them for good.
-  private sideShut = false;
+  // The sessions folded away by ⌘B or the titlebar button, kept between runs:
+  // the button is always there, so a kept fold can always be undone.
+  private sideShut = localStorage.getItem(SIDE_SHUT) === "1";
   // The last review by named agents, and the one put away by its start.
   private reviewRun?: real.ReviewRun;
   private reviewShut = "";
@@ -617,8 +619,8 @@ class Ade {
         return void this.openBrief();
       case "brief-send":
         return void this.sendBrief();
-      case "import":
-        return void this.importConversation();
+      case "find":
+        return void this.findSession();
       case "tags":
         return void this.tagSession();
       case "sidebar":
@@ -1661,7 +1663,13 @@ class Ade {
   private titlebar(): HTMLElement[] {
     const box = el("div", "box", "⌘K  ·  anything");
     box.addEventListener("click", () => this.omnibox.show());
-    return [el("div", "where", this.repoOf(this.session) || "ade"), box];
+    // Always drawn, folded or not: the chord alone leaves no way back in.
+    const fold = document.createElement("button");
+    fold.className = "fold-side";
+    fold.title = this.sideShut ? "Show the sessions (⌘B)" : "Hide the sessions (⌘B)";
+    fold.append(icon(this.sideShut ? "unfold" : "fold", 16));
+    fold.addEventListener("click", () => this.shutSide(!this.sideShut));
+    return [fold, el("div", "where", this.repoOf(this.session) || "ade"), box];
   }
 
   // The bar on the right: a button opens its list beside it, and closes it again.
@@ -1876,7 +1884,7 @@ class Ade {
     head.append(again);
     if (place.id !== "review") return head;
     const heads = el("div", "heads");
-    heads.append(head, this.reviewBar());
+    heads.append(head, this.scopePick(), this.reviewBar());
     return heads;
   }
 
@@ -1915,6 +1923,26 @@ class Ade {
   }
 
   // reviewBar is where the review stands and the one thing that ends it.
+  // What the diff is of, where you are looking when you want it changed.
+  // Committed-only stays on ⌘K: it is rarely the one you want.
+  private scopePick(): HTMLElement {
+    const bar = el("div", "scope-pick");
+    const now = this.world.status.scope || "branch";
+    const picks = [
+      ["branch", "Branch", "ade.scopeBranch", "Everything this branch adds over its base"],
+      ["uncommitted", "Change", "ade.scopeUncommitted", "What is not committed yet"],
+    ] as const;
+    for (const [scope, name, command, why] of picks) {
+      const on = now === scope;
+      const pick = el("span", on ? "btn on" : "btn", name);
+      pick.title = why;
+      if (!on) pick.addEventListener("click", () => this.run(command));
+      bar.append(pick);
+    }
+    if (now === "committed") bar.append(el("span", "quiet", "committed only"));
+    return bar;
+  }
+
   private reviewBar(): HTMLElement {
     const bar = el("div", "review-bar");
     const said = real.reviewNote(this.draft);
@@ -2108,6 +2136,11 @@ class Ade {
 
   private shutSide(on: boolean): void {
     this.sideShut = on;
+    try {
+      localStorage.setItem(SIDE_SHUT, on ? "1" : "0");
+    } catch {
+      // A window that cannot write still folds for this run.
+    }
     this.draw();
   }
 
@@ -2443,9 +2476,9 @@ class Ade {
     this.run("ade.openAgent");
   }
 
-  // importConversation takes up a conversation claude holds, wherever it was
-  // had: a session in its checkout, or the one already there moved onto it.
-  private async importConversation(): Promise<void> {
+  // findSession takes up any conversation claude holds, closed sessions
+  // included: ade forgets its record, claude keeps the transcript.
+  private async findSession(): Promise<void> {
     if (!window.ade) return;
     const first = encodeURIComponent(this.where.get(this.session) ?? "");
     const got = await window.ade
@@ -2455,10 +2488,10 @@ class Ade {
     if (listed.error) return this.say(listed.error);
     const held = (listed.body as { conversations?: real.Conversation[] })?.conversations ?? [];
     if (held.length === 0) return this.say("claude holds no conversation on this machine");
-    const picked = await this.omnibox.ask("Import which conversation?", real.conversationRows(held));
+    const picked = await this.omnibox.ask("Find which session?", real.conversationRows(held));
     this.omnibox.close();
     if (typeof picked !== "string") return;
-    this.say("importing the conversation…", true);
+    this.say("opening that session…", true);
     const moved = await window.ade
       .act("launcher", "/api/conversations/import", { id: picked })
       .catch((e: Error) => ({ error: e.message }));
@@ -2467,7 +2500,7 @@ class Ade {
     const at = (back.body ?? {}) as { session?: string; dir?: string };
     const id = at.session || picked;
     if (at.dir) this.where.set(id, at.dir);
-    this.say("imported");
+    this.say("opened");
     await this.onSession(id);
     this.run("ade.openAgent");
   }

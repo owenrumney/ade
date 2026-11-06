@@ -32,7 +32,7 @@ export type Verb =
   | "brief"
   | "brief-send"
   | "tags"
-  | "import"
+  | "find"
   | "findings"
   | "close-session"
   | "sidebar"
@@ -117,7 +117,7 @@ export const WIRED: Record<string, Doing> = {
   "ade.openTerminal": W(undefined, "terminal"),
   "ade.renameSession": L("/api/sessions/rename", {}, type("title", "Rename this session to…")),
   "ade.tagSession": W(undefined, "tags"),
-  "ade.importConversation": W(undefined, "import"),
+  "ade.findSession": W(undefined, "find"),
   "ade.openBrief": W(undefined, "brief"),
   "ade.sendBrief": W(undefined, "brief-send"),
   "ade.closeSession": W(undefined, "close-session"),

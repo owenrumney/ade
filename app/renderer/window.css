@@ -13,6 +13,13 @@
   -webkit-app-region: drag;
 }
 .titlebar .where { color: var(--ink-dim); font-size: 12px; white-space: nowrap; }
+.titlebar .fold-side {
+  -webkit-app-region: no-drag;
+  flex: none; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 4px; padding: 3px;
+  margin-left: -4px; color: var(--ink-dim); cursor: pointer;
+}
+.titlebar .fold-side:hover { background: var(--hover); color: var(--ink); }
 .titlebar .box {
   -webkit-app-region: no-drag;
   margin: 0 auto;
@@ -317,6 +324,22 @@ body.tabbing .tab.held { background: var(--hover); opacity: .6; }
 
 /* A failing check in the status bar. */
 .statusbar .item.bad { color: var(--bad); cursor: pointer; }
+
+/* What the diff is of, picked where it is read. */
+.sidebar .scope-pick {
+  display: flex; gap: 4px; padding: 0 12px 6px 16px;
+}
+.sidebar .scope-pick .btn {
+  padding: 1px 10px; border-radius: 4px; cursor: pointer;
+  font: 11px/1.6 var(--ui); color: var(--ink-dim);
+  background: var(--bg-raised); border: 1px solid var(--line-strong);
+}
+.sidebar .scope-pick .btn:hover { color: var(--ink); border-color: var(--accent); }
+.sidebar .scope-pick .btn.on {
+  background: var(--accent); color: var(--accent-ink);
+  border-color: var(--accent); cursor: default;
+}
+.sidebar .scope-pick .quiet { font: 11px/1.6 var(--ui); color: var(--ink-dim); }
 
 /* Where the review stands, under the Review heading. */
 .sidebar .heads { display: flex; flex-direction: column; }

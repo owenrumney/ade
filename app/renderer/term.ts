@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
@@ -131,6 +132,16 @@ function accelerate(term: Terminal): void {
   }
 }
 
+// pictures lets `ade show` draw in the terminal. 48MB rather than the
+// addon's 128: every pane keeps its own store, and this one is per pane.
+function pictures(term: Terminal): void {
+  try {
+    term.loadAddon(new ImageAddon({ storageLimit: 48, enableSizeReports: true }));
+  } catch {
+    // No pictures is a terminal that still works.
+  }
+}
+
 function build(id: string): Pane {
   const host = document.createElement("div");
   host.className = "term";
@@ -138,6 +149,7 @@ function build(id: string): Pane {
     fontFamily: mono(),
     fontSize: 13,
     cursorBlink: true,
+    scrollback: 20000,
     // Ayu Dark Unbordered, the same values the window uses.
     theme: {
       background: "#0d1017",
@@ -158,6 +170,7 @@ function build(id: string): Pane {
   term.loadAddon(fit);
   term.open(host);
   accelerate(term);
+  pictures(term);
   const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
   term.onData((data) => window.ade?.termSend(id, data));
   // Shift+Enter is a new line: it sends what Option+Enter does.

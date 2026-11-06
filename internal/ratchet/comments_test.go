@@ -131,21 +131,20 @@ func TestTheWindowSignsAsItself(t *testing.T) {
 	pack, err := os.ReadFile(filepath.Join("../..", "app", "pack.sh"))
 	require.NoError(t, err)
 
-	assert.Contains(t, string(pack), "--app-bundle-id=uk.co.owenrumney.ade-window")
-	assert.Contains(t, string(pack), "ADE_BUNDLE_ID=uk.co.owenrumney.ade-window")
+	assert.Contains(t, string(pack), "id=uk.co.owenrumney.ade-window")
+	assert.Contains(t, string(pack), "CFBundleIdentifier</key><string>")
 	assert.NotContains(t, string(pack), "ade-cli")
 }
 
 // TestTheWindowIsCalledOneThing keeps the three places that name it in
-// step. macOS reads the menu bar from the bundle when it is packaged and
-// from app.getName() when it is not, so a disagreement shows up in only
-// one of them — which is how it read "Electron" in a dev run.
+// step. macOS reads the menu bar from the bundle, so a name that differs
+// from the executable's shows up in only one of them.
 func TestTheWindowIsCalledOneThing(t *testing.T) {
 	const name = "ADE"
 	for _, at := range []struct{ file, want string }{
 		{filepath.Join("../..", "app", "package.json"), `"productName": "` + name + `"`},
-		{filepath.Join("../..", "app", "pack.sh"), `"` + name + `" \`},
-		{filepath.Join("../..", "app", "src", "main.ts"), `const NAME = "` + name + `"`},
+		{filepath.Join("../..", "app", "pack.sh"), `<key>CFBundleName</key><string>` + name + `<`},
+		{filepath.Join("../..", "app", "pack.sh"), `-o "$app/Contents/MacOS/` + name + `"`},
 	} {
 		body, err := os.ReadFile(at.file)
 		require.NoError(t, err)

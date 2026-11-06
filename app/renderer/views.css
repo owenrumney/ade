@@ -240,7 +240,7 @@
 .diff .no { cursor: pointer; }
 .diff .ln:hover .no { color: var(--accent); }
 
-/* The design editor fills its pane: CodeMirror scrolls itself. */
+/* A panel fills its pane and scrolls itself. */
 .pane:has(> .panel-wrap) { overflow: hidden; }
 
 /* A thread says what it is before what it says: how bad, what about, and

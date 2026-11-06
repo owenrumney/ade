@@ -16,7 +16,7 @@ export const VOCABULARY: Group[] = [
       ["ade.newSession", "New Session"],
       ["ade.newScratch", "Start on something with no repository yet"],
       ["ade.openAgent", "Agent"],
-      ["ade.importConversation", "Import a claude conversation…"],
+      ["ade.findSession", "Find a session…"],
       ["ade.diffTurn", "Diff"],
       ["ade.openTerminal", "Shell"],
       ["ade.renameSession", "Rename this session…"],
