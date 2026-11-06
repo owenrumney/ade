@@ -75,6 +75,7 @@ export type View =
   // A repository kept open, and the sessions in it.
   | { kind: "space"; title: string; seen: Seen }
   | { kind: "term"; title: string }
+  | { kind: "shots"; title: string }
   // The agent's own interface, running in the session's checkout.
   | { kind: "agent"; title: string }
   | { kind: "none" };
@@ -110,6 +111,8 @@ export interface Status {
   // The pull request this branch has, when it has one: nothing can be said
   // on GitHub without it.
   pr?: number;
+  // Whether you opened it: false hides what only its author would do.
+  prMine?: boolean;
   // How many commits the base has that this branch does not.
   behind?: number;
 }

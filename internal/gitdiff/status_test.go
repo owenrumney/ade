@@ -107,6 +107,37 @@ func TestStageRejectsAnEmptyList(t *testing.T) {
 	require.Error(t, Stage(context.Background(), testRepo(t), nil))
 }
 
+func TestFetchBranchBringsOriginsCopyUpToDate(t *testing.T) {
+	origin := t.TempDir()
+	gitIn(t, origin, "init", "--bare", "-q", "-b", "main")
+	dir := testRepo(t)
+	gitIn(t, dir, "remote", "add", "origin", origin)
+	_, err := Push(context.Background(), dir)
+	require.NoError(t, err)
+
+	// Somebody else moves the branch on.
+	other := t.TempDir()
+	gitIn(t, other, "clone", "-q", "-b", "feature", origin, "wt")
+	gitIn(t, filepath.Join(other, "wt"), "commit", "-q", "--allow-empty", "-m", "more")
+	gitIn(t, filepath.Join(other, "wt"), "push", "-q", "origin", "feature")
+
+	fetched, err := FetchBranch(context.Background(), dir, "feature")
+	require.NoError(t, err)
+	assert.Equal(t, "origin/feature", fetched)
+	behind, err := CommitsBehind(context.Background(), dir, fetched)
+	require.NoError(t, err)
+	assert.Equal(t, 1, behind)
+	require.NoError(t, FastForward(context.Background(), dir, fetched))
+	behind, err = CommitsBehind(context.Background(), dir, fetched)
+	require.NoError(t, err)
+	assert.Zero(t, behind)
+}
+
+func TestFetchBranchNeedsAName(t *testing.T) {
+	_, err := FetchBranch(context.Background(), testRepo(t), "origin/")
+	require.Error(t, err)
+}
+
 func TestPushSetsTheUpstreamAndReportsAhead(t *testing.T) {
 	origin := t.TempDir()
 	gitIn(t, origin, "init", "--bare", "-q", "-b", "main")

@@ -418,6 +418,18 @@ func (s *Server) handleCancel(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleStopReview ends the named agents and leaves the session's own agent
+// to its turn: the Diff's stop is for the reviewers it shows.
+func (s *Server) handleStopReview(w http.ResponseWriter, _ *http.Request) {
+	if s.stopSides() == 0 {
+		writeError(w, http.StatusBadRequest, "no reviewer is running")
+		return
+	}
+	s.hub.Broadcast("agent", nil)
+	s.hub.Broadcast("state", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

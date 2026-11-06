@@ -493,6 +493,7 @@ func (s *Server) Run(ctx context.Context, openBrowser bool, imported []ghpr.Thre
 	// The rail is the announced set, so a restart has to say so itself.
 	go s.keepAnnouncing(ctx, s.railID())
 	go s.watchActivity(ctx)
+	go s.watchShots(ctx)
 	go s.watchIdle(ctx, stopIdle)
 	go s.watchBus(ctx)
 	go func() {
@@ -549,6 +550,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/threads/send-replies", s.guardHome(s.handleSendReplies))
 	mux.HandleFunc("POST /api/review", s.guard(s.handleReview))
 	mux.HandleFunc("POST /api/cancel", s.guard(s.handleCancel))
+	mux.HandleFunc("POST /api/review/stop", s.guard(s.handleStopReview))
 	mux.HandleFunc("POST /api/commit-message", s.guard(s.handleCommitMessage))
 	mux.HandleFunc("POST /api/commit", s.guard(s.handleCommit))
 	mux.HandleFunc("POST /api/stage", s.guard(s.handleStage))
@@ -556,6 +558,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/push", s.guard(s.handlePush))
 	mux.HandleFunc("POST /api/branch", s.guard(s.handleBranch))
 	mux.HandleFunc("POST /api/base/pull", s.guard(s.handlePullBase))
+	mux.HandleFunc("POST /api/branch/pull", s.guard(s.handlePullBranch))
 	mux.HandleFunc("POST /api/base/rebase", s.guard(s.handleRebaseBase))
 	mux.HandleFunc("POST /api/base/catch-up", s.guardHome(s.handleCatchUp))
 	mux.HandleFunc("GET /api/commit/head", s.guard(s.handleHeadMessage))
@@ -582,6 +585,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/linear/refresh", s.guard(s.handleLinearRefresh))
 	mux.HandleFunc("POST /api/linear/start", s.guard(s.handleLinearStart))
 	mux.HandleFunc("DELETE /api/prs", s.guardHome(s.handleClosePR))
+	mux.HandleFunc("POST /api/pr/create", s.guardHome(s.handleCreatePR))
 	mux.HandleFunc("POST /api/pr/merge", s.guardHome(s.handleMergePR))
 	mux.HandleFunc("POST /api/pr/approve", s.guardHome(s.handleApprovePR))
 	mux.HandleFunc("POST /api/pr/request-changes", s.guardHome(s.handleRequestChangesPR))
@@ -595,6 +599,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/checks/refresh", s.guardHome(s.handleRefreshChecks))
 	mux.HandleFunc("GET /api/avatar/{login}", s.guard(s.handleAvatar))
 
+	mux.HandleFunc("GET /api/shots", s.guard(s.handleShots))
+	mux.HandleFunc("GET /api/shots/{name}", s.guard(s.handleShot))
+
 	mux.HandleFunc("GET /api/logs", s.guard(s.handleLogs))
 	mux.HandleFunc("GET /api/terminal", s.guard(s.handleTerminal))
 	mux.HandleFunc("POST /api/terminal/close", s.guard(s.handleTerminalClose))
@@ -605,6 +612,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/agent/findings", s.guard(s.handleSendFindings))
 	mux.HandleFunc("GET /api/brief", s.guard(s.handleBrief))
 	mux.HandleFunc("POST /api/agent/brief", s.guard(s.handleSendBrief))
+	mux.HandleFunc("POST /api/agent/explain", s.guard(s.handleExplainChange))
 	mux.HandleFunc("POST "+BadgePath, s.handleAgentBadge)
 	mux.HandleFunc("GET /api/agents", s.guard(s.handleAgents))
 	mux.HandleFunc("POST /api/port", s.guardHome(s.handlePort))
@@ -1052,8 +1060,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleResetThreads clears the comments the body names. What came from a pull
-// request or already went to one stays, and `kept` says how many did.
+// handleResetThreads clears the comments the body names. A narrow sweep leaves
+// what is on the pull request and `kept` counts it; empty takes the lot.
 //
 // Refused while anything is running, so a review part way through filing
 // cannot half survive its own deletion.

@@ -49,6 +49,46 @@ func (s *Server) pullBase(ctx context.Context) (string, error) {
 	return fetched, nil
 }
 
+// handlePullBranch fetches origin's copy of the checked-out branch and
+// fast-forwards onto it, so a reopened review reads what was pushed since.
+func (s *Server) handlePullBranch(w http.ResponseWriter, r *http.Request) {
+	ws := s.space()
+	if ws.snapshot {
+		writeError(w, http.StatusBadRequest, "this is a fetched snapshot; there is no checkout to pull into")
+		return
+	}
+	dir := ws.diffRoot()
+	branch := gitdiff.Branch(r.Context(), dir)
+	if branch == "detached" {
+		writeError(w, http.StatusConflict, "no branch is checked out here to pull")
+		return
+	}
+	fetched, err := gitdiff.FetchBranch(r.Context(), dir, branch)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// The base comes too, or the diff is cut against a main the branch was
+	// rebased past and shows main's commits as the branch's own.
+	if _, err := gitdiff.FetchBase(r.Context(), dir, ws.opts.Base); err != nil {
+		slog.Debug("fetch the base with the branch", "err", err)
+	}
+	behind, err := gitdiff.CommitsBehind(r.Context(), dir, fetched)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if behind > 0 {
+		if err := gitdiff.FastForward(r.Context(), dir, fetched); err != nil {
+			writeError(w, http.StatusConflict,
+				fmt.Sprintf("%s cannot be fast-forwarded onto this checkout; it was rewritten or has local commits: %v", fetched, err))
+			return
+		}
+	}
+	s.afterRebase()
+	writeJSON(w, http.StatusOK, map[string]any{"branch": fetched, "pulled": behind})
+}
+
 // handleRebaseBase replays this branch on top of a freshly fetched base. The
 // guards are worktrees.syncOne's: a rebase over uncommitted work loses it.
 func (s *Server) handleRebaseBase(w http.ResponseWriter, r *http.Request) {

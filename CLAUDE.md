@@ -119,18 +119,26 @@ drives a headless chromium over a fixture home and writes PNGs to
 Run it after any change under `app/renderer`, `app/pages` or `app/media`. A
 picture of the change is worth more than a paragraph claiming it works.
 
-A terminal session has no reply to attach to, so the outbox reaches nobody
-from one: `ade show <file>` draws the picture in the terminal instead, which
-is where the claim about it is being made.
+A terminal session has no reply to attach to, so the picture goes to the
+window's **Shots** tab, beside Agent, Diff and Shell. The tab is the outbox
+drawn as a carousel, and the server watches the directory: anything that
+lands there shows up, with a count on the tab until it is looked at.
 
 ```
 make app-shots VIEWS="app-session app-diff"
-ade show --width 60 .git/ade/outbox/*.png
+ade show .git/ade/outbox/*.png
 ```
 
-It takes png, jpeg and gif, and `--width` is a column count, a percentage or
-`auto`. `$ADE_OUTBOX` still names the outbox in every session, and a one-shot
-run ade makes does attach what it finds there.
+`make app-shots` writes to the outbox already, so the first line alone fills
+the tab. `ade show` is for a picture from anywhere else: it copies the file
+into the outbox of the checkout it is run in and prints where it landed. It
+takes png, jpeg and gif. `$ADE_OUTBOX` names the outbox when it is set, and
+a one-shot run ade makes attaches what it finds there.
+
+`ade show` no longer writes an inline-image escape. Drawing one in the
+terminal is what wedged the pane: a picture arrives faster than xterm can
+take it, the server drops the subscriber that falls behind, and only the
+agent pane is ever reattached.
 
 It will not send a view you did not name: `make app-shots VIEWS="app-session
 app-diff"`. Named views are the only ones shot and the only ones copied to the

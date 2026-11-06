@@ -43,6 +43,9 @@ export interface Bridge {
     session?: string,
   ): Promise<{ status: number; ok?: boolean; text?: string; error?: string }>;
 
+  // Where an <img> loads one of the session's pictures from.
+  shotSrc(session: string, name: string): string;
+
   // A panel's page, held on the webview scheme; the answer is its url.
   panel(id: string, html: string): Promise<string>;
   // Where ade is, for a panel that fetches it directly.

@@ -197,6 +197,11 @@ paragraph claiming it works.
 none; only named views reach the outbox, and a reply carries four. The views
 are listed in `tools/appshots.mjs`, and `VIEWS=nope` prints them.
 
+**Where they show up.** The window's **Shots** tab is the outbox drawn as a
+carousel, beside Agent, Diff and Shell, with a count until you have looked.
+`make app-shots` writes there already; `ade show <file>` copies a picture
+from anywhere else into the outbox of the checkout it runs in.
+
 ## Commits and pull requests
 
 - **Conventional commits**, matching the existing log: `feat(launcher): …`,

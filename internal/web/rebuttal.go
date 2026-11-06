@@ -29,6 +29,10 @@ type reviewBatch struct {
 	// first. unread is the files it could not compare at all.
 	groups [][]string
 	unread int
+
+	// whole is a review of the branch as it stands, settled by writing the
+	// findings down rather than filing them on the diff.
+	whole bool
 }
 
 // batchFinding is a finding a reviewer reported and who reported it. No thread
@@ -45,7 +49,7 @@ type rebuttalVerdict struct {
 }
 
 // newBatch opens a batch for a review of these reviewers.
-func (s *Server) newBatch(reviewers []string) string {
+func (s *Server) newBatch(reviewers []string, whole bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.batches == nil {
@@ -53,7 +57,7 @@ func (s *Server) newBatch(reviewers []string) string {
 	}
 	s.nextBatch++
 	id := "b" + itoa(s.nextBatch)
-	s.batches[id] = &reviewBatch{id: id, reviewers: reviewers, found: map[string]batchFinding{}}
+	s.batches[id] = &reviewBatch{id: id, reviewers: reviewers, found: map[string]batchFinding{}, whole: whole}
 	return id
 }
 
@@ -123,6 +127,12 @@ func (s *Server) batchDrained(batch string) {
 		}
 		phase := b.phase
 		b.phase++
+		if b.whole {
+			delete(s.batches, batch)
+			s.mu.Unlock()
+			s.writeFindings(b)
+			return
+		}
 		s.mu.Unlock()
 
 		var started bool

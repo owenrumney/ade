@@ -18,3 +18,15 @@ export const SIDE_SHUT = "ade.sessions.shut";
 export function sideWidth(which: Edge, want: number): number {
   return Math.min(WIDTHS[which].max, Math.max(WIDTHS[which].min, Math.round(want)));
 }
+
+// A sidebar section whose height is dragged: how tall it may grow, kept
+// between runs like the column widths. Unset is the stylesheet's own cap.
+export type Band = "run" | "comments";
+export const BANDS: Record<Band, { key: string; css: string; min: number; max: number }> = {
+  run: { key: "ade.review.run.h", css: "--run-h", min: 48, max: 720 },
+  comments: { key: "ade.review.comments.h", css: "--comments-h", min: 48, max: 720 },
+};
+
+export function bandHeight(which: Band, want: number): number {
+  return Math.min(BANDS[which].max, Math.max(BANDS[which].min, Math.round(want)));
+}

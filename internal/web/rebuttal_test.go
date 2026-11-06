@@ -53,7 +53,7 @@ func noneOn(t *testing.T, s *Server, file string) {
 
 func TestABatchHoldsEveryReviewersFindingsUnfiled(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 
 	report(t, s, batch, "alice", finding(3, "zebra"))
 	require.True(t, s.recordFound(batch, "bob", []review.Finding{finding(3, "apple"), finding(3, "mango")}))
@@ -76,7 +76,7 @@ func TestABatchHoldsEveryReviewersFindingsUnfiled(t *testing.T) {
 // The point of the whole feature: three reviewers, one bug, one comment.
 func TestThreeReviewersOnOnePointBecomeOneComment(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob", "carol"})
+	batch := s.newBatch([]string{"alice", "bob", "carol"}, false)
 	report(t, s, batch, "alice", review.Finding{File: "a.go", Line: 3, Summary: "the nil check is the wrong way round", Category: "correctness", Severity: "medium"})
 	report(t, s, batch, "bob", review.Finding{File: "a.go", Line: 5, Summary: "deref before the check", Category: "security", Severity: "high"})
 	report(t, s, batch, "carol", review.Finding{File: "a.go", Line: 4, Summary: "nil is possible here", Category: "correctness", Severity: "low"})
@@ -95,7 +95,7 @@ func TestThreeReviewersOnOnePointBecomeOneComment(t *testing.T) {
 
 func TestFindingsBeyondTheWindowStayApart(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice"})
+	batch := s.newBatch([]string{"alice"}, false)
 	report(t, s, batch, "alice", review.Finding{File: "far.go", Line: 3, Summary: "one", Category: "correctness"})
 	report(t, s, batch, "alice", review.Finding{File: "far.go", Line: 300, Summary: "two", Category: "correctness"})
 
@@ -105,7 +105,7 @@ func TestFindingsBeyondTheWindowStayApart(t *testing.T) {
 
 func TestAClusterDoesNotWalkDownTheFile(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice"})
+	batch := s.newBatch([]string{"alice"}, false)
 	for _, line := range []int{3, 12, 21, 30} {
 		report(t, s, batch, "alice", review.Finding{File: "walk.go", Line: line, Summary: "x", Category: "correctness"})
 	}
@@ -117,7 +117,7 @@ func TestAClusterDoesNotWalkDownTheFile(t *testing.T) {
 
 func TestSettleBatchFlagsADisputeAndFilesTheObjectionAsAReply(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob", "carol"})
+	batch := s.newBatch([]string{"alice", "bob", "carol"}, false)
 	key := report(t, s, batch, "alice", finding(3, "the nil check is the wrong way round"))
 
 	b := s.batches[batch]
@@ -141,7 +141,7 @@ func TestSettleBatchFlagsADisputeAndFilesTheObjectionAsAReply(t *testing.T) {
 // The change in one line: the round decides what exists, not what is annotated.
 func TestSettleBatchNeverFilesWhatEveryOtherReviewerDisputes(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob", "carol"})
+	batch := s.newBatch([]string{"alice", "bob", "carol"}, false)
 	strike := report(t, s, batch, "alice", findingIn("struck.go", "struck"))
 	defend := report(t, s, batch, "alice", findingIn("defended.go", "defended"))
 
@@ -169,7 +169,7 @@ func TestSettleBatchNeverFilesWhatEveryOtherReviewerDisputes(t *testing.T) {
 // Unanimity was the old bar: one "agree" kept what two had shot down.
 func TestSettleBatchDropsWhenObjectionsOutnumberDefences(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob", "carol", "dave"})
+	batch := s.newBatch([]string{"alice", "bob", "carol", "dave"}, false)
 	key := report(t, s, batch, "alice", findingIn("x.go", "outvoted"))
 
 	b := s.batches[batch]
@@ -186,7 +186,7 @@ func TestSettleBatchDropsWhenObjectionsOutnumberDefences(t *testing.T) {
 // Silence is not a judgement: one objection among three is worth reading.
 func TestSettleBatchDoesNotDropOnASingleObjection(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob", "carol", "dave"})
+	batch := s.newBatch([]string{"alice", "bob", "carol", "dave"}, false)
 	key := report(t, s, batch, "alice", findingIn("y.go", "one objection"))
 
 	b := s.batches[batch]
@@ -203,7 +203,7 @@ func TestSettleBatchDoesNotDropOnASingleObjection(t *testing.T) {
 // A reviewer objecting to a point it reported itself is not a judgement of it.
 func TestAReviewerDoesNotJudgeItsOwnPoint(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	key := report(t, s, batch, "alice", findingIn("own.go", "mine"))
 
 	b := s.batches[batch]
@@ -218,7 +218,7 @@ func TestAReviewerDoesNotJudgeItsOwnPoint(t *testing.T) {
 // Within one file a named duplicate joins, however far apart the lines are.
 func TestADuplicateVerdictJoinsTwoFindingsOfOneFile(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	first := report(t, s, batch, "alice", review.Finding{File: "dup.go", Line: 3, Summary: "one", Category: "correctness"})
 	later := report(t, s, batch, "bob", review.Finding{File: "dup.go", Line: 400, Summary: "two", Category: "design"})
 
@@ -234,7 +234,7 @@ func TestADuplicateVerdictJoinsTwoFindingsOfOneFile(t *testing.T) {
 
 func TestSettleBatchSaysWhatItFiledEvenWhenNoOneObjected(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	key := report(t, s, batch, "alice", finding(3, "stands"))
 
 	b := s.batches[batch]
@@ -260,7 +260,7 @@ func TestABatchDrainsIntoOneRebuttalRoundAndThenSettles(t *testing.T) {
 	defineUserAgent(t, "alice", "---\nname: alice\n---\nread\n")
 	defineUserAgent(t, "bob", "---\nname: bob\n---\nread\n")
 
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	report(t, s, batch, "alice", finding(3, "the nil check is the wrong way round"))
 
 	// The reviewers are done: the round starts. Only bob runs — alice is not
@@ -287,7 +287,7 @@ func TestABatchWithNothingFoundDoesNotRunARound(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	defineUserAgent(t, "alice", "---\nname: alice\n---\nread\n")
 
-	batch := s.newBatch([]string{"alice"})
+	batch := s.newBatch([]string{"alice"}, false)
 	s.batchDrained(batch)
 
 	assert.Empty(t, s.sideRuns(), "there is nothing to judge")
@@ -320,7 +320,7 @@ func TestAReviewCostsOneSlotPerReviewerAndHoldsNothing(t *testing.T) {
 // The pass joins what distance cannot: two readings of one bug, far apart.
 func TestTheClusteringPassJoinsWhatThePositionalPassCouldNot(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	first := report(t, s, batch, "alice", review.Finding{File: "far.go", Line: 3, Summary: "one", Category: "correctness"})
 	later := report(t, s, batch, "bob", review.Finding{File: "far.go", Line: 400, Summary: "two", Category: "design"})
 
@@ -334,7 +334,7 @@ func TestTheClusteringPassJoinsWhatThePositionalPassCouldNot(t *testing.T) {
 
 func TestOnlyACrowdedFileIsWorthComparing(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	report(t, s, batch, "alice", review.Finding{File: "alone.go", Line: 3, Summary: "one"})
 	report(t, s, batch, "alice", review.Finding{File: "crowded.go", Line: 3, Summary: "two"})
 	report(t, s, batch, "bob", review.Finding{File: "crowded.go", Line: 9, Summary: "three"})
@@ -344,7 +344,7 @@ func TestOnlyACrowdedFileIsWorthComparing(t *testing.T) {
 
 func TestABatchWithNoCrowdedFileSkipsTheClusteringPass(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice"})
+	batch := s.newBatch([]string{"alice"}, false)
 	report(t, s, batch, "alice", finding(3, "alone"))
 
 	assert.False(t, s.startClustering(batch, s.batches[batch]), "nothing to compare")
@@ -354,7 +354,7 @@ func TestABatchWithNoCrowdedFileSkipsTheClusteringPass(t *testing.T) {
 // The clustering pass failing is a worse grouping, not a lost review.
 func TestAFailedComparisonStillFilesTheFindings(t *testing.T) {
 	s := newTestServer(t)
-	batch := s.newBatch([]string{"alice", "bob"})
+	batch := s.newBatch([]string{"alice", "bob"}, false)
 	report(t, s, batch, "alice", review.Finding{File: "a.go", Line: 3, Summary: "one"})
 
 	b := s.batches[batch]
@@ -372,7 +372,7 @@ func TestEachPhaseWithNothingToRunIsSkipped(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	defineUserAgent(t, "alice", "---\nname: alice\n---\nread\n")
 
-	batch := s.newBatch([]string{"alice"})
+	batch := s.newBatch([]string{"alice"}, false)
 	report(t, s, batch, "alice", finding(3, "alone"))
 	s.batchDrained(batch)
 

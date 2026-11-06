@@ -40,6 +40,8 @@ export const VOCABULARY: Group[] = [
       ["ade.stageAll", "Stage all"],
       ["ade.unstageAll", "Unstage all"],
       ["ade.pullBase", "Pull the base branch"],
+      ["ade.pullBranch", "Pull the latest on this branch"],
+      ["ade.explainChange", "Explain this change as a shareable artifact"],
     ],
   },
   {
@@ -47,8 +49,10 @@ export const VOCABULARY: Group[] = [
     verbs: [
       ["ade.review", "Review the diff"],
       ["ade.reviewWithAgents", "Review the diff with named agents"],
+      ["ade.reviewBranch", "Review the whole branch, findings to a file"],
       ["ade.stop", "Stop the review that is running"],
-      ["ade.sendFindings", "Send the open comments to the agent"],
+      ["ade.reviewStop", "Stop the reviewers and leave the agent"],
+      ["ade.sendFindings", "Resolve all comments with the agent"],
       ["ade.addToReview", "Add the written-up comments to the draft review"],
       ["ade.finishReview", "Send the draft review to the author, with a verdict"],
       ["ade.sendReplies", "Send the waiting replies to GitHub"],
@@ -63,6 +67,7 @@ export const VOCABULARY: Group[] = [
     verbs: [
       ["ade.writeCommitMessage", "Write a commit message"],
       ["ade.push", "Push"],
+      ["ade.createPR", "Create a draft pull request"],
       ["ade.openPRLink", "Open a pull request from its link…"],
       ["ade.approvePR", "Approve this pull request"],
       ["ade.requestChanges", "Request changes on this pull request"],

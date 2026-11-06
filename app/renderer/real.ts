@@ -565,8 +565,10 @@ export interface Doing {
   // checkout's, which is not the same thing.
   scope: string;
   branch: string;
-  // The pull request for this branch, when there is one.
+  // The pull request for this branch, when there is one, and whether you
+  // opened it: Resolve is for your own, Send the review for anybody's.
   pr?: number;
+  prMine?: boolean;
   // How many commits the base has that this branch does not.
   behind?: number;
   // The last review by named agents, while the session remembers one.
@@ -591,7 +593,7 @@ export function doingIn(got: unknown): Doing {
     sideRuns?: { id: string; name: string }[] | null;
     terminal?: string;
   };
-  const branchPr = (got as { branchPr?: { number?: number } })?.branchPr;
+  const branchPr = (got as { branchPr?: { number?: number; mine?: boolean } })?.branchPr;
   const tree = (got as { worktree?: { behind?: number } | null })?.worktree;
   const meta = ((got as { meta?: { scope?: string; branch?: string } })?.meta ?? {}) as {
     scope?: string;
@@ -606,6 +608,7 @@ export function doingIn(got: unknown): Doing {
     scope: meta.scope ?? "",
     branch: meta.branch ?? "",
     pr: branchPr?.number,
+    prMine: branchPr?.mine,
     behind: tree?.behind,
     review: reviewIn(got),
   };
@@ -734,6 +737,7 @@ export function status(dash: Dash, repos: Repo[], doing: Doing = NOTHING, bus?: 
     scope: doing.scope,
     doing: saying(doing),
     pr: doing.pr,
+    prMine: doing.prMine,
     behind: doing.behind,
   };
 }
@@ -831,6 +835,29 @@ export function historyPage(who: string, said: Said[], now = Date.now()): string
 }
 
 // CaughtUp is what one catch-up did.
+// noBrief is the Brief tab when there is nothing to show: the status line
+// is crowded while an agent works, and a tab stays until it is read.
+export function noBrief(why: string): string {
+  return [
+    "# Brief",
+    "",
+    `${why.replace(/\.?$/, ".")}`,
+    "",
+    "ade reads the newest file under `.git/ade/docs`, in this worktree first and then the repository's own `.git`. Nothing has put one there for this session.",
+  ].join("\n");
+}
+
+export interface Pulled {
+  branch: string;
+  pulled: number;
+}
+
+// pulled is the status line after a pull of the branch itself.
+export function pulled(got: Pulled): string {
+  if (got.pulled === 0) return `already up to date with ${got.branch}`;
+  return `pulled ${got.pulled} commit${got.pulled === 1 ? "" : "s"} from ${got.branch}`;
+}
+
 export interface CaughtUp {
   base: string;
   behind: number;

@@ -111,6 +111,9 @@ type sideCall struct {
 
 	// batch groups the calls of one review, so its last can settle it.
 	batch string
+	// whole is a review of the branch as it stands: nothing is filed on
+	// the diff, and the batch writes every finding to a file.
+	whole bool
 }
 
 func (s *Server) delegateAuthorized(r *http.Request) bool {
@@ -257,6 +260,7 @@ func (s *Server) startJobs(jobs []sideJob, hold int) bool {
 func (s *Server) runSubagent(ctx context.Context, call sideCall) {
 	agent := call.agent
 	filer := s.newFiler(agent, call.asker, call.batch)
+	filer.whole = call.whole
 	onEvent := func(ev oneshot.Event) {
 		filer.push(ev.Text)
 		s.onSubagentEvent(agent.Name, ev)
@@ -311,6 +315,8 @@ type filer struct {
 
 	// off is an agent that does not review: none of its reply is filed.
 	off bool
+	// whole takes every finding, wherever it lands: the file is the diff.
+	whole bool
 }
 
 func (s *Server) newFiler(agent agents.Agent, asker, batch string) *filer {
@@ -333,6 +339,12 @@ func (f *filer) push(text string) {
 		return
 	}
 	root := f.s.space().diffRoot()
+	if f.whole {
+		if f.s.recordFound(f.batch, f.author, review.Relative(found, root)) {
+			f.held += len(found)
+		}
+		return
+	}
 	onDiff, aside := f.split(review.Relative(found, root))
 	f.aside = append(f.aside, aside...)
 	if len(onDiff) == 0 {
@@ -347,13 +359,14 @@ func (f *filer) push(text string) {
 	f.s.hub.Broadcast("state", nil)
 }
 
-// split separates what can become a comment from a finding off the diff.
+// split separates what can become a comment from a finding off the diff: a
+// file the diff touches is not enough, the line has to be in it.
 func (f *filer) split(found []review.Finding) (onDiff, aside []review.Finding) {
 	f.s.mu.RLock()
 	diff := f.s.diff
 	f.s.mu.RUnlock()
 	for _, finding := range found {
-		if comments.HasFile(diff, finding.File) {
+		if _, _, ok := comments.LocateNearest(diff, finding.File, comments.SideRight, finding.Line, snapWindow); ok {
 			onDiff = append(onDiff, finding)
 			continue
 		}

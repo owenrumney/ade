@@ -5,6 +5,7 @@ import {
   AGENT,
   DIFF,
   SHELL,
+  SHOTS,
   agentTab,
   diffTab,
   dismissable,
@@ -316,10 +317,10 @@ describe("a tab drag outlives a redraw", () => {
   });
 });
 
-describe("the three tabs every session has", () => {
+describe("the tabs every session has", () => {
   it("are put first, in their order, in a layout that has none", () => {
-    expect(seated([tab("a")]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, "a"]);
-    expect(seated([]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL]);
+    expect(seated([tab("a")]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS, "a"]);
+    expect(seated([]).map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS]);
   });
 
   // The Diff holds a file: seating again must not put the placeholder back.
@@ -327,7 +328,7 @@ describe("the three tabs every session has", () => {
     const file = { path: "x.go", status: "modified", binary: false, additions: 1, deletions: 0 };
     const showing: Tab = { ...diffTab(), what: { kind: "hunks", title: "x.go", file } };
     const out = seated([tab("a"), shellTab(), showing]);
-    expect(out.map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, "a"]);
+    expect(out.map((t) => t.id)).toEqual([AGENT, DIFF, SHELL, SHOTS, "a"]);
     expect(out[1]).toBe(showing);
   });
 

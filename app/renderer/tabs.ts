@@ -39,10 +39,12 @@ export function settled(tabs: Tab[]): { tabs: Tab[]; split: boolean } {
   return { tabs: tabs.map((t) => ({ ...t, group: 0 as Group })), split: false };
 }
 
-// The three tabs every session has, in this order: its agent, its diff, a shell.
+// The tabs every session has, in this order: its agent, its diff, a shell,
+// and the pictures left in its outbox.
 export const AGENT = "agent";
 export const DIFF = "diff";
 export const SHELL = "term";
+export const SHOTS = "shots";
 
 export function agentTab(): Tab {
   return { id: AGENT, title: "Agent", icon: "session", what: { kind: "agent", title: "Agent" } };
@@ -56,14 +58,18 @@ export function shellTab(): Tab {
   return { id: SHELL, title: "Shell", icon: "terminal", what: { kind: "term", title: "Shell" } };
 }
 
-// standing is one of the three: it has no close, and a sweep leaves it.
-export function standing(id: string): boolean {
-  return id === AGENT || id === DIFF || id === SHELL;
+export function shotsTab(): Tab {
+  return { id: SHOTS, title: "Shots", icon: "image", what: { kind: "shots", title: "Shots" } };
 }
 
-// seated puts the three first, keeping what each already holds.
+// standing is one of the session's own: it has no close, and a sweep leaves it.
+export function standing(id: string): boolean {
+  return id === AGENT || id === DIFF || id === SHELL || id === SHOTS;
+}
+
+// seated puts the session's own first, keeping what each already holds.
 export function seated(tabs: Tab[]): Tab[] {
-  const first = [agentTab(), diffTab(), shellTab()].map(
+  const first = [agentTab(), diffTab(), shellTab(), shotsTab()].map(
     (made) => tabs.find((t) => t.id === made.id) ?? made,
   );
   return [...first, ...tabs.filter((t) => !standing(t.id))];

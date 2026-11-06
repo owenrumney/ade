@@ -24,11 +24,30 @@ func DiffReviewPrompt(name, diffText string) string {
 	fmt.Fprintf(&b, `You are @%s, called into a conversation in ade, where a user and an agent are working on this repository together. Your reply is shown in that conversation to both of them, so address it to the user.
 
 Review the change below adversarially: what is wrong, what is missing, what is riskier than it looks. Anchor each point to a file and the new-file line number shown in the left column, and rank each one critical, high, medium or low so the reader knows where to start. Say nothing about what is fine. Keep it as short as it can be while saying what matters.
+
+Only the lines the diff adds or changes are under review. Read other files for context, but a point about code the change did not write is not a finding here and will not be filed.
 `, name)
 	b.WriteString("\nDo not edit anything, and do not run git. " + NoArtifacts)
 	b.WriteString(FilingBlock)
 	b.WriteString("\n")
 	b.WriteString(prompt.Fence("diff", diffText))
+	return b.String()
+}
+
+// BranchReviewPrompt asks one named agent to review the repository as it
+// stands on the branch, not just the change; the summary says what moved.
+func BranchReviewPrompt(name, summary string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `You are @%s, called into a conversation in ade, where a user and an agent are working on this repository together. Your reply is shown in that conversation to both of them, so address it to the user.
+
+Review the repository as it stands in your working directory, on this branch, adversarially: what is wrong, what is missing, what is riskier than it looks. Read whatever you need. Anchor each point to a file and the line number in the file as it is now, and rank each one critical, high, medium or low so the reader knows where to start. Say nothing about what is fine. Keep it as short as it can be while saying what matters.
+
+Nothing you file lands on the diff: every finding goes to a file the user reads afterwards, so a point anywhere in the repository counts.
+`, name)
+	b.WriteString("\nDo not edit anything, and do not run git. " + NoArtifacts)
+	b.WriteString(FilingBlock)
+	b.WriteString("\n")
+	b.WriteString(prompt.Fence("what this branch changed", summary))
 	return b.String()
 }
 

@@ -33,6 +33,7 @@ const VIEWS = [
   { name: "app-import", keys: "k", type: "Import a claude", enter: true },
   { name: "app-brief", session: S, tap: ".sidebar.left .row .tag.brief", settle: 600 },
   { name: "app-shell", session: S, tab: "Shell" },
+{ name: "app-shots-tab", session: S, tab: "Shots" },
   { name: "app-notifications", session: S, place: "Notifications" },
   { name: "app-prs", place: "Pull requests" },
   { name: "app-inbox", place: "Inbox" },
@@ -42,6 +43,7 @@ const VIEWS = [
   { name: "app-myday", tap: ".activity button[title^='My Day']", settle: 400 },
   { name: "app-side-shut", session: S, place: "Team", again: "Team" },
   { name: "app-diff", session: S, tab: "Diff", twigs: FILE },
+{ name: "app-diff-new", session: S, tab: "Diff", twigs: FILE, query: "?nopr=1" },
   { name: "app-diff-side", session: S, tab: "Diff", twigs: FILE, place: "Notifications" },
   { name: "app-review-adding", session: S, tab: "Diff", tap: ".review-bar .btn.add", settle: 500 },
   { name: "app-review-pressed", session: S, tab: "Diff", twigs: FILE, tapText: "Add to the review", settle: 400 },
@@ -50,6 +52,9 @@ const VIEWS = [
   { name: "app-review-edit", session: S, tab: "Diff", twigs: FILE, tap: ".tab.on .swap", settle: 1200 },
   { name: "app-review-agents", session: S, keys: "k", type: "review with named", enter: true },
   { name: "app-review-running", session: "Pruning the design docs", tab: "Diff" },
+  // A switch while on the Diff: the files and the diff must be the new session's.
+  { name: "app-switch", session: "Pruning the design docs", tab: "Diff", tap: ".sidebar.left .row.session:nth-of-type(6)", settle: 1500, then: "Diff" },
+  { name: "app-review-folded", session: "Pruning the design docs", tab: "Diff", tap: ".sidebar .review-run .fold-chev", settle: 300 },
   { name: "app-review-finished", session: "Webview for the sandbox", tab: "Diff" },
   { name: "app-tab-menu", session: S, tab: "Diff", twigs: FILE, right: ".tab.on" },
   { name: "app-split", session: S, tab: "Diff", twigs: FILE, drag: { what: '.tab[data-tab="diff"]', to: 0.78 } },
@@ -145,7 +150,7 @@ async function pressed(title) {
 for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) : VIEWS) {
   // A drag shot mid-carry leaves the button down.
   await page.mouse.up().catch(() => undefined);
-  await page.goto(page1, { waitUntil: "load" });
+  await page.goto(page1 + (view.query ?? ""), { waitUntil: "load" });
   await page.waitForSelector(".sidebar.left .row, .sidebar.left .empty");
   if (view.session) await clicked("session", ".sidebar.left .row .name", view.session);
   if (view.tab) await clicked("tab", ".main .head .tab .nm", view.tab);
@@ -163,6 +168,8 @@ for (const view of wanted.length ? VIEWS.filter((v) => wanted.includes(v.name)) 
     await new Promise((done) => setTimeout(done, view.settle ?? 0));
     if (!view.settle) await page.waitForSelector(".omnibox input");
   }
+  // A tab opened after the tap, for a view of what a switch left behind.
+  if (view.then) await clicked("tab", ".main .head .tab .nm", view.then);
 
   // A context menu is the one thing the omnibox cannot stand in for, so
   // the shot has to open it the way a hand does.

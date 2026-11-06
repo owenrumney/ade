@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headline, NOTHING, standingIn } from "./commitbox";
+import { headline, NOTHING, refusal, standingIn } from "./commitbox";
 
 describe("what the commit box reads from a session", () => {
   it("counts what is staged, what is not, and what is unpushed", () => {
@@ -39,5 +39,29 @@ describe("the commit box's one line of standing", () => {
   it("says when a commit would take nothing", () => {
     expect(headline({ ...NOTHING, unstaged: 3 })).toBe("nothing staged · 3 not staged");
     expect(headline(NOTHING)).toBe("nothing to commit");
+  });
+});
+
+describe("what the box knows of the branch", () => {
+  it("reads the branch and its pull request", () => {
+    const at = standingIn({ meta: { branch: "feat/x" }, branchPr: { number: 12 } });
+    expect(at.branch).toBe("feat/x");
+    expect(at.pr).toBe(12);
+    expect(standingIn({ meta: { branch: "feat/x" } }).pr).toBeUndefined();
+  });
+});
+
+describe("whether a press can commit", () => {
+  const staged = { ...NOTHING, staged: 2 };
+  it("needs something staged and a title", () => {
+    expect(refusal(NOTHING, {}, "fix")).toBe("nothing is staged to commit");
+    expect(refusal(staged, {}, "")).toBe("a commit needs a title");
+    expect(refusal(staged, { push: true }, "fix")).toBe("");
+  });
+
+  // An amend with nothing staged changes the message; with no title it keeps it.
+  it("lets an amend go with either missing", () => {
+    expect(refusal(NOTHING, { amend: true }, "")).toBe("");
+    expect(refusal(staged, { amend: true }, "")).toBe("");
   });
 });

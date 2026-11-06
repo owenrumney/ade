@@ -67,7 +67,7 @@ var responseShapes = map[string][]string{
 	"BranchPR": {
 		"approveBlocked string", "author string", "baseRef string", "body string", "bodyHtml string",
 		"checkedAt string", "checks slice", "draft bool", "failing int", "headRef string",
-		"headSha string", "mergeBlocked string", "number int", "requestChangesBlocked string",
+		"headSha string", "mergeBlocked string", "mine bool", "number int", "requestChangesBlocked string",
 		"reviewDecision string", "reviews slice", "state string", "title string", "url string",
 	},
 	"Check": {

@@ -187,6 +187,21 @@ func TestStopEndsNamedAgentsToo(t *testing.T) {
 	assert.Error(t, ctx.Err(), "the side run was cancelled")
 }
 
+func TestStoppingTheReviewEndsOnlyTheNamedAgents(t *testing.T) {
+	s := newTestServer(t)
+	rec := do(t, s, "POST", "/api/review/stop", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "nothing to stop is said, not swallowed")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	s.sides = map[string]sideRun{"1": {name: "security", cancel: cancel}}
+	s.mu.Unlock()
+	rec = do(t, s, "POST", "/api/review/stop", "")
+	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	assert.Error(t, ctx.Err(), "the reviewer was cancelled")
+	assert.False(t, s.agent.State().Running, "the session's own agent is not touched")
+}
+
 func TestANamedAgentsFindingBlocksAreFiledAsComments(t *testing.T) {
 	// The test repo's only change is "var x = 2" on new-side line 3.
 	s := newTestServer(t)

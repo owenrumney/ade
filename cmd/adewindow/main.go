@@ -66,6 +66,29 @@ static void lights(NSWindow *win) {
   }
 }
 
+// AdeHost answers the page: WKWebView has no -webkit-app-region, so the
+// titlebar asks for the window to be moved or zoomed by hand.
+@interface AdeHost : NSObject <WKScriptMessageHandler>
+@property(nonatomic, weak) NSWindow *win;
+@end
+
+@implementation AdeHost
+- (void)userContentController:(WKUserContentController *)from
+      didReceiveScriptMessage:(WKScriptMessage *)msg {
+  NSWindow *win = self.win;
+  if (win == nil) return;
+  if ([msg.body isEqual:@"zoom"]) {
+    [win performZoom:nil];
+    return;
+  }
+  // The page is told of the click asynchronously, so a drag is only still
+  // there to take over while AppKit is on the mouse down that asked for it.
+  NSEvent *now = NSApp.currentEvent;
+  if (now.type != NSEventTypeLeftMouseDown && now.type != NSEventTypeLeftMouseDragged) return;
+  [win performWindowDragWithEvent:now];
+}
+@end
+
 // AdeDelegate ends the process with the window: Cmd-W would otherwise leave
 // an app running with nothing on screen and no way back to it.
 @interface AdeDelegate : NSObject <NSApplicationDelegate>
@@ -152,6 +175,9 @@ static void RunWindow(const char *url, const char *title) {
     scheme.base = base;
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     [cfg setURLSchemeHandler:scheme forURLScheme:@"ade-webview"];
+    AdeHost *host = [[AdeHost alloc] init];
+    host.win = win;
+    [cfg.userContentController addScriptMessageHandler:host name:@"adeWindow"];
 
     WKWebView *web = [[WKWebView alloc] initWithFrame:frame configuration:cfg];
     [web setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,58 +9,100 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/owenrumney/ade/internal/gitdiff"
+	"github.com/owenrumney/ade/internal/oneshot"
 )
 
-// showLimit is the largest picture worth putting in a terminal. Past it the
-// escape sequence costs more than looking at the file.
+// showLimit is the largest picture worth putting in the window.
 const showLimit = 8 << 20
 
-// showTypes are what the terminal's image addon decodes.
+// showTypes are what the Shots tab draws.
 var showTypes = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true}
 
-// newShowCommand draws pictures in ade's terminal, so an agent can show the
-// change it just made where it makes the claim.
+// newShowCommand puts pictures in the window's Shots tab, so an agent can show
+// the change it just made where the claim about it is being made.
 func newShowCommand() *cobra.Command {
-	var width string
 	cmd := &cobra.Command{
 		Use:           "show <image>...",
-		Short:         "Draw an image in ade's terminal",
+		Short:         "Show an image in ade's Shots tab",
 		Args:          cobra.MinimumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			box, err := outbox(cmd.Context())
+			if err != nil {
+				return err
+			}
 			for _, at := range args {
-				if err := showImage(cmd.OutOrStdout(), at, width); err != nil {
+				to, err := showImage(box, at)
+				if err != nil {
 					return err
 				}
+				fmt.Fprintln(cmd.OutOrStdout(), to)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&width, "width", "auto",
-		"how wide to draw it: auto, a number of columns, or a percentage such as 60%")
+	// Kept so the old call still works: the tab draws at its own size.
+	cmd.Flags().String("width", "", "unused; the Shots tab sizes the picture")
+	_ = cmd.Flags().MarkHidden("width")
 	return cmd
 }
 
-// showImage writes one picture as an iTerm2 inline image, which ade's terminal
-// reads. Anything else on the line is left alone.
-func showImage(out io.Writer, at, width string) error {
+// outbox is the directory the window watches for this checkout.
+func outbox(ctx context.Context) (string, error) {
+	if at := os.Getenv(oneshot.OutboxEnv); at != "" {
+		return at, nil
+	}
+	here, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	gitDir, err := gitdiff.GitDir(ctx, here)
+	if err != nil {
+		return "", fmt.Errorf("no checkout here to show a picture in: %w", err)
+	}
+	return filepath.Join(gitDir, "ade", "outbox"), nil
+}
+
+// showImage copies one picture into the outbox under its own name, and answers
+// where it landed. The window is watching the directory, not this process.
+func showImage(box, at string) (string, error) {
 	kind := strings.ToLower(filepath.Ext(at))
 	if !showTypes[kind] {
-		return fmt.Errorf("%s: only png, jpeg and gif can be drawn", at)
+		return "", fmt.Errorf("%s: only png, jpeg and gif can be shown", at)
 	}
 	info, err := os.Stat(at)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", at, err)
+		return "", fmt.Errorf("read %s: %w", at, err)
 	}
 	if info.Size() > showLimit {
-		return fmt.Errorf("%s is %dMB; the limit is %dMB", at, info.Size()>>20, showLimit>>20)
+		return "", fmt.Errorf("%s is %dMB; the limit is %dMB", at, info.Size()>>20, showLimit>>20)
 	}
-	raw, err := os.ReadFile(at) // #nosec G304 -- the file the user named
+	if err := os.MkdirAll(box, 0o750); err != nil {
+		return "", fmt.Errorf("make the outbox: %w", err)
+	}
+	to := filepath.Join(box, filepath.Base(at))
+	if err := copyFile(at, to); err != nil {
+		return "", err
+	}
+	return to, nil
+}
+
+func copyFile(from, to string) error {
+	in, err := os.Open(from) // #nosec G304 -- the file the user named
 	if err != nil {
-		return fmt.Errorf("read %s: %w", at, err)
+		return fmt.Errorf("read %s: %w", from, err)
 	}
-	_, err = fmt.Fprintf(out, "\x1b]1337;File=inline=1;size=%d;width=%s;preserveAspectRatio=1:%s\a\n",
-		len(raw), width, base64.StdEncoding.EncodeToString(raw))
-	return err
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write %s: %w", to, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("write %s: %w", to, err)
+	}
+	return out.Close()
 }

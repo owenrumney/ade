@@ -454,9 +454,9 @@ func TestResettingTheCommentsClearsWhatAdeFiled(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var res struct{ Removed int }
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-	assert.Equal(t, 2, res.Removed)
+	assert.Equal(t, 3, res.Removed, "every comment, the pull request's too")
 
-	left := s.space().store.List()
-	require.Len(t, left, 1)
-	assert.Equal(t, imported.ID, left[0].ID, "a pull request's own comment is not ade's to delete")
+	assert.Empty(t, s.space().store.List())
+	assert.True(t, s.space().store.Dismissed("gh-7"), "and the poll does not file it again")
+	_ = imported
 }

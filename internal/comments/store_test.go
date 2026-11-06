@@ -455,7 +455,7 @@ func TestSeverityNormalises(t *testing.T) {
 }
 
 func TestResetClearsWhatThisStoreOwns(t *testing.T) {
-	s, _ := newStore(t)
+	s, gitDir := newStore(t)
 	mine := addThread(t, s, 1, "mine")
 	addThread(t, s, 2, "the reviewer's")
 
@@ -468,19 +468,62 @@ func TestResetClearsWhatThisStoreOwns(t *testing.T) {
 	posted := addThread(t, s, 4, "already gone to GitHub")
 	require.NoError(t, s.MarkSent([]string{posted.ID}, time.Now()))
 
-	resettable := s.Resettable(SweepAll)
-	require.Len(t, resettable, 2)
-	assert.Equal(t, mine.ID, resettable[0].ID)
-
-	gone, kept, err := s.Reset(SweepAll)
+	resettable := s.Resettable(SweepResolved)
+	require.Empty(t, resettable, "nothing is resolved")
+	require.NoError(t, s.MarkSent([]string{imported.ID}, time.Now()))
+	_, err = s.SetResolved(imported.ID, true)
 	require.NoError(t, err)
-	assert.Equal(t, 2, gone)
-	assert.Equal(t, 2, kept, "the two it had to leave are counted, not silently dropped")
+	_, err = s.SetResolved(mine.ID, true)
+	require.NoError(t, err)
 
-	left := s.List()
-	require.Len(t, left, 2, "an imported or sent thread is not this store's to throw away")
-	ids := []string{left[0].ID, left[1].ID}
-	assert.ElementsMatch(t, []string{imported.ID, posted.ID}, ids)
+	gone, kept, err := s.Reset(SweepResolved)
+	require.NoError(t, err)
+	assert.Equal(t, 1, gone, "your own resolved comment goes")
+	assert.Equal(t, 1, kept, "the resolved one from the pull request is counted, not silently dropped")
+	require.Len(t, s.List(), 3)
+	assert.False(t, s.Dismissed("gh-1"), "a narrow sweep keeps what is upstream and does not shut it out")
+
+	// Every comment means every comment, the pull request's too; what it put
+	// out is remembered so an import does not file it again.
+	gone, kept, err = s.Reset(SweepAll)
+	require.NoError(t, err)
+	assert.Equal(t, 3, gone)
+	assert.Zero(t, kept)
+	assert.Empty(t, s.List())
+	assert.True(t, s.Dismissed("gh-1"))
+	_ = posted
+
+	again, err := Open(gitDir, "feature/thing")
+	require.NoError(t, err)
+	assert.True(t, again.Dismissed("gh-1"), "what was put out stays out across a restart")
+	assert.Empty(t, again.List())
+}
+
+// The file used to be a bare list; one written that way still opens.
+func TestAStoreWrittenAsABareListStillOpens(t *testing.T) {
+	gitDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "ade"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "ade", "main.json"),
+		[]byte(`[{"id":"t1","file":"a.go","side":"right","line":1,"comments":[{"body":"old"}]}]`), 0o600))
+	s, err := Open(gitDir, "main")
+	require.NoError(t, err)
+	require.Len(t, s.List(), 1)
+	assert.Equal(t, "t1", s.List()[0].ID)
+}
+
+func TestAFixedVerdictResolvesTheThreadAndAStandingOneReopensIt(t *testing.T) {
+	s, _ := newStore(t)
+	done := addThread(t, s, 1, "rename x")
+	got, err := s.ReplyOutcome(done.ID, AuthorAgent, "renamed to count", OutcomeFixed)
+	require.NoError(t, err)
+	assert.True(t, got.Resolved)
+	assert.Equal(t, FateFixed, got.Fate())
+
+	no := addThread(t, s, 2, "restore this")
+	got, err = s.ReplyOutcome(no.ID, AuthorAgent, "the removal was deliberate", OutcomeDeclined)
+	require.NoError(t, err)
+	assert.False(t, got.Resolved)
+	assert.Equal(t, FateDeclined, got.Fate())
 }
 
 func TestResetOnNothingWritesNothing(t *testing.T) {

@@ -16,7 +16,7 @@ describe("the icon set", () => {
   it("draws every glyph a place or a row asks for", () => {
     const drawn = new Set(Object.keys(PATHS));
     // Words the pattern picks up beside an icon that are not icons.
-    const known = new Set(["bad", "nm", "span", "agent", "term"]);
+    const known = new Set(["bad", "nm", "span", "agent", "term", "shots"]);
     expect([...named].filter((n) => !drawn.has(n) && !known.has(n))).toEqual([]);
   });
 

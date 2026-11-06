@@ -45,6 +45,7 @@ import {
   rebuilt,
   seated,
   settled,
+  SHOTS,
   shut,
   shutMany,
   standing,
@@ -57,11 +58,22 @@ import {
   type Tab,
 } from "./tabs";
 import { lastAgent, newSeed, setLastAgent } from "./terminalmode";
-import { SIDE_SHUT, WIDTHS, sideWidth, type Edge } from "./dock";
+import { BANDS, SIDE_SHUT, WIDTHS, bandHeight, sideWidth, type Band, type Edge } from "./dock";
+import { dragsBy } from "./drag";
 import { menu, type Row as MenuRow } from "./menu";
 import { edits, focusEditor, mountDiff, saved } from "./code";
 import { close as closeTerm, lost as termLost, open as openTerm } from "./term";
 import { newSession, WHICH, type Reach } from "./panels";
+import {
+  carousel,
+  drawnFrom as shotsDrawnFrom,
+  holdAt,
+  readSeen,
+  shotsOf,
+  unseen,
+  writeSeen,
+  type Shot,
+} from "./shots";
 import { refreshFor } from "./refresh";
 import { keyOf, spaces as spacesPlace, type Space } from "./spaces";
 import { drawnFrom as spaceDrawnFrom, sessionsOf, type Seen, type SpaceAct } from "./spacepage";
@@ -157,6 +169,13 @@ class Ade {
   private openedOn = "";
   // The conversation the last run was in, read once on start.
   private wasOn = "";
+  // The pictures in this session's outbox, and where the carousel is in them.
+  private pics: Shot[] = [];
+  private picAt = 0;
+  private picsSeen = readSeen();
+  // How tall the reviewers and comments sections may grow, once dragged.
+  private bands: Record<Band, number> = { run: 0, comments: 0 };
+  private pulling = false;
   private asked = false;
   private woke = new Set<string>();
   // A checkout just made: the window moves onto it as soon as the ade in
@@ -222,6 +241,13 @@ class Ade {
     for (const edge of Object.keys(WIDTHS) as Edge[]) {
       document.documentElement.style.setProperty(WIDTHS[edge].css, `${this.widths[edge]}px`);
     }
+    for (const band of Object.keys(BANDS) as Band[]) {
+      const kept = Number(localStorage.getItem(BANDS[band].key) ?? 0);
+      if (kept > 0) {
+        this.bands[band] = bandHeight(band, kept);
+        document.documentElement.style.setProperty(BANDS[band].css, `${this.bands[band]}px`);
+      }
+    }
     this.saySplit();
     // Arrows are not chords, so the shell does not carry them.
     document.addEventListener("keydown", (e) => this.key(e));
@@ -231,6 +257,7 @@ class Ade {
       window.ade.onCommand((command) => this.run(command));
       window.ade.onEvent((name) => {
         tell({ kind: "event", name });
+        if (name === "shots") void this.readPics();
         // A page draws from what its host pushes and has no poll, so an
         // event is also the moment to hand it a fresh state.
         void stirred();
@@ -297,6 +324,7 @@ class Ade {
     }
     this.landing = this.landed();
     this.homeDir = this.where.get(this.session) ?? repos[0]?.path ?? "";
+    void this.readPics();
     if (this.session !== this.watching) {
       this.watching = this.session;
       void window.ade.watch(this.session);
@@ -611,6 +639,10 @@ class Ade {
         return this.toDiff();
       case "findings":
         return void this.sendFindings();
+      case "explain":
+        return void this.explainChange();
+      case "create-pr":
+        return void this.createPR();
       case "close-session":
         return void this.endSession(this.session);
       case "my-day":
@@ -1201,7 +1233,13 @@ class Ade {
     // The Diff's files, comments and commit box, beside the diff they are of.
     const diffing = Boolean(this.session) && this.actives.includes(DIFF);
     files.hidden = filesGrip.hidden = !diffing;
-    if (diffing) this.fill(files, [...this.listOf(this.placeAt("review")), this.reviewStrip(), this.commentList()], this.commit.el);
+    if (diffing) {
+      this.fill(
+        files,
+        [...this.listOf(this.placeAt("review")), ...this.band("run", this.reviewStrip()), ...this.band("comments", this.commentList())],
+        this.commit.el,
+      );
+    }
     // One of the bar's lists, or nothing.
     const beside = this.world.places.find((p) => p.id === this.side && SIDE.includes(p.id));
     side.hidden = listGrip.hidden = !beside;
@@ -1305,6 +1343,7 @@ class Ade {
     // page is open: archiving one is the whole point of the Archive on it.
     if (view.kind === "space") return spaceDrawnFrom(this.nowSeen(view.seen));
     if (view.kind === "doc" && view.again) return `${view.again}:${view.body}`;
+    if (view.kind === "shots") return shotsDrawnFrom(this.pics, this.picAt);
     if (view.kind !== "hunks") return "";
     if (view.editing) return `editing:${view.file.path}`;
     const how = this.split ? "split" : "unified";
@@ -1503,6 +1542,39 @@ class Ade {
     this.run("ade.openAgent");
   }
 
+  // explainChange asks the agent for a page anyone can be sent: the change
+  // in plain words and a flow diagram. The agent's artifact tool makes it.
+  private async explainChange(): Promise<void> {
+    const got = await window.ade
+      ?.act("session", "/api/agent/explain", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    const n = (back.body as { files?: number })?.files ?? 0;
+    this.say(`asked the agent to explain the change in ${n} file${n === 1 ? "" : "s"} as an artifact`);
+    this.run("ade.openAgent");
+  }
+
+  // createPR pushes the branch and opens a draft pull request for it.
+  // createPR answers with why it could not, or nothing when the draft is up.
+  private async createPR(): Promise<string> {
+    const got = await window.ade
+      ?.act("session", "/api/pr/create", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return back.error;
+    const made = back.body as { asked?: boolean; number?: number; url?: string };
+    if (made?.asked) {
+      this.say("asked the agent to open the pull request");
+      this.run("ade.openAgent");
+      return "";
+    }
+    this.say(`opened #${made?.number ?? "?"} as a draft`);
+    if (made?.url) void window.ade?.link(made.url);
+    void this.read();
+    return "";
+  }
+
   // commitDoes is the commit box's reach into the picked session.
   private commitDoes(): Does {
     const post = async (path: string, body: Record<string, unknown>, said: (back: Record<string, unknown>) => string) => {
@@ -1518,8 +1590,15 @@ class Ade {
     };
     return {
       write: () => post("/api/commit-message", {}, () => "writing a commit message"),
-      commit: (title, body) => post("/api/commit", { title, body }, (back) => `committed ${String(back.sha ?? "")}`),
+      commit: async (title, body, how) => {
+        const why = await post("/api/commit", { title, body, amend: Boolean(how.amend) }, (back) =>
+          back.amended ? "amended the last commit" : `committed ${String(back.sha ?? "")}`,
+        );
+        if (why || !how.push) return why;
+        return post("/api/push", {}, (back) => `pushed to ${String(back.upstream || "the remote")}`);
+      },
       push: () => post("/api/push", {}, (back) => `pushed to ${String(back.upstream || "the remote")}`),
+      createPR: () => this.createPR(),
       // No paths: the session's own git decides what "all" is, at the moment of the press.
       stageAll: () => post("/api/stage", { all: true }, (back) => `staged ${String(back.staged ?? 0)} file(s)`),
     };
@@ -1535,6 +1614,25 @@ class Ade {
   }
 
   // seat gives a session its three tabs, first in the strip.
+  // The outbox belongs to the session, so a switch reads the other one.
+  private async readPics(): Promise<void> {
+    if (!window.ade || !this.session) {
+      this.pics = [];
+      return;
+    }
+    const got = await window.ade
+      .read("session", "/api/shots", this.session)
+      .catch(() => undefined);
+    const was = this.pics[this.picAt];
+    this.pics = shotsOf(got);
+    this.picAt = holdAt(this.pics, was, this.picAt);
+    this.draw();
+  }
+
+  private picSrc(name: string): string {
+    return window.ade?.shotSrc(this.session, name) ?? "";
+  }
+
   private seat(): void {
     if (!this.session) return;
     this.tabs = seated(this.tabs);
@@ -1634,6 +1732,7 @@ class Ade {
 
   private build(): Shell {
     const titlebar = el("div", "titlebar");
+    dragsBy(titlebar);
     const activity = el("div", "activity");
     const sidebar = el("div", "sidebar left");
     const files = el("div", "sidebar files");
@@ -1777,12 +1876,11 @@ class Ade {
         grip.classList.remove("held");
         document.body.classList.remove("dragging");
         grip.removeEventListener("pointermove", move);
-        grip.removeEventListener("lostpointercapture", done);
+        for (const end of ENDS) grip.removeEventListener(end, done);
         localStorage.setItem(key, String(this.widths[which]));
       };
       grip.addEventListener("pointermove", move);
-      // Not pointerup: a capture lost any other way has to clear the drag too.
-      grip.addEventListener("lostpointercapture", done);
+      for (const end of ENDS) grip.addEventListener(end, done);
     });
     return grip;
   }
@@ -1809,7 +1907,58 @@ class Ade {
       }
       if (rows.length === 0) list.append(this.note(this.empty(place, want)));
     }
+    if (place.id === "review" && this.folded.has("review:files")) return [this.head2(place)];
     return [this.head2(place), list];
+  }
+
+  // band is a section with the grip that sizes it, when there is anything
+  // under its heading to size.
+  private band(which: Band, node: HTMLElement): HTMLElement[] {
+    const folded = this.folded.has(`review:${which}`);
+    if (node.childElementCount === 0 || folded) return [node];
+    return [this.rowGrip(which, node), node];
+  }
+
+  // rowGrip drags a section's top edge: its cap is kept between runs.
+  private rowGrip(which: Band, section: HTMLElement): HTMLElement {
+    const grip = el("div", "rowgrip");
+    const { key, css } = BANDS[which];
+    grip.addEventListener("pointerdown", (down) => {
+      down.preventDefault();
+      grip.setPointerCapture(down.pointerId);
+      grip.classList.add("held");
+      document.body.classList.add("dragging", "rows");
+      const from = this.bands[which] || section.getBoundingClientRect().height;
+      const at = down.clientY;
+      const move = (e: PointerEvent) => {
+        this.bands[which] = bandHeight(which, from + (at - e.clientY));
+        document.documentElement.style.setProperty(css, `${this.bands[which]}px`);
+      };
+      const done = () => {
+        grip.classList.remove("held");
+        document.body.classList.remove("dragging", "rows");
+        grip.removeEventListener("pointermove", move);
+        for (const end of ENDS) grip.removeEventListener(end, done);
+        localStorage.setItem(key, String(this.bands[which]));
+      };
+      grip.addEventListener("pointermove", move);
+      for (const end of ENDS) grip.addEventListener(end, done);
+    });
+    return grip;
+  }
+
+  // fold is a section's chevron: the heading stays, what is under it goes.
+  private fold(key: string): HTMLElement {
+    const shut = this.folded.has(key);
+    const chev = el("button", shut ? "fold-chev folded" : "fold-chev");
+    chev.title = shut ? "Show" : "Hide";
+    chev.append(icon("chevron", 12));
+    chev.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.folded = toggled(this.folded, key);
+      this.draw();
+    });
+    return chev;
   }
 
   // reviewStrip is a review by named agents as it goes: each reviewer, then
@@ -1819,7 +1968,17 @@ class Ade {
     const run = this.reviewRun;
     if (!run || run.startedAt === this.reviewShut) return out;
     const head = el("div", "head", real.reviewHead(run));
-    if (!run.running) {
+    head.prepend(this.fold("review:run"));
+    if (this.folded.has("review:run")) {
+      out.append(head);
+      return out;
+    }
+    if (run.running) {
+      const stop = el("button", "shut stop", "Stop");
+      stop.title = "Stop the reviewers; the session's own agent keeps going";
+      stop.addEventListener("click", () => void this.stopReview());
+      head.append(stop);
+    } else {
       const shut = el("button", "shut", "×");
       shut.title = "Put this away";
       shut.addEventListener("click", () => {
@@ -1846,7 +2005,10 @@ class Ade {
     const out = el("div", "comments");
     const all = listed(this.threads);
     if (all.length === 0) return out;
-    out.append(el("div", "head", `Comments · ${all.length}`));
+    const head = el("div", "head", `Comments · ${all.length}`);
+    head.prepend(this.fold("review:comments"));
+    out.append(head);
+    if (this.folded.has("review:comments")) return out;
     for (const one of all) {
       const row = el("div", "comment");
       row.append(el("span", `sev ${one.severity}`, `${one.severity}:`), el("span", "title", one.title));
@@ -1863,6 +2025,7 @@ class Ade {
   // The heading and its filter. One field per place, kept while away.
   private head2(place: Place): HTMLElement {
     const head = el("div", "side-head");
+    if (place.id === "review") head.append(this.fold("review:files"));
     head.append(el("h2", "", place.title));
     const find = document.createElement("input");
     find.className = "find";
@@ -1947,6 +2110,12 @@ class Ade {
     const bar = el("div", "review-bar");
     const said = real.reviewNote(this.draft);
     bar.append(el("span", "quiet", said || "nothing to say yet"));
+    if (this.world.status.branch) {
+      const pull = el("span", this.pulling ? "btn quiet off" : "btn quiet", this.pulling ? "Pulling…" : "Pull latest");
+      pull.title = "Fetches origin's copy of this branch and fast-forwards onto it.";
+      if (!this.pulling) pull.addEventListener("click", () => void this.pullLatest());
+      bar.append(pull);
+    }
     const behind = this.world.status.behind ?? 0;
     if (behind > 0) {
       const up = el("span", "btn quiet", `Catch up · ${behind} behind`);
@@ -1954,10 +2123,14 @@ class Ade {
       up.addEventListener("click", () => void this.catchUp());
       bar.append(up);
     }
+    const explain = el("span", "btn quiet", "Explain this change");
+    explain.title = "Asks the agent for a shareable page: the change in plain words, with a flow diagram.";
+    explain.addEventListener("click", () => void this.explainChange());
+    bar.append(explain);
     const open = listed(this.threads).length;
-    if (open > 0) {
-      const send = el("span", "btn quiet", `Send ${open} to the agent`);
-      send.title = "Writes the open comments to a file and asks the agent to work through it.";
+    if (open > 0 && this.world.status.prMine !== false) {
+      const send = el("span", "btn quiet", `Resolve all ${open}`);
+      send.title = "Writes the open comments to a file and asks the agent to work through them.";
       send.addEventListener("click", () => void this.sendFindings());
       bar.append(send);
     }
@@ -1967,10 +2140,11 @@ class Ade {
       if (!this.adding) add.addEventListener("click", () => void this.addToReview());
       bar.append(add);
     }
-    if (this.draft.inDraft > 0) {
-      const finish = el("span", "btn", `Send the review · ${this.draft.inDraft}`);
-      finish.title = "Submits the draft with a verdict. This is what the author sees.";
-      finish.addEventListener("click", () => void this.finishReview());
+    const toSend = this.draft.inDraft + this.draft.ready;
+    if (this.world.status.pr && toSend > 0) {
+      const finish = el("span", this.adding ? "btn off" : "btn", `Send the review · ${toSend}`);
+      finish.title = "Puts what is ready into the draft and submits it with a verdict. This is what the author sees.";
+      if (!this.adding) finish.addEventListener("click", () => void this.sendReview());
       bar.append(finish);
     }
     return bar;
@@ -2195,12 +2369,40 @@ class Ade {
     await this.read();
   }
 
+  private async pullLatest(): Promise<void> {
+    if (!window.ade || !this.session || this.pulling) return;
+    this.pulling = true;
+    this.draw();
+    const got = await window.ade
+      .act("session", "/api/branch/pull", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    this.pulling = false;
+    if (back.error) return this.say(back.error);
+    this.say(real.pulled(back.body as real.Pulled));
+    await this.read();
+  }
+
+  private async stopReview(): Promise<void> {
+    if (!window.ade || !this.session) return;
+    const got = await window.ade
+      .act("session", "/api/review/stop", {}, this.session)
+      .catch((e: Error) => ({ error: e.message }));
+    const back = real.answered(got as real.Answer);
+    if (back.error) return this.say(back.error);
+    this.say("reviewers stopped");
+    await this.read();
+  }
+
   // addToReview puts every converted comment into the pull request's draft
   // review, which is where you read what would be submitted.
-  private async addToReview(): Promise<void> {
+  private async addToReview(): Promise<boolean> {
     const pr = this.world.status.pr;
-    if (!window.ade || !pr) return this.say("this branch has no pull request");
-    if (this.adding) return;
+    if (!window.ade || !pr) {
+      this.say("this branch has no pull request");
+      return false;
+    }
+    if (this.adding) return false;
     this.adding = true;
     this.draw();
     const got = await window.ade
@@ -2208,9 +2410,20 @@ class Ade {
       .catch((e: Error) => ({ error: e.message }));
     const back = real.answered(got as real.Answer);
     this.adding = false;
-    if (back.error) return this.say(back.error);
+    if (back.error) {
+      this.say(back.error);
+      return false;
+    }
     this.say(real.draftSaid(back.body as real.Drafted, pr));
     await this.read();
+    return true;
+  }
+
+  // sendReview is both steps as one: what is ready joins the draft, then
+  // the draft goes with a verdict.
+  private async sendReview(): Promise<void> {
+    if (this.draft.ready > 0 && !(await this.addToReview())) return;
+    await this.finishReview();
   }
 
   // finishReview submits the draft with a verdict, which is the moment the
@@ -2457,7 +2670,11 @@ class Ade {
     await this.onSession(id);
     if (!this.session) return this.say("pick a session first");
     const got = await this.briefRead();
-    if (got.error || !got.path) return this.say(got.error || "this session has no brief yet");
+    if (got.error || !got.path) {
+      const why = got.error || "this session has no brief yet";
+      this.say(why);
+      return this.show({ kind: "doc", title: "Brief", body: real.noBrief(why) }, "Brief", "file");
+    }
     const name = got.path.split("/").pop() ?? "Brief";
     this.show({ kind: "doc", title: `Brief: ${name}`, body: got.body ?? "", brief: true }, "Brief", "file");
   }
@@ -2565,6 +2782,10 @@ class Ade {
       if (standing(tab.id)) node.classList.add("standing");
       node.append(icon(tab.icon, 13), el("span", "nm", tab.title));
       node.title = "kind" in tab.what && tab.what.kind === "hunks" ? tab.what.title : tab.title;
+      if (tab.id === SHOTS && !this.actives.includes(SHOTS)) {
+        const n = unseen(this.pics, this.picsSeen);
+        if (n > 0) node.append(el("span", "count", String(n)));
+      }
       node.dataset.tab = tab.id;
       const what = tab.what;
       if (!("panel" in what) && what.kind === "hunks") {
@@ -2694,12 +2915,12 @@ class Ade {
         grip.classList.remove("held");
         document.body.classList.remove("dragging");
         grip.removeEventListener("pointermove", move);
-        grip.removeEventListener("lostpointercapture", done);
+        for (const end of ENDS) grip.removeEventListener(end, done);
         localStorage.setItem("ade.split.at", String(this.splitAt));
         this.remember();
       };
       grip.addEventListener("pointermove", move);
-      grip.addEventListener("lostpointercapture", done);
+      for (const end of ENDS) grip.addEventListener(end, done);
     });
     return grip;
   }
@@ -2722,6 +2943,20 @@ class Ade {
       return frame(panel, `${tab.id}:${this.session}:${this.launcher?.base ?? ""}`);
     }
     const view = tab.what;
+    if (view.kind === "shots") {
+      const wait = this.waiting(tab);
+      if (wait) return el("div", "nothing", wait);
+      this.picsSeen = writeSeen(this.pics);
+      return carousel(
+        this.pics,
+        this.picAt,
+        (name) => this.picSrc(name),
+        (to) => {
+          this.picAt = to;
+          this.draw();
+        },
+      );
+    }
     if (view.kind === "term") {
       const wait = this.waiting(tab);
       if (wait) return el("div", "nothing", wait);
@@ -2834,6 +3069,10 @@ class Ade {
     return bar;
   }
 }
+
+// Every way a held grip lets go. A capture lost without a pointerup still
+// ends the drag; a pointerup WebKit never follows with lostpointercapture too.
+const ENDS = ["pointerup", "pointercancel", "lostpointercapture"] as const;
 
 // The verbs that sweep comments, and what each says it was looking for.
 const SWEPT: Record<string, string> = {

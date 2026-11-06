@@ -90,8 +90,13 @@ func (s *Server) handleAgentBadge(w http.ResponseWriter, r *http.Request) {
 	if id := said.session(); id != "" && id != s.agent.Current() {
 		s.agent.note(id)
 	}
-	if s.agent.setBadge(said.badge()) {
+	badge := said.badge()
+	if s.agent.setBadge(badge) {
 		s.badgeChanged()
+	}
+	// A finished turn is when the findings file says what became of each.
+	if badge == badgeNeeds {
+		s.readFindingsBack()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

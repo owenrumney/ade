@@ -264,7 +264,7 @@ describe("what the box can no longer reach", () => {
   });
 
   it("lists no verb for a removed feature", () => {
-    const gone = /chat|concierge|sandbox|machine|design|quiz|explain|memory|drift|wiki|audit|usage|stats|purge|worktree|todo|role|model|dictat|preview|expose|ship\b/i;
+    const gone = /chat|concierge|sandbox|machine|design|quiz|memory|drift|wiki|audit|usage|stats|purge|worktree|todo|role|model|dictat|preview|expose|ship\b/i;
     const stale = VOCABULARY.flatMap((g) => g.verbs).filter(([command]) => gone.test(command));
     expect(stale.map(([command]) => command)).toEqual([]);
   });

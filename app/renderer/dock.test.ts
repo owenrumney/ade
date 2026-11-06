@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WIDTHS, sideWidth, type Edge } from "./dock";
+import { WIDTHS, sideWidth, type Edge, bandHeight } from "./dock";
 
 const EDGES = Object.keys(WIDTHS) as Edge[];
 
@@ -46,5 +46,13 @@ describe("the three columns a grip drags", () => {
       expect(theme, edge).toContain(`${WIDTHS[edge].css}:`);
       expect(css, edge).toContain(`var(${WIDTHS[edge].css})`);
     }
+  });
+});
+
+describe("a dragged section's height", () => {
+  it("stays within what the sidebar can show", () => {
+    expect(bandHeight("run", 10)).toBe(48);
+    expect(bandHeight("comments", 5000)).toBe(720);
+    expect(bandHeight("run", 200.4)).toBe(200);
   });
 });

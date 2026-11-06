@@ -186,6 +186,9 @@ export const bridge = {
   },
   onEvent: (then: (name: string) => void) => events.push(then),
   onStream: (then: (open: boolean) => void) => streams.push(then),
+  // The host proxies this path and puts the session's token on it.
+  shotSrc: (session: string, name: string) =>
+    `/ade/s/${encodeURIComponent(session)}/api/shots/${encodeURIComponent(name)}`,
   term: (session: string, pane: string) => openTerm(session, pane),
   termSend: (pane: string, data: string) => {
     const sock = sockets.get(pane);

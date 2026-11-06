@@ -61,7 +61,8 @@ the repository for context, but do not edit anything.
 
 Report each finding against the new-file line number shown in the left column,
 and give each one a severity of critical, high, medium or low, so the reader
-knows what to look at first.
+knows what to look at first. Only the lines the diff adds or changes are under
+review: a point about code the change did not write is not filed.
 
 `+HeadlineRule+`
 

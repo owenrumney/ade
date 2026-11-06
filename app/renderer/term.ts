@@ -1,7 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ImageAddon } from "@xterm/addon-image";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 // xterm here, the websocket in main, ipc between them: the server
@@ -132,13 +132,12 @@ function accelerate(term: Terminal): void {
   }
 }
 
-// pictures lets `ade show` draw in the terminal. 48MB rather than the
-// addon's 128: every pane keeps its own store, and this one is per pane.
-function pictures(term: Terminal): void {
+// links makes a URL in the output clickable; the host opens the browser.
+function links(term: Terminal): void {
   try {
-    term.loadAddon(new ImageAddon({ storageLimit: 48, enableSizeReports: true }));
+    term.loadAddon(new WebLinksAddon((_e, uri) => void window.ade?.link(uri)));
   } catch {
-    // No pictures is a terminal that still works.
+    // A terminal without links still works.
   }
 }
 
@@ -170,7 +169,7 @@ function build(id: string): Pane {
   term.loadAddon(fit);
   term.open(host);
   accelerate(term);
-  pictures(term);
+  links(term);
   const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
   term.onData((data) => window.ade?.termSend(id, data));
   // Shift+Enter is a new line: it sends what Option+Enter does.

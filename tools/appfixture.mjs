@@ -352,6 +352,11 @@ const REVIEWS = {
   },
 };
 
+// The older session's diff is another branch's: a switch must show it.
+const OLDER_DIFF = JSON.parse(JSON.stringify(DIFF));
+OLDER_DIFF.diff.head = "pruning-design-docs";
+for (const file of OLDER_DIFF.diff.files) file.path = file.path.replace("app/renderer/", "internal/older/");
+
 const STATE = {
   threads: [
     {
@@ -503,6 +508,13 @@ const READS = {
       "Step 4 of 5 done: agents on the bus. Next: the layout.",
     ].join("\n"),
   },
+  "/api/shots": {
+    shots: [
+      { name: "app-session.png", at: new Date(Date.now() - 2 * 60_000).toISOString(), size: 51019 },
+      { name: "app-diff.png", at: new Date(Date.now() - 9 * 60_000).toISOString(), size: 44210 },
+      { name: "app-review-pressed.png", at: new Date(Date.now() - 31 * 60_000).toISOString(), size: 38904 },
+    ],
+  },
   "/api/diff": DIFF,
   "/api/state": STATE,
   "/api/conversations": {
@@ -537,6 +549,10 @@ export function shell() {
   return `
     const WORLD = ${JSON.stringify(WORLD)};
     const READS = ${JSON.stringify(READS)};
+    const OLDER_DIFF = ${JSON.stringify(OLDER_DIFF)};
+    // ?nopr=1 is the branch before anyone opened one, which is the only
+    // way to see the Create PR button.
+    if (location.search.includes("nopr")) delete READS["/api/state"].branchPr;
     const REVIEWS = ${JSON.stringify(REVIEWS)};
     // The real shell takes the keystroke before the page sees it. Chromium
     // cannot, so the stub listens instead: the command names are the same.
@@ -586,7 +602,10 @@ export function shell() {
           ? { status: 200, ok: true, text: "// internal/web/web.go\\npackage web\\n\\nfunc serve() {\\n}\\n" }
           : { status: 404, ok: false, text: "" },
       link: async () => ({}),
+      // The page is served from a file:// url under app/renderer.
+      shotSrc: () => "../icon/ade.png",
       read: async (at, path, session) => {
+        if (path === "/api/diff" && session === "ade-older") return OLDER_DIFF;
         if (path.startsWith("/api/source"))
           return { source: "// internal/web/web.go\\npackage web\\n\\nfunc serve() error {\\n  return nil\\n}\\n" };
         if (path.split("?")[0] === "/api/bus/history")

@@ -439,6 +439,10 @@ describe("what the picked session is doing", () => {
 
   it("is quiet when nothing runs", () => {
     expect(real.saying(real.doingIn({ agent: {} }))).toBe("");
+    // Whose pull request it is decides which buttons the Review bar offers.
+    expect(real.doingIn({ agent: {}, branchPr: { number: 34, mine: false } }).prMine).toBe(false);
+    expect(real.doingIn({ agent: {}, branchPr: { number: 7, mine: true } }).prMine).toBe(true);
+    expect(real.doingIn({ agent: {} }).prMine).toBeUndefined();
     expect(real.busy(real.doingIn({}))).toBe(false);
     expect(real.doingIn(undefined)).toEqual(real.NOTHING);
   });
@@ -985,6 +989,19 @@ describe("a checkout an ade is serving with nothing said in it", () => {
 });
 
 describe("what one catch-up did", () => {
+  it("explains an absent brief in the tab, not just the status line", () => {
+    const body = real.noBrief("this checkout has no brief under .git/ade/docs");
+    expect(body).toContain("# Brief");
+    expect(body).toContain("this checkout has no brief under .git/ade/docs.");
+    expect(body).toContain("newest file under `.git/ade/docs`");
+  });
+
+  it("says what a pull of the branch brought", () => {
+    expect(real.pulled({ branch: "origin/feature", pulled: 0 })).toBe("already up to date with origin/feature");
+    expect(real.pulled({ branch: "origin/feature", pulled: 1 })).toBe("pulled 1 commit from origin/feature");
+    expect(real.pulled({ branch: "origin/feature", pulled: 3 })).toBe("pulled 3 commits from origin/feature");
+  });
+
   it("says nothing happened when there was nothing to replay", () => {
     expect(real.caughtUp({ base: "origin/main", behind: 0, replayed: 0 }))
       .toBe("already on origin/main");

@@ -38,7 +38,9 @@ export type Verb =
   | "sidebar"
   | "review-draft"
   | "review-finish"
-  | "open-pr";
+  | "open-pr"
+  | "create-pr"
+  | "explain";
 
 export type Method = "PUT" | "PATCH" | "DELETE";
 
@@ -139,6 +141,8 @@ export const WIRED: Record<string, Doing> = {
   "ade.setScope": S("/api/scope", {}, pick("scope", "scope", "Which scope?")),
   "ade.diffRoot": S("/api/diff/root", {}, pick("repo", "root", "Which repository?")),
   "ade.pullBase": S("/api/base/pull"),
+  "ade.pullBranch": S("/api/branch/pull"),
+  "ade.explainChange": W(undefined, "explain"),
 
   // ── Review ──
   "ade.review": S("/api/review"),
@@ -149,7 +153,14 @@ export const WIRED: Record<string, Doing> = {
     { level: "" },
     many("reviewer", "agents", "Which agents should review?", ["security", "staff-reviewer"]),
   ),
+  // The repository as it stands, every finding to a file rather than the diff.
+  "ade.reviewBranch": S(
+    "/api/review",
+    { scope: "branch" },
+    many("reviewer", "agents", "Which agents should review the whole branch?", ["security", "staff-reviewer"]),
+  ),
   "ade.stop": S("/api/cancel"),
+  "ade.reviewStop": S("/api/review/stop"),
   "ade.sendFindings": W(undefined, "findings"),
   // The review as GitHub builds one: comments join a draft, a verdict ends it.
   "ade.addToReview": W(undefined, "review-draft"),
@@ -163,6 +174,8 @@ export const WIRED: Record<string, Doing> = {
 
   // ── Commit and pull request ──
   "ade.writeCommitMessage": S("/api/commit-message"),
+  // Pushes first, so the answer carries the pull request it opened.
+  "ade.createPR": W(undefined, "create-pr"),
   "ade.push": S("/api/push"),
   // The window follows the answer onto the session, so not a plain row.
   "ade.openPRLink": { at: "window", verb: "open-pr" },

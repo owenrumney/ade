@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/owenrumney/ade/internal/ghpr"
@@ -26,6 +27,7 @@ type BranchPR struct {
 	HeadSHA  string       `json:"headSha,omitempty"`
 	Title    string       `json:"title"`
 	Author   string       `json:"author"`
+	Mine     bool         `json:"mine"`
 	URL      string       `json:"url"`
 	State    string       `json:"state"`
 	Draft    bool         `json:"draft"`
@@ -180,6 +182,7 @@ func (s *Server) refreshBranchPR(ctx context.Context) {
 	viewer := s.who(ctx, ws.homeRoot)
 	current := &BranchPR{
 		Number: pr.Number, HeadSHA: pr.HeadSHA, Title: pr.Title, Author: pr.Author, URL: pr.URL,
+		Mine:  viewer != "" && strings.EqualFold(pr.Author, viewer),
 		State: pr.State, Draft: pr.Draft, BaseRef: pr.BaseRef, HeadRef: pr.HeadRef,
 		Body: pr.Body, BodyHTML: markdownHTML(pr.Body),
 		Checks: found, Failing: countFailing(found), CheckedAt: time.Now(),
