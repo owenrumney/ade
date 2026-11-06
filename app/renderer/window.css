@@ -35,27 +35,33 @@
   width: var(--activity-w);
   flex: none;
   background: var(--bg-chrome);
-  border-left: 1px solid var(--edge);
+  /* Drawn, not laid out: a border takes a pixel off the width and puts
+     every icon off centre by it. */
+  box-shadow: inset 1px 0 0 var(--edge);
   display: flex;
   flex-direction: column;
   align-items: center;
   padding-top: 4px;
 }
 .activity button {
-  width: var(--activity-w);
+  width: 100%;
   height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--ink-dim);
   position: relative;
-  border-left: 2px solid transparent;
 }
 .activity button:hover { color: var(--ink); }
 /* Something wants an answer: the icon itself, seen across a room. */
 .activity button.alert { background: var(--bad); color: var(--bg); }
 .activity button.alert .count { background: var(--bg); color: var(--bad); }
-.activity button.on { color: var(--ink-bright); border-left-color: var(--accent); }
+.activity button.on { color: var(--ink-bright); }
+/* The mark for the open list sits over the button, so it moves no icon. */
+.activity button.on::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--accent);
+}
 .activity button .count {
   position: absolute; right: 7px; bottom: 7px;
   background: var(--accent); color: var(--accent-ink);

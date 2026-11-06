@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 // xterm here, the websocket in main, ipc between them: the server
@@ -111,6 +112,25 @@ function route(): void {
   });
 }
 
+// accelerate draws on the GPU. Without it xterm rebuilds a row of elements
+// per frame, which a TUI repainting its whole screen outruns.
+function accelerate(term: Terminal): void {
+  let gl: WebglAddon;
+  try {
+    gl = new WebglAddon();
+  } catch {
+    return;
+  }
+  // A lost context is not recovered: disposing puts the DOM renderer back,
+  // which is slow and always draws.
+  gl.onContextLoss(() => gl.dispose());
+  try {
+    term.loadAddon(gl);
+  } catch {
+    gl.dispose();
+  }
+}
+
 function build(id: string): Pane {
   const host = document.createElement("div");
   host.className = "term";
@@ -137,6 +157,7 @@ function build(id: string): Pane {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  accelerate(term);
   const it: Pane = { id, host, term, fit, on: "", cols: 0, rows: 0 };
   term.onData((data) => window.ade?.termSend(id, data));
   // Shift+Enter is a new line: it sends what Option+Enter does.
