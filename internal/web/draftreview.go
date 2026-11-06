@@ -151,7 +151,7 @@ func (s *Server) draftAll(
 	if pr := s.currentBranchPR(); pr != nil {
 		sha = pr.HeadSHA
 	}
-	at, known := s.linkAt(owner, repo, sha)
+	at, known := s.linkAt(ctx, ws.homeRoot, owner, repo, sha)
 
 	// A comment GitHub will not take does not stop the rest: it is named in
 	// the refusals and left where it was, which is the only true state.
@@ -323,7 +323,7 @@ func (s *Server) handleFinishReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "there is no draft review to finish")
 		return
 	}
-	at, known := s.linkAt(owner, repo, pr.HeadSHA)
+	at, known := s.linkAt(ctx, ws.homeRoot, owner, repo, pr.HeadSHA)
 	if err := submitDraft(ctx, ws.homeRoot, draft.ID, event, prlink.In(req.Body, at, "", known)); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

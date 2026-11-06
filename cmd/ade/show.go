@@ -96,7 +96,7 @@ func copyFile(from, to string) error {
 		return fmt.Errorf("read %s: %w", from, err)
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- the outbox, under a stripped basename
 	if err != nil {
 		return fmt.Errorf("write %s: %w", to, err)
 	}

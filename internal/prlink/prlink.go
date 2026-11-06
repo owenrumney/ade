@@ -134,6 +134,22 @@ func outside(skip *regexp.Regexp, text string, rewrite func(string) string) stri
 	return b.String()
 }
 
+// Or asks each in turn. The change's own paths go first: a name it touches is
+// the one the reviewer means, even where the tree has another of that name.
+func Or(first, second Known) Known {
+	return func(name string) string {
+		if first != nil {
+			if where := first(name); where != "" {
+				return where
+			}
+		}
+		if second == nil {
+			return ""
+		}
+		return second(name)
+	}
+}
+
 // Files resolves a bare filename against the paths a change touches. A name in
 // two directories resolves to neither.
 func Files(paths []string) Known {

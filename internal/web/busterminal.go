@@ -16,7 +16,7 @@ import (
 // answer typed at its prompt, and its standing read off its own process.
 
 // busTokenVar is where codex reads the token from, so it is on no command line.
-const busTokenVar = "ADE_AGENTBUS_TOKEN"
+const busTokenVar = "ADE_AGENTBUS_TOKEN" // #nosec G101 -- a variable's name, not a secret
 
 // busEntry is the bus tool server, or nothing with the bus off. Lock held.
 func (a *agentRunner) busEntry() json.RawMessage {

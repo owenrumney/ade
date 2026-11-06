@@ -182,7 +182,7 @@ func startLauncher(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find the ade binary: %w", err)
 	}
-	log, err := os.OpenFile(filepath.Join(home, "launcher.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	log, err := os.OpenFile(filepath.Join(home, "launcher.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- the launcher's own log, under its own home
 	if err != nil {
 		return "", fmt.Errorf("open launcher log: %w", err)
 	}

@@ -65,7 +65,9 @@ func WriteCodexRules(deny []Rule) error {
 	dir := filepath.Join(home, "rules")
 	path := filepath.Join(dir, codexFile)
 	want := CodexRules(deny)
-	if have, err := os.ReadFile(path); err == nil && string(have) == want { // #nosec G304 -- codex's own rules folder
+	// Read out of the `if`: gosec reads the directive off the call's own line.
+	have, err := os.ReadFile(path) // #nosec G304 -- codex's own rules folder
+	if err == nil && string(have) == want {
 		return nil
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {

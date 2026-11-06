@@ -249,7 +249,7 @@ func (s *Session) spawn() (*shell, error) {
 		argv = loginShell()
 	}
 
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // the user's own shell, from $SHELL
+	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G204 -- the user's own shell, from $SHELL
 	cmd.Dir = s.dir
 	cmd.Env = append(environ(), s.env...)
 	if len(s.shell) == 0 {
